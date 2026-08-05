@@ -1,4 +1,5 @@
 pub mod composer;
+pub mod inspector;
 pub mod settings;
 pub mod shell;
 pub mod stream;

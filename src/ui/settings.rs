@@ -264,6 +264,7 @@ pub(crate) fn render(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -
                 ),
             colors,
         ))
+        .child(default_system_prompt_section(app, colors, cx))
         .child(provider_section(app, colors, cx));
 
     if let Some(error) = &app.form_error {
@@ -287,6 +288,73 @@ pub(crate) fn render(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -
         .p_6()
         .child(content)
         .into_any_element()
+}
+
+fn default_system_prompt_section(
+    app: &OneChat,
+    colors: Colors,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    let content = if let Some(editor) = &app.default_system_prompt_editor {
+        div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(editor.clone())
+            .child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .child(
+                        button("save-default-system-prompt", "Save default", colors).on_click(
+                            cx.listener(|this, _, _, cx| this.save_default_system_prompt(cx)),
+                        ),
+                    )
+                    .child(
+                        button("cancel-default-system-prompt", "Cancel", colors).on_click(
+                            cx.listener(|this, _, _, cx| {
+                                this.cancel_default_system_prompt_edit(cx)
+                            }),
+                        ),
+                    ),
+            )
+            .into_any_element()
+    } else {
+        let prompt = app.snapshot.settings.default_system_prompt.trim();
+        div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(colors.muted)
+                    .child(if prompt.is_empty() {
+                        "No default System Prompt. New conversations start without one.".into()
+                    } else {
+                        prompt_preview(prompt)
+                    }),
+            )
+            .child(
+                button("edit-default-system-prompt", "Edit default", colors).on_click(
+                    cx.listener(|this, _, _, cx| this.begin_edit_default_system_prompt(cx)),
+                ),
+            )
+            .into_any_element()
+    };
+    card("Default System Prompt", content, colors)
+}
+
+fn prompt_preview(prompt: &str) -> String {
+    const MAX_CHARACTERS: usize = 240;
+    let prompt = prompt.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut characters = prompt.chars();
+    let preview = characters.by_ref().take(MAX_CHARACTERS).collect::<String>();
+    if characters.next().is_some() {
+        format!("{preview}…")
+    } else {
+        preview
+    }
 }
 
 fn provider_section(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {

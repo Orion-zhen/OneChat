@@ -463,7 +463,9 @@ mod tests {
             system_prompt: "Be concise".into(),
             config: GenerationConfig {
                 temperature: Some(0.2),
+                top_k: Some(40),
                 seed: Some(7),
+                extra: Map::from_iter([("reasoning_effort".into(), json!("high"))]),
                 ..GenerationConfig::default()
             },
             messages: vec![crate::providers::ChatMessage {
@@ -479,6 +481,8 @@ mod tests {
         assert_eq!(body["model"], "gpt-test");
         assert_eq!(body["temperature"], 0.2);
         assert_eq!(body["seed"], 7);
+        assert!(body.get("top_k").is_none());
+        assert_eq!(body["reasoning_effort"], "high");
         assert!(body.get("preset").is_none());
         assert_eq!(body["messages"][0]["role"], "system");
     }

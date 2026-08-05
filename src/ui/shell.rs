@@ -1,12 +1,12 @@
 use gpui::{
     AnyElement, Context, Div, ElementId, FontWeight, Rgba, SharedString, Stateful, Window,
-    WindowAppearance, div, prelude::*, px, rgb,
+    WindowAppearance, div, prelude::*, px, rgb, rgba,
 };
 
 use crate::{
-    app::OneChat,
+    app::{OneChat, SystemPromptMode},
     model::{Conversation, MessageRole, MessageStatus, Page, RequestStatus, Theme},
-    ui::settings,
+    ui::{inspector, settings},
 };
 
 #[derive(Clone, Copy)]
@@ -73,7 +73,10 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
 
     let inspector = app
         .inspector_open
-        .then(|| render_inspector(app, colors, narrow, cx));
+        .then(|| inspector::render(app, colors, narrow, cx));
+    let model_picker = app
+        .model_picker_open
+        .then(|| render_model_picker(app, colors, cx));
     let error = app.error.clone().map(|message| {
         div()
             .flex_none()
@@ -98,6 +101,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
     });
 
     div()
+        .relative()
         .size_full()
         .flex()
         .bg(colors.canvas)
@@ -122,6 +126,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
                         .children(inspector),
                 ),
         )
+        .children(model_picker)
         .into_any_element()
 }
 
@@ -389,6 +394,9 @@ fn render_top_bar(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> A
         .current_provider()
         .map(|provider| provider.name.clone())
         .unwrap_or_else(|| "No provider".into());
+    let has_system_prompt = app
+        .current_conversation()
+        .is_some_and(|conversation| !conversation.system_prompt.content.trim().is_empty());
 
     div()
         .h(px(58.0))
@@ -408,11 +416,19 @@ fn render_top_bar(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> A
                 .items_center()
                 .gap_3()
                 .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
-                .child(
+                .children(has_system_prompt.then(|| {
                     div()
+                        .rounded_md()
+                        .bg(colors.accent_soft)
+                        .px_2()
+                        .py_1()
                         .text_xs()
-                        .text_color(colors.muted)
-                        .child(format!("{model} · {provider}")),
+                        .text_color(colors.accent)
+                        .child("System")
+                }))
+                .child(
+                    button("open-model-picker", format!("{model} · {provider}"), colors)
+                        .on_click(cx.listener(|this, _, _, cx| this.open_model_picker(cx))),
                 ),
         )
         .child(
@@ -453,12 +469,12 @@ fn render_chat_page(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) ->
             colors,
             cx,
         )
-    } else if !app.snapshot.models.iter().any(|model| {
-        app.snapshot
-            .providers
-            .iter()
-            .any(|provider| provider.id == model.provider_id && provider.enabled)
-    }) {
+    } else if !app
+        .snapshot
+        .models
+        .iter()
+        .any(|model| app.model_availability(model).is_ok())
+    {
         empty_state(
             "Your provider has no models",
             "Add at least one remote model ID before creating a conversation.",
@@ -555,13 +571,22 @@ fn empty_state(
 }
 
 fn render_conversation(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
+    let conversation = app
+        .current_conversation()
+        .expect("conversation page requires a current conversation");
+    let has_system_prompt = !conversation.system_prompt.content.trim().is_empty();
+    let editing_system_prompt = app.system_prompt_mode == SystemPromptMode::Editing;
     let mut messages = div()
         .id("message-list")
         .min_h_0()
         .flex_1()
         .overflow_y_scroll()
         .px_6()
-        .py_5();
+        .py_5()
+        .children(
+            (has_system_prompt || editing_system_prompt)
+                .then(|| render_system_prompt_card(app, colors, cx)),
+        );
     if app.current_messages().is_empty() {
         messages = messages.child(
             div().h_full().flex().items_center().justify_center().child(
@@ -685,6 +710,18 @@ fn render_conversation(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>)
                 .max_w(px(820.0))
                 .px_5()
                 .pb_5()
+                .children(
+                    (!has_system_prompt
+                        && !editing_system_prompt
+                        && app.current_messages().is_empty())
+                    .then(|| {
+                        div().pb_2().child(
+                            button("add-system-prompt", "+ Add System Prompt", colors).on_click(
+                                cx.listener(|this, _, _, cx| this.begin_edit_system_prompt(cx)),
+                            ),
+                        )
+                    }),
+                )
                 .child(
                     div()
                         .flex()
@@ -705,129 +742,287 @@ fn render_conversation(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>)
         .into_any_element()
 }
 
-fn render_inspector(
+fn render_system_prompt_card(
     app: &OneChat,
     colors: Colors,
-    overlay: bool,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    let model = app.current_model();
-    let provider = app.current_provider();
-    let request_details = if let Some(request) = app.current_request() {
-        let status = match request.status {
-            RequestStatus::Sending => "Sending",
-            RequestStatus::Streaming => "Streaming",
-            RequestStatus::Stopped => "Stopped",
-            RequestStatus::Failed => "Failed",
-            RequestStatus::Completed => "Completed",
-            RequestStatus::Interrupted => "Interrupted",
-        };
-        div()
+    let conversation = app
+        .current_conversation()
+        .expect("system prompt card requires a conversation");
+    let source = match conversation.system_prompt.source {
+        crate::model::SystemPromptSource::None => "None",
+        crate::model::SystemPromptSource::FromDefault => "Default snapshot",
+        crate::model::SystemPromptSource::Custom => "Custom",
+    };
+    let actions = match app.system_prompt_mode {
+        SystemPromptMode::Compact => div()
             .flex()
-            .flex_col()
-            .gap_3()
-            .child(inspector_field("Request status", status, colors))
-            .child(inspector_field(
-                "Input tokens",
-                &format_token_count(request.usage.input_tokens, request.usage.estimated),
-                colors,
-            ))
-            .child(inspector_field(
-                "Output tokens",
-                &format_token_count(request.usage.output_tokens, request.usage.estimated),
-                colors,
-            ))
-            .child(inspector_field(
-                "First token",
-                &request
-                    .ttft_ms
-                    .map_or_else(|| "—".into(), |value| format!("{value} ms")),
-                colors,
-            ))
-            .child(inspector_field(
-                "Total time",
-                &request
-                    .duration_ms
-                    .map_or_else(|| "—".into(), |value| format!("{value} ms")),
-                colors,
-            ))
-            .children(request.error.as_ref().map(|error| {
-                div()
-                    .rounded_lg()
-                    .bg(colors.raised)
-                    .p_3()
-                    .text_sm()
-                    .text_color(colors.danger)
-                    .child(error.message.clone())
-                    .children(error.detail.clone().map(|detail| {
-                        div()
-                            .pt_2()
-                            .text_xs()
-                            .text_color(colors.muted)
-                            .child(detail)
-                    }))
-            }))
-            .into_any_element()
-    } else {
-        div()
-            .rounded_lg()
-            .bg(colors.raised)
-            .p_3()
+            .gap_2()
+            .child(
+                compact_button("expand-system-prompt", "Expand", colors)
+                    .on_click(cx.listener(|this, _, _, cx| this.expand_system_prompt(cx))),
+            )
+            .child(
+                compact_button("copy-system-prompt", "Copy", colors)
+                    .on_click(cx.listener(|this, _, _, cx| this.copy_system_prompt(cx))),
+            )
+            .child(
+                compact_button("edit-system-prompt", "Edit", colors)
+                    .on_click(cx.listener(|this, _, _, cx| this.begin_edit_system_prompt(cx))),
+            )
+            .into_any_element(),
+        SystemPromptMode::Expanded => div()
+            .flex()
+            .gap_2()
+            .child(
+                compact_button("collapse-system-prompt", "Collapse", colors)
+                    .on_click(cx.listener(|this, _, _, cx| this.collapse_system_prompt(cx))),
+            )
+            .child(
+                compact_button("copy-system-prompt-expanded", "Copy", colors)
+                    .on_click(cx.listener(|this, _, _, cx| this.copy_system_prompt(cx))),
+            )
+            .child(
+                compact_button("edit-system-prompt-expanded", "Edit", colors)
+                    .on_click(cx.listener(|this, _, _, cx| this.begin_edit_system_prompt(cx))),
+            )
+            .into_any_element(),
+        SystemPromptMode::Editing => div()
+            .flex()
+            .gap_2()
+            .child(
+                button("save-system-prompt", "Save", colors)
+                    .on_click(cx.listener(|this, _, _, cx| this.save_system_prompt(cx))),
+            )
+            .child(
+                button("cancel-system-prompt", "Cancel", colors)
+                    .on_click(cx.listener(|this, _, _, cx| this.cancel_system_prompt_edit(cx))),
+            )
+            .into_any_element(),
+    };
+    let content = match app.system_prompt_mode {
+        SystemPromptMode::Compact => div()
             .text_sm()
             .text_color(colors.muted)
-            .child("No request information yet.")
-            .into_any_element()
+            .child(prompt_preview(&conversation.system_prompt.content))
+            .into_any_element(),
+        SystemPromptMode::Expanded => div()
+            .text_sm()
+            .child(conversation.system_prompt.content.clone())
+            .into_any_element(),
+        SystemPromptMode::Editing => app
+            .system_prompt_editor
+            .as_ref()
+            .map(|editor| editor.clone().into_any_element())
+            .unwrap_or_else(|| {
+                div()
+                    .text_sm()
+                    .text_color(colors.muted)
+                    .child("Opening editor…")
+                    .into_any_element()
+            }),
     };
+
     div()
-        .w(px(328.0))
-        .h_full()
-        .flex_none()
-        .when(overlay, |element| {
-            element.absolute().top_0().right_0().bottom_0().shadow_lg()
-        })
-        .border_l_1()
+        .mb_4()
+        .mx_auto()
+        .w_full()
+        .max_w(px(820.0))
+        .rounded_xl()
+        .border_1()
         .border_color(colors.border)
         .bg(colors.panel)
-        .p_5()
+        .p_4()
         .flex()
         .flex_col()
-        .gap_4()
+        .gap_3()
         .child(
             div()
                 .flex()
                 .items_center()
                 .justify_between()
-                .child(div().font_weight(FontWeight::SEMIBOLD).child("Inspector"))
                 .child(
-                    icon_button("close-inspector", "×", colors)
-                        .on_click(cx.listener(|this, _, _, cx| this.toggle_inspector(cx))),
-                ),
+                    div()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("System Prompt"),
+                )
+                .child(div().text_xs().text_color(colors.muted).child(source)),
         )
-        .child(inspector_field(
-            "Model",
-            model
-                .map(|model| model.display_name.as_str())
-                .unwrap_or("None"),
-            colors,
-        ))
-        .child(inspector_field(
-            "Remote ID",
-            model.map(|model| model.remote_id.as_str()).unwrap_or("—"),
-            colors,
-        ))
-        .child(inspector_field(
-            "Provider",
-            provider
+        .child(content)
+        .child(actions)
+        .into_any_element()
+}
+
+fn prompt_preview(prompt: &str) -> String {
+    const MAX_CHARACTERS: usize = 160;
+    let prompt = prompt.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut characters = prompt.chars();
+    let preview = characters.by_ref().take(MAX_CHARACTERS).collect::<String>();
+    if characters.next().is_some() {
+        format!("{preview}…")
+    } else {
+        preview
+    }
+}
+
+fn render_model_picker(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
+    let current_model_id = app
+        .current_conversation()
+        .and_then(|conversation| conversation.model_id.as_deref());
+    let mut models = div()
+        .id("model-picker-list")
+        .min_h_0()
+        .flex_1()
+        .overflow_y_scroll()
+        .flex()
+        .flex_col()
+        .gap_2();
+
+    if app.current_conversation().is_none() {
+        models = models.child(
+            div()
+                .rounded_lg()
+                .bg(colors.raised)
+                .p_3()
+                .text_sm()
+                .text_color(colors.muted)
+                .child("Create or select a conversation before choosing a model."),
+        );
+    } else if app.snapshot.models.is_empty() {
+        models = models.child(
+            div()
+                .rounded_lg()
+                .bg(colors.raised)
+                .p_3()
+                .text_sm()
+                .text_color(colors.muted)
+                .child("No models configured."),
+        );
+    } else {
+        for model in &app.snapshot.models {
+            let provider = app
+                .provider_for_model(model)
                 .map(|provider| provider.name.as_str())
-                .unwrap_or("None"),
-            colors,
-        ))
-        .child(inspector_field(
-            "Messages",
-            &app.current_messages().len().to_string(),
-            colors,
-        ))
-        .child(request_details)
+                .unwrap_or("Missing provider");
+            let availability = app.model_availability(model);
+            let available = availability.is_ok();
+            let status = availability.map_or_else(|reason| reason, |_| "Available");
+            let selected = current_model_id == Some(model.id.as_str());
+            let status = match (selected, available) {
+                (true, true) => "Selected".to_string(),
+                (true, false) => format!("Selected · {status}"),
+                (false, _) => status.to_string(),
+            };
+            let model_id = model.id.clone();
+            models = models.child(
+                div()
+                    .id(SharedString::from(format!("pick-model-{}", model.id)))
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(if selected {
+                        colors.accent
+                    } else {
+                        colors.border
+                    })
+                    .bg(if selected {
+                        colors.accent_soft
+                    } else {
+                        colors.panel
+                    })
+                    .p_3()
+                    .when(available, |element| {
+                        element
+                            .cursor_pointer()
+                            .hover(move |style| style.bg(colors.raised))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.select_model(model_id.clone(), cx)
+                            }))
+                    })
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .child(
+                                        div()
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .child(model.display_name.clone()),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(colors.muted)
+                                            .child(format!("{} · {provider}", model.remote_id)),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(colors.muted)
+                                            .child(inspector::capability_summary(model)),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(if available {
+                                        colors.accent
+                                    } else {
+                                        colors.danger
+                                    })
+                                    .child(status),
+                            ),
+                    ),
+            );
+        }
+    }
+
+    div()
+        .absolute()
+        .top_0()
+        .right_0()
+        .bottom_0()
+        .left_0()
+        .flex()
+        .items_center()
+        .justify_center()
+        .bg(rgba(0x00000066))
+        .child(
+            div()
+                .w(px(520.0))
+                .max_h(px(620.0))
+                .rounded_xl()
+                .border_1()
+                .border_color(colors.border)
+                .bg(colors.panel)
+                .shadow_lg()
+                .p_5()
+                .flex()
+                .flex_col()
+                .gap_4()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .child(
+                            div()
+                                .text_lg()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child("Choose model"),
+                        )
+                        .child(
+                            button("close-model-picker", "Close", colors).on_click(
+                                cx.listener(|this, _, _, cx| this.close_model_picker(cx)),
+                            ),
+                        ),
+                )
+                .child(models),
+        )
         .into_any_element()
 }
 
@@ -842,21 +1037,6 @@ fn format_token_count(value: Option<u64>, estimated: bool) -> String {
             }
         },
     )
-}
-
-fn inspector_field(label: &str, value: &str, colors: Colors) -> AnyElement {
-    div()
-        .border_b_1()
-        .border_color(colors.border)
-        .pb_3()
-        .child(
-            div()
-                .text_xs()
-                .text_color(colors.muted)
-                .child(label.to_string()),
-        )
-        .child(div().pt_1().text_sm().child(value.to_string()))
-        .into_any_element()
 }
 
 pub(crate) fn button(

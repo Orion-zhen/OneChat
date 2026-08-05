@@ -156,8 +156,37 @@ pub struct GenerationConfig {
     pub seed: Option<i64>,
     pub stop_sequences: Vec<String>,
     pub thinking_budget: Option<i64>,
-    #[serde(default)]
     pub extra: serde_json::Map<String, serde_json::Value>,
+}
+
+impl GenerationConfig {
+    pub fn filtered_for(&self, capabilities: &ModelCapabilities) -> (Self, Vec<&'static str>) {
+        let mut filtered = self.clone();
+        let mut ignored = Vec::new();
+
+        macro_rules! filter_optional {
+            ($capability:ident, $field:ident, $label:literal) => {
+                if !capabilities.$capability && filtered.$field.take().is_some() {
+                    ignored.push($label);
+                }
+            };
+        }
+
+        filter_optional!(temperature, temperature, "Temperature");
+        filter_optional!(top_p, top_p, "Top P");
+        filter_optional!(top_k, top_k, "Top K");
+        filter_optional!(max_output_tokens, max_output_tokens, "Max Output");
+        filter_optional!(frequency_penalty, frequency_penalty, "Frequency Penalty");
+        filter_optional!(presence_penalty, presence_penalty, "Presence Penalty");
+        filter_optional!(seed, seed, "Seed");
+        filter_optional!(thinking_budget, thinking_budget, "Thinking Budget");
+        if !capabilities.stop_sequences && !filtered.stop_sequences.is_empty() {
+            filtered.stop_sequences.clear();
+            ignored.push("Stop Sequences");
+        }
+
+        (filtered, ignored)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -220,13 +249,25 @@ pub struct Conversation {
 }
 
 impl Conversation {
-    pub fn new(title: impl Into<String>, model: Option<&Model>) -> Self {
+    pub fn new(
+        title: impl Into<String>,
+        model: Option<&Model>,
+        default_system_prompt: &str,
+    ) -> Self {
         let now = now_timestamp();
+        let prompt = default_system_prompt.trim().to_string();
         Self {
             id: new_id("conversation"),
             title: title.into(),
             model_id: model.map(|model| model.id.clone()),
-            system_prompt: SystemPrompt::default(),
+            system_prompt: SystemPrompt {
+                source: if prompt.is_empty() {
+                    SystemPromptSource::None
+                } else {
+                    SystemPromptSource::FromDefault
+                },
+                content: prompt,
+            },
             generation_config: model
                 .map(|model| model.default_config.clone())
                 .unwrap_or_default(),
@@ -419,11 +460,13 @@ impl Theme {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(default)]
 pub struct AppSettings {
     pub current_conversation_id: Option<String>,
     pub sidebar_collapsed: bool,
     pub theme: Theme,
     pub reduce_motion: bool,
+    pub default_system_prompt: String,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -488,8 +531,79 @@ mod tests {
     }
 
     #[test]
+    fn new_conversations_snapshot_the_default_system_prompt() {
+        let conversation = Conversation::new("Prompted", None, "  Be concise.  ");
+        assert_eq!(conversation.system_prompt.content, "Be concise.");
+        assert_eq!(
+            conversation.system_prompt.source,
+            SystemPromptSource::FromDefault
+        );
+
+        let empty = Conversation::new("Empty", None, "   ");
+        assert!(empty.system_prompt.content.is_empty());
+        assert_eq!(empty.system_prompt.source, SystemPromptSource::None);
+    }
+
+    #[test]
+    fn capability_filtering_removes_unsupported_values_without_mutating_the_snapshot() {
+        let config = GenerationConfig {
+            temperature: Some(0.2),
+            top_p: Some(0.9),
+            top_k: Some(40),
+            max_output_tokens: Some(512),
+            frequency_penalty: Some(0.1),
+            presence_penalty: Some(0.2),
+            seed: Some(7),
+            stop_sequences: vec!["stop".into()],
+            thinking_budget: Some(1000),
+            extra: serde_json::Map::from_iter([(
+                "reasoning_effort".into(),
+                serde_json::json!("high"),
+            )]),
+        };
+        let capabilities = ModelCapabilities {
+            temperature: false,
+            top_p: false,
+            top_k: false,
+            max_output_tokens: false,
+            frequency_penalty: false,
+            presence_penalty: false,
+            seed: false,
+            stop_sequences: false,
+            thinking_budget: false,
+            ..ModelCapabilities::default()
+        };
+
+        let (filtered, ignored) = config.filtered_for(&capabilities);
+
+        assert_eq!(
+            filtered,
+            GenerationConfig {
+                extra: config.extra.clone(),
+                ..GenerationConfig::default()
+            }
+        );
+        assert_eq!(
+            ignored,
+            vec![
+                "Temperature",
+                "Top P",
+                "Top K",
+                "Max Output",
+                "Frequency Penalty",
+                "Presence Penalty",
+                "Seed",
+                "Thinking Budget",
+                "Stop Sequences",
+            ]
+        );
+        assert_eq!(config.temperature, Some(0.2));
+        assert_eq!(config.stop_sequences, vec!["stop"]);
+    }
+
+    #[test]
     fn pinned_conversations_have_their_own_group() {
-        let mut conversation = Conversation::new("Pinned", None);
+        let mut conversation = Conversation::new("Pinned", None, "");
         conversation.pinned = true;
         assert_eq!(
             ConversationGroup::for_conversation(&conversation, now_timestamp()),
@@ -500,7 +614,7 @@ mod tests {
     #[test]
     fn conversations_are_grouped_by_local_calendar_date() {
         let now = 1_705_320_000;
-        let mut conversation = Conversation::new("Yesterday", None);
+        let mut conversation = Conversation::new("Yesterday", None, "");
         conversation.updated_at = now - 24 * 60 * 60;
 
         assert_eq!(

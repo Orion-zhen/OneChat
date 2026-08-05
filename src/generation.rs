@@ -117,6 +117,9 @@ impl PreparedGeneration {
         request_info.usage.input_tokens = Some(estimate_tokens(input_text_len));
         request_info.usage.estimated = true;
 
+        let (config, _) = conversation
+            .generation_config
+            .filtered_for(&model.capabilities);
         Self {
             user,
             assistant,
@@ -125,7 +128,7 @@ impl PreparedGeneration {
                 provider: provider.clone(),
                 model: model.clone(),
                 system_prompt: conversation.system_prompt.content.clone(),
-                config: conversation.generation_config.clone(),
+                config,
                 messages,
             },
         }
@@ -239,7 +242,9 @@ mod tests {
     fn preparation_includes_context_and_paired_database_rows() {
         let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
         let model = Model::new(&provider.id, "gpt-test", "GPT Test");
-        let conversation = Conversation::new("Test", Some(&model));
+        let mut conversation = Conversation::new("Test", Some(&model), "");
+        conversation.generation_config.temperature = Some(0.4);
+        conversation.generation_config.top_k = Some(20);
         let context = vec![Message::new(
             &conversation.id,
             MessageRole::Assistant,
@@ -258,6 +263,9 @@ mod tests {
         assert_eq!(prepared.request_info.status, RequestStatus::Sending);
         assert!(prepared.request_info.usage.estimated);
         assert!(prepared.request_info.usage.input_tokens.is_some());
+        assert_eq!(prepared.provider_request.config.temperature, Some(0.4));
+        assert_eq!(prepared.provider_request.config.top_k, None);
+        assert_eq!(conversation.generation_config.top_k, Some(20));
     }
 
     #[test]

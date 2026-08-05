@@ -566,6 +566,21 @@ impl Database {
         Ok(())
     }
 
+    pub fn clear_conversation_context(&self, conversation_id: &str) -> Result<()> {
+        let mut connection = self.connect()?;
+        let transaction = connection.transaction()?;
+        transaction.execute(
+            "DELETE FROM requests WHERE conversation_id = ?",
+            [conversation_id],
+        )?;
+        transaction.execute(
+            "DELETE FROM messages WHERE conversation_id = ?",
+            [conversation_id],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
     pub fn insert_message(&self, message: &Message) -> Result<()> {
         self.connect()?.execute(
             "INSERT INTO messages
@@ -1095,7 +1110,7 @@ mod tests {
         database.update_model(&model).unwrap();
         assert_eq!(database.get_model(&model.id).unwrap(), Some(model.clone()));
 
-        let mut conversation = Conversation::new("SQLite 100%", Some(&model));
+        let mut conversation = Conversation::new("SQLite 100%", Some(&model), "");
         conversation.system_prompt.content = "Be concise".into();
         database.insert_conversation(&conversation).unwrap();
         conversation.title = "SQLite _ search".into();
@@ -1172,7 +1187,7 @@ mod tests {
         database.insert_provider(&provider).unwrap();
         let model = Model::new(&provider.id, "model", "Model");
         database.insert_model(&model).unwrap();
-        let conversation = Conversation::new("Keep me", Some(&model));
+        let conversation = Conversation::new("Keep me", Some(&model), "");
         database.insert_conversation(&conversation).unwrap();
 
         database.delete_provider(&provider.id).unwrap();
@@ -1193,7 +1208,7 @@ mod tests {
         database.insert_provider(&provider).unwrap();
         let model = Model::new(&provider.id, "gpt-test", "GPT Test");
         database.insert_model(&model).unwrap();
-        let conversation = Conversation::new("Generation", Some(&model));
+        let conversation = Conversation::new("Generation", Some(&model), "");
         database.insert_conversation(&conversation).unwrap();
         let user = Message::new(&conversation.id, MessageRole::User, "Hello");
         let mut assistant = Message::new(&conversation.id, MessageRole::Assistant, "");
@@ -1234,6 +1249,73 @@ mod tests {
     }
 
     #[test]
+    fn conversations_persist_independent_models_prompts_and_all_raw_parameters() {
+        let test = TestDatabase::new();
+        let database = &test.database;
+        let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+        database.insert_provider(&provider).unwrap();
+        let first_model = Model::new(&provider.id, "first", "First");
+        let second_model = Model::new(&provider.id, "second", "Second");
+        database.insert_model(&first_model).unwrap();
+        database.insert_model(&second_model).unwrap();
+
+        let mut first = Conversation::new("First conversation", Some(&first_model), "Default");
+        first.model_id = Some(second_model.id.clone());
+        first.system_prompt = SystemPrompt {
+            content: "Custom prompt".into(),
+            source: crate::model::SystemPromptSource::Custom,
+        };
+        first.generation_config = GenerationConfig {
+            temperature: Some(0.2),
+            top_p: Some(0.8),
+            top_k: Some(40),
+            max_output_tokens: Some(1024),
+            frequency_penalty: Some(0.1),
+            presence_penalty: Some(-0.1),
+            seed: Some(42),
+            stop_sequences: vec!["END".into(), "STOP".into()],
+            thinking_budget: Some(2048),
+            extra: serde_json::Map::from_iter([("reasoning_effort".into(), "high".into())]),
+        };
+        let mut second = Conversation::new("Second conversation", Some(&first_model), "Default");
+        second.generation_config.temperature = Some(1.0);
+        database.insert_conversation(&first).unwrap();
+        database.insert_conversation(&second).unwrap();
+
+        assert_eq!(database.get_conversation(&first.id).unwrap(), Some(first));
+        assert_eq!(database.get_conversation(&second.id).unwrap(), Some(second));
+    }
+
+    #[test]
+    fn clearing_context_keeps_the_conversation_configuration() {
+        let test = TestDatabase::new();
+        let database = &test.database;
+        let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+        database.insert_provider(&provider).unwrap();
+        let model = Model::new(&provider.id, "model", "Model");
+        database.insert_model(&model).unwrap();
+        let conversation = Conversation::new("Keep configuration", Some(&model), "System");
+        database.insert_conversation(&conversation).unwrap();
+        let user = Message::new(&conversation.id, MessageRole::User, "Hello");
+        let assistant = Message::new(&conversation.id, MessageRole::Assistant, "Hi");
+        database.insert_message(&user).unwrap();
+        database.insert_message(&assistant).unwrap();
+        let request = RequestInfo::new(&conversation.id, &assistant.id);
+        database.insert_request(&request).unwrap();
+
+        database
+            .clear_conversation_context(&conversation.id)
+            .unwrap();
+
+        assert!(database.list_messages(&conversation.id).unwrap().is_empty());
+        assert!(database.list_requests(&conversation.id).unwrap().is_empty());
+        assert_eq!(
+            database.get_conversation(&conversation.id).unwrap(),
+            Some(conversation)
+        );
+    }
+
+    #[test]
     fn restart_restores_snapshot_and_interrupts_unfinished_generation() {
         let test = TestDatabase::new();
         let database = &test.database;
@@ -1241,7 +1323,7 @@ mod tests {
         database.insert_provider(&provider).unwrap();
         let model = Model::new(&provider.id, "claude-test", "Claude Test");
         database.insert_model(&model).unwrap();
-        let conversation = Conversation::new("Restored", Some(&model));
+        let conversation = Conversation::new("Restored", Some(&model), "");
         database.insert_conversation(&conversation).unwrap();
         let mut message = Message::new(&conversation.id, MessageRole::Assistant, "partial");
         message.status = MessageStatus::Streaming;
@@ -1254,6 +1336,7 @@ mod tests {
             sidebar_collapsed: true,
             theme: Theme::Dark,
             reduce_motion: true,
+            default_system_prompt: "Always be concise".into(),
         };
         database.save_settings(&settings).unwrap();
 
