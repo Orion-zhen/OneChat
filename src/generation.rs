@@ -75,7 +75,7 @@ impl GenerationManager {
 
 #[derive(Clone)]
 pub struct PreparedGeneration {
-    pub user: Message,
+    pub user: Option<Message>,
     pub assistant: Message,
     pub request_info: RequestInfo,
     pub provider_request: GenerationRequest,
@@ -90,25 +90,50 @@ impl PreparedGeneration {
         prompt: String,
     ) -> Self {
         let user = Message::new(&conversation.id, MessageRole::User, prompt);
-        let mut assistant = Message::new(&conversation.id, MessageRole::Assistant, "");
+        let mut messages = chat_messages(context);
+        messages.push(ChatMessage {
+            role: MessageRole::User,
+            content: user.content.clone(),
+        });
+        Self::prepare(conversation, provider, model, messages, Some(user), None)
+    }
+
+    pub fn regenerate(
+        conversation: &Conversation,
+        provider: &Provider,
+        model: &Model,
+        context: &[Message],
+        previous_assistant: &Message,
+    ) -> Self {
+        Self::prepare(
+            conversation,
+            provider,
+            model,
+            chat_messages(context),
+            None,
+            Some(previous_assistant.clone()),
+        )
+    }
+
+    fn prepare(
+        conversation: &Conversation,
+        provider: &Provider,
+        model: &Model,
+        messages: Vec<ChatMessage>,
+        user: Option<Message>,
+        previous_assistant: Option<Message>,
+    ) -> Self {
+        let mut assistant = previous_assistant
+            .unwrap_or_else(|| Message::new(&conversation.id, MessageRole::Assistant, ""));
         assistant.status = MessageStatus::Streaming;
+        assistant.content.clear();
+        assistant.thinking.clear();
+        assistant.updated_at = now_timestamp();
         let mut request_info = RequestInfo::new(&conversation.id, &assistant.id);
         request_info.provider_id = Some(provider.id.clone());
         request_info.model_id = Some(model.id.clone());
         assistant.request_id = Some(request_info.id.clone());
 
-        let mut messages = context
-            .iter()
-            .filter(|message| !message.content.is_empty())
-            .map(|message| ChatMessage {
-                role: message.role,
-                content: message.content.clone(),
-            })
-            .collect::<Vec<_>>();
-        messages.push(ChatMessage {
-            role: MessageRole::User,
-            content: user.content.clone(),
-        });
         let input_text_len = conversation.system_prompt.content.chars().count()
             + messages
                 .iter()
@@ -133,6 +158,17 @@ impl PreparedGeneration {
             },
         }
     }
+}
+
+fn chat_messages(context: &[Message]) -> Vec<ChatMessage> {
+    context
+        .iter()
+        .filter(|message| !message.content.is_empty())
+        .map(|message| ChatMessage {
+            role: message.role,
+            content: message.content.clone(),
+        })
+        .collect()
 }
 
 pub fn apply_event(
@@ -255,6 +291,7 @@ mod tests {
             PreparedGeneration::new(&conversation, &provider, &model, &context, "Next".into());
 
         assert_eq!(prepared.provider_request.messages.len(), 2);
+        assert_eq!(prepared.user.as_ref().unwrap().content, "Next");
         assert_eq!(
             prepared.assistant.request_id,
             Some(prepared.request_info.id.clone())
@@ -266,6 +303,34 @@ mod tests {
         assert_eq!(prepared.provider_request.config.temperature, Some(0.4));
         assert_eq!(prepared.provider_request.config.top_k, None);
         assert_eq!(conversation.generation_config.top_k, Some(20));
+    }
+
+    #[test]
+    fn regeneration_reuses_the_assistant_row_without_adding_a_user_message() {
+        let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+        let model = Model::new(&provider.id, "gpt-test", "GPT Test");
+        let conversation = Conversation::new("Test", Some(&model), "");
+        let user = Message::new(&conversation.id, MessageRole::User, "Question");
+        let mut assistant = Message::new(&conversation.id, MessageRole::Assistant, "Old answer");
+        assistant.thinking = "Old thinking".into();
+        assistant.request_id = Some("old-request".into());
+
+        let prepared = PreparedGeneration::regenerate(
+            &conversation,
+            &provider,
+            &model,
+            std::slice::from_ref(&user),
+            &assistant,
+        );
+
+        assert!(prepared.user.is_none());
+        assert_eq!(prepared.assistant.id, assistant.id);
+        assert_eq!(prepared.assistant.status, MessageStatus::Streaming);
+        assert!(prepared.assistant.content.is_empty());
+        assert!(prepared.assistant.thinking.is_empty());
+        assert_ne!(prepared.assistant.request_id, assistant.request_id);
+        assert_eq!(prepared.provider_request.messages.len(), 1);
+        assert_eq!(prepared.provider_request.messages[0].content, "Question");
     }
 
     #[test]

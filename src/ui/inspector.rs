@@ -405,8 +405,20 @@ fn render_context(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> A
 }
 
 fn render_info(app: &OneChat, colors: Colors) -> AnyElement {
-    let model = app.current_model();
-    let provider = app.current_provider();
+    let request = app.inspected_request();
+    let model = request
+        .and_then(|request| request.model_id.as_deref())
+        .and_then(|id| app.snapshot.models.iter().find(|model| model.id == id))
+        .or_else(|| app.current_model());
+    let provider = request
+        .and_then(|request| request.provider_id.as_deref())
+        .and_then(|id| {
+            app.snapshot
+                .providers
+                .iter()
+                .find(|provider| provider.id == id)
+        })
+        .or_else(|| app.current_provider());
     let mut content = div()
         .flex()
         .flex_col()
@@ -431,7 +443,7 @@ fn render_info(app: &OneChat, colors: Colors) -> AnyElement {
             colors,
         ));
 
-    let Some(request) = app.current_request() else {
+    let Some(request) = request else {
         return content
             .child(notice("No request information yet.", colors))
             .into_any_element();
@@ -445,6 +457,7 @@ fn render_info(app: &OneChat, colors: Colors) -> AnyElement {
         RequestStatus::Interrupted => "Interrupted",
     };
     content = content
+        .child(inspector_field("Request ID", &request.id, colors))
         .child(inspector_field("Request status", status, colors))
         .child(inspector_field(
             "Input tokens",
@@ -471,22 +484,24 @@ fn render_info(app: &OneChat, colors: Colors) -> AnyElement {
             colors,
         ));
     if let Some(error) = &request.error {
-        content = content.child(
-            div()
-                .rounded_lg()
-                .bg(colors.raised)
-                .p_3()
-                .text_sm()
-                .text_color(colors.danger)
-                .child(error.message.clone())
-                .children(error.detail.clone().map(|detail| {
-                    div()
-                        .pt_2()
-                        .text_xs()
-                        .text_color(colors.muted)
-                        .child(detail)
-                })),
-        );
+        content = content
+            .child(inspector_field("Error category", &error.kind, colors))
+            .child(
+                div()
+                    .rounded_lg()
+                    .bg(colors.raised)
+                    .p_3()
+                    .text_sm()
+                    .text_color(colors.danger)
+                    .child(error.message.clone())
+                    .children(error.detail.clone().map(|detail| {
+                        div()
+                            .pt_2()
+                            .text_xs()
+                            .text_color(colors.muted)
+                            .child(detail)
+                    })),
+            );
     }
     content.into_any_element()
 }

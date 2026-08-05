@@ -120,11 +120,12 @@ pub struct Composer {
     scroll_handle: gpui::ScrollHandle,
     single_line: bool,
     clear_on_submit: bool,
+    read_only: bool,
 }
 
 impl Composer {
     pub fn new(cx: &mut Context<Self>) -> Self {
-        Self::configured("", "Message OneChat…", false, true, cx)
+        Self::configured("", "Message OneChat…", false, true, false, cx)
     }
 
     pub fn single_line(
@@ -132,7 +133,7 @@ impl Composer {
         placeholder: impl Into<SharedString>,
         cx: &mut Context<Self>,
     ) -> Self {
-        Self::configured(text, placeholder, true, false, cx)
+        Self::configured(text, placeholder, true, false, false, cx)
     }
 
     pub fn multiline(
@@ -140,7 +141,11 @@ impl Composer {
         placeholder: impl Into<SharedString>,
         cx: &mut Context<Self>,
     ) -> Self {
-        Self::configured(text, placeholder, false, false, cx)
+        Self::configured(text, placeholder, false, false, false, cx)
+    }
+
+    pub fn read_only(text: impl Into<String>, cx: &mut Context<Self>) -> Self {
+        Self::configured(text, "", false, false, true, cx)
     }
 
     fn configured(
@@ -148,6 +153,7 @@ impl Composer {
         placeholder: impl Into<SharedString>,
         single_line: bool,
         clear_on_submit: bool,
+        read_only: bool,
         cx: &mut Context<Self>,
     ) -> Self {
         let text = text.into();
@@ -167,6 +173,7 @@ impl Composer {
             scroll_handle: gpui::ScrollHandle::new(),
             single_line,
             clear_on_submit,
+            read_only,
         }
     }
 
@@ -298,6 +305,9 @@ impl Composer {
     }
 
     fn backspace(&mut self, _: &Backspace, _: &mut Window, cx: &mut Context<Self>) {
+        if self.read_only {
+            return;
+        }
         if self.editor.selection.is_empty() {
             let previous = self.editor.previous_boundary(self.editor.cursor());
             self.editor.select_to(previous);
@@ -308,6 +318,9 @@ impl Composer {
     }
 
     fn delete(&mut self, _: &Delete, _: &mut Window, cx: &mut Context<Self>) {
+        if self.read_only {
+            return;
+        }
         if self.editor.selection.is_empty() {
             let next = self.editor.next_boundary(self.editor.cursor());
             self.editor.select_to(next);
@@ -318,7 +331,7 @@ impl Composer {
     }
 
     fn newline(&mut self, _: &Newline, _: &mut Window, cx: &mut Context<Self>) {
-        if self.single_line {
+        if self.single_line || self.read_only {
             return;
         }
         self.editor.replace_selection("\n");
@@ -327,7 +340,7 @@ impl Composer {
     }
 
     fn submit(&mut self, _: &Submit, _: &mut Window, cx: &mut Context<Self>) {
-        if self.editor.text.trim().is_empty() {
+        if self.read_only || self.editor.text.trim().is_empty() {
             return;
         }
         let text = self.editor.text.clone();
@@ -355,6 +368,9 @@ impl Composer {
     }
 
     fn paste(&mut self, _: &Paste, _: &mut Window, cx: &mut Context<Self>) {
+        if self.read_only {
+            return;
+        }
         if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
             self.editor.replace_selection(&text.replace("\r\n", "\n"));
             self.marked_range = None;
@@ -371,6 +387,9 @@ impl Composer {
     }
 
     fn cut(&mut self, _: &Cut, _: &mut Window, cx: &mut Context<Self>) {
+        if self.read_only {
+            return;
+        }
         if !self.editor.selection.is_empty() {
             cx.write_to_clipboard(ClipboardItem::new_string(
                 self.editor.text[self.editor.selection.clone()].to_string(),
@@ -466,6 +485,9 @@ impl EntityInputHandler for Composer {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.read_only {
+            return;
+        }
         let range = range_utf16
             .as_ref()
             .map(|range| self.editor.range_from_utf16(range))
@@ -484,6 +506,9 @@ impl EntityInputHandler for Composer {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.read_only {
+            return;
+        }
         let range = range_utf16
             .as_ref()
             .map(|range| self.editor.range_from_utf16(range))

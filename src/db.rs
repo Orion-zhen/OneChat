@@ -705,6 +705,57 @@ impl Database {
         Ok(())
     }
 
+    pub fn begin_regeneration(&self, assistant: &Message, request: &RequestInfo) -> Result<()> {
+        let mut connection = self.connect()?;
+        let transaction = connection.transaction()?;
+        transaction.execute(
+            "DELETE FROM requests WHERE assistant_message_id = ?",
+            [&assistant.id],
+        )?;
+        transaction.execute(
+            "UPDATE messages SET request_id = ?, status = ?, content = ?, thinking = ?,
+             updated_at = ? WHERE id = ? AND role = 'assistant'",
+            params![
+                assistant.request_id,
+                assistant.status.as_str(),
+                assistant.content,
+                assistant.thinking,
+                assistant.updated_at,
+                assistant.id,
+            ],
+        )?;
+        if transaction.changes() != 1 {
+            return Err(DbError::Sqlite(rusqlite::Error::QueryReturnedNoRows));
+        }
+        transaction.execute(
+            "INSERT INTO requests
+             (id, conversation_id, assistant_message_id, provider_id, model_id, status,
+              usage_json, error_json, started_at, first_token_at, finished_at, ttft_ms, duration_ms)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params![
+                request.id,
+                request.conversation_id,
+                request.assistant_message_id,
+                request.provider_id,
+                request.model_id,
+                request.status.as_str(),
+                to_json(&request.usage)?,
+                optional_json(request.error.as_ref())?,
+                request.started_at,
+                request.first_token_at,
+                request.finished_at,
+                sql_u64(request.ttft_ms),
+                sql_u64(request.duration_ms),
+            ],
+        )?;
+        transaction.execute(
+            "UPDATE conversations SET updated_at = ? WHERE id = ?",
+            params![assistant.updated_at, assistant.conversation_id],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
     pub fn persist_generation(&self, assistant: &Message, request: &RequestInfo) -> Result<()> {
         let mut connection = self.connect()?;
         let transaction = connection.transaction()?;
@@ -1246,6 +1297,46 @@ mod tests {
         assert_eq!(restored.status, RequestStatus::Completed);
         assert_eq!(restored.ttft_ms, Some(25));
         assert_eq!(restored.duration_ms, Some(80));
+    }
+
+    #[test]
+    fn regeneration_reuses_the_assistant_row_and_replaces_its_request() {
+        let test = TestDatabase::new();
+        let database = &test.database;
+        let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+        database.insert_provider(&provider).unwrap();
+        let model = Model::new(&provider.id, "gpt-test", "GPT Test");
+        database.insert_model(&model).unwrap();
+        let conversation = Conversation::new("Regenerate", Some(&model), "");
+        database.insert_conversation(&conversation).unwrap();
+        let user = Message::new(&conversation.id, MessageRole::User, "Question");
+        let mut assistant = Message::new(&conversation.id, MessageRole::Assistant, "Old answer");
+        let mut old_request = RequestInfo::new(&conversation.id, &assistant.id);
+        old_request.status = RequestStatus::Completed;
+        assistant.request_id = Some(old_request.id.clone());
+        database.insert_message(&user).unwrap();
+        database.insert_message(&assistant).unwrap();
+        database.insert_request(&old_request).unwrap();
+
+        assistant.content.clear();
+        assistant.thinking.clear();
+        assistant.status = MessageStatus::Streaming;
+        let new_request = RequestInfo::new(&conversation.id, &assistant.id);
+        assistant.request_id = Some(new_request.id.clone());
+        database
+            .begin_regeneration(&assistant, &new_request)
+            .unwrap();
+
+        let messages = database.list_messages(&conversation.id).unwrap();
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[1].id, assistant.id);
+        assert!(messages[1].content.is_empty());
+        assert_eq!(messages[1].status, MessageStatus::Streaming);
+        assert!(database.get_request(&old_request.id).unwrap().is_none());
+        assert_eq!(
+            database.list_requests(&conversation.id).unwrap(),
+            vec![new_request]
+        );
     }
 
     #[test]

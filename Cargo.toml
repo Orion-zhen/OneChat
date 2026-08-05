@@ -6,10 +6,15 @@ description = "A minimal cross-platform LLM chat app"
 [dependencies]
 async-channel = "*"
 chrono = "*"
+comrak = { version = "*", default-features = false }
 futures-util = "*"
 gpui = "*"
 reqwest = { version = "*", features = ["socks"] }
 rig-core = "*"
+ratex-layout = "*"
+ratex-parser = "*"
+ratex-svg = { version = "*", features = ["embed-fonts"] }
+ratex-types = "*"
 rusqlite = "*"
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"

@@ -4,9 +4,9 @@ use gpui::{
 };
 
 use crate::{
-    app::{OneChat, SystemPromptMode},
-    model::{Conversation, MessageRole, MessageStatus, Page, RequestStatus, Theme},
-    ui::{inspector, settings},
+    app::OneChat,
+    model::{Conversation, Page, Theme},
+    ui::{chat, inspector, settings},
 };
 
 #[derive(Clone, Copy)]
@@ -20,7 +20,7 @@ pub(crate) struct Colors {
     pub(crate) accent: Rgba,
     pub(crate) accent_soft: Rgba,
     pub(crate) danger: Rgba,
-    dark: bool,
+    pub(crate) dark: bool,
 }
 
 impl Colors {
@@ -67,7 +67,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
     let sidebar = render_sidebar(app, colors, cx);
     let top_bar = render_top_bar(app, colors, cx);
     let page = match app.page {
-        Page::Chat => render_chat_page(app, colors, cx),
+        Page::Chat => render_chat_page(app, colors, window.scale_factor(), cx),
         Page::Settings => settings::render(app, colors, cx),
     };
 
@@ -452,7 +452,12 @@ fn render_top_bar(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> A
         .into_any_element()
 }
 
-fn render_chat_page(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
+fn render_chat_page(
+    app: &OneChat,
+    colors: Colors,
+    scale_factor: f32,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
     let content = if app.loading {
         empty_state(
             "Loading local data…",
@@ -524,7 +529,7 @@ fn render_chat_page(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) ->
             cx,
         )
     } else {
-        render_conversation(app, colors, cx)
+        chat::render(app, colors, scale_factor, cx)
     };
 
     div()
@@ -568,302 +573,6 @@ fn empty_state(
                 })),
         )
         .into_any_element()
-}
-
-fn render_conversation(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
-    let conversation = app
-        .current_conversation()
-        .expect("conversation page requires a current conversation");
-    let has_system_prompt = !conversation.system_prompt.content.trim().is_empty();
-    let editing_system_prompt = app.system_prompt_mode == SystemPromptMode::Editing;
-    let mut messages = div()
-        .id("message-list")
-        .min_h_0()
-        .flex_1()
-        .overflow_y_scroll()
-        .px_6()
-        .py_5()
-        .children(
-            (has_system_prompt || editing_system_prompt)
-                .then(|| render_system_prompt_card(app, colors, cx)),
-        );
-    if app.current_messages().is_empty() {
-        messages = messages.child(
-            div().h_full().flex().items_center().justify_center().child(
-                div()
-                    .text_center()
-                    .text_color(colors.muted)
-                    .child("Send a message to start this conversation."),
-            ),
-        );
-    } else {
-        for message in app.current_messages() {
-            let assistant = message.role == MessageRole::Assistant;
-            let status = match message.status {
-                MessageStatus::Pending => "Sending",
-                MessageStatus::Streaming => "Streaming",
-                MessageStatus::Completed => "Completed",
-                MessageStatus::Stopped => "Stopped",
-                MessageStatus::Failed => "Failed",
-                MessageStatus::Interrupted => "Interrupted",
-            };
-            let content =
-                if message.content.is_empty() && message.status == MessageStatus::Streaming {
-                    "Waiting for provider…".to_string()
-                } else {
-                    message.content.clone()
-                };
-            messages = messages.child(
-                div()
-                    .mb_4()
-                    .flex()
-                    .justify_end()
-                    .when(assistant, |element| element.justify_start())
-                    .child(
-                        div()
-                            .max_w(px(720.0))
-                            .rounded_xl()
-                            .border_1()
-                            .border_color(colors.border)
-                            .bg(if assistant {
-                                colors.panel
-                            } else {
-                                colors.accent_soft
-                            })
-                            .px_4()
-                            .py_3()
-                            .child(
-                                div()
-                                    .pb_2()
-                                    .flex()
-                                    .gap_2()
-                                    .text_xs()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .text_color(colors.muted)
-                                    .child(if assistant { "Assistant" } else { "You" })
-                                    .child(status),
-                            )
-                            .when(!message.thinking.is_empty(), |element| {
-                                element.child(
-                                    div()
-                                        .mb_3()
-                                        .rounded_lg()
-                                        .bg(colors.raised)
-                                        .p_3()
-                                        .text_sm()
-                                        .text_color(colors.muted)
-                                        .child(message.thinking.clone()),
-                                )
-                            })
-                            .child(content),
-                    ),
-            );
-        }
-    }
-
-    let generating = app.is_current_generating();
-    let action = if generating {
-        button("stop-generation", "Stop", colors)
-            .text_color(colors.danger)
-            .on_click(cx.listener(|this, _, _, cx| this.stop_current_generation(cx)))
-    } else {
-        button("send-message", "Send", colors)
-            .on_click(cx.listener(|this, _, _, cx| this.send_composer(cx)))
-    };
-    let request_summary = app.current_request().map(|request| {
-        let status = match request.status {
-            RequestStatus::Sending => "Sending",
-            RequestStatus::Streaming => "Streaming",
-            RequestStatus::Stopped => "Stopped",
-            RequestStatus::Failed => "Failed",
-            RequestStatus::Completed => "Completed",
-            RequestStatus::Interrupted => "Interrupted",
-        };
-        let mut summary = format!(
-            "{status} · input {} · output {} · TTFT {} · total {}",
-            format_token_count(request.usage.input_tokens, request.usage.estimated),
-            format_token_count(request.usage.output_tokens, request.usage.estimated),
-            request
-                .ttft_ms
-                .map_or_else(|| "—".into(), |value| format!("{value} ms")),
-            request
-                .duration_ms
-                .map_or_else(|| "—".into(), |value| format!("{value} ms")),
-        );
-        if let Some(error) = &request.error {
-            summary.push_str(" · ");
-            summary.push_str(&error.message);
-        }
-        summary
-    });
-
-    div()
-        .size_full()
-        .flex()
-        .flex_col()
-        .child(messages)
-        .child(
-            div()
-                .flex_none()
-                .mx_auto()
-                .w_full()
-                .max_w(px(820.0))
-                .px_5()
-                .pb_5()
-                .children(
-                    (!has_system_prompt
-                        && !editing_system_prompt
-                        && app.current_messages().is_empty())
-                    .then(|| {
-                        div().pb_2().child(
-                            button("add-system-prompt", "+ Add System Prompt", colors).on_click(
-                                cx.listener(|this, _, _, cx| this.begin_edit_system_prompt(cx)),
-                            ),
-                        )
-                    }),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .items_end()
-                        .gap_3()
-                        .child(div().min_w_0().flex_1().child(app.composer.clone()))
-                        .child(action),
-                )
-                .children(request_summary.map(|summary| {
-                    div()
-                        .pt_2()
-                        .px_2()
-                        .text_xs()
-                        .text_color(colors.muted)
-                        .child(summary)
-                })),
-        )
-        .into_any_element()
-}
-
-fn render_system_prompt_card(
-    app: &OneChat,
-    colors: Colors,
-    cx: &mut Context<OneChat>,
-) -> AnyElement {
-    let conversation = app
-        .current_conversation()
-        .expect("system prompt card requires a conversation");
-    let source = match conversation.system_prompt.source {
-        crate::model::SystemPromptSource::None => "None",
-        crate::model::SystemPromptSource::FromDefault => "Default snapshot",
-        crate::model::SystemPromptSource::Custom => "Custom",
-    };
-    let actions = match app.system_prompt_mode {
-        SystemPromptMode::Compact => div()
-            .flex()
-            .gap_2()
-            .child(
-                compact_button("expand-system-prompt", "Expand", colors)
-                    .on_click(cx.listener(|this, _, _, cx| this.expand_system_prompt(cx))),
-            )
-            .child(
-                compact_button("copy-system-prompt", "Copy", colors)
-                    .on_click(cx.listener(|this, _, _, cx| this.copy_system_prompt(cx))),
-            )
-            .child(
-                compact_button("edit-system-prompt", "Edit", colors)
-                    .on_click(cx.listener(|this, _, _, cx| this.begin_edit_system_prompt(cx))),
-            )
-            .into_any_element(),
-        SystemPromptMode::Expanded => div()
-            .flex()
-            .gap_2()
-            .child(
-                compact_button("collapse-system-prompt", "Collapse", colors)
-                    .on_click(cx.listener(|this, _, _, cx| this.collapse_system_prompt(cx))),
-            )
-            .child(
-                compact_button("copy-system-prompt-expanded", "Copy", colors)
-                    .on_click(cx.listener(|this, _, _, cx| this.copy_system_prompt(cx))),
-            )
-            .child(
-                compact_button("edit-system-prompt-expanded", "Edit", colors)
-                    .on_click(cx.listener(|this, _, _, cx| this.begin_edit_system_prompt(cx))),
-            )
-            .into_any_element(),
-        SystemPromptMode::Editing => div()
-            .flex()
-            .gap_2()
-            .child(
-                button("save-system-prompt", "Save", colors)
-                    .on_click(cx.listener(|this, _, _, cx| this.save_system_prompt(cx))),
-            )
-            .child(
-                button("cancel-system-prompt", "Cancel", colors)
-                    .on_click(cx.listener(|this, _, _, cx| this.cancel_system_prompt_edit(cx))),
-            )
-            .into_any_element(),
-    };
-    let content = match app.system_prompt_mode {
-        SystemPromptMode::Compact => div()
-            .text_sm()
-            .text_color(colors.muted)
-            .child(prompt_preview(&conversation.system_prompt.content))
-            .into_any_element(),
-        SystemPromptMode::Expanded => div()
-            .text_sm()
-            .child(conversation.system_prompt.content.clone())
-            .into_any_element(),
-        SystemPromptMode::Editing => app
-            .system_prompt_editor
-            .as_ref()
-            .map(|editor| editor.clone().into_any_element())
-            .unwrap_or_else(|| {
-                div()
-                    .text_sm()
-                    .text_color(colors.muted)
-                    .child("Opening editor…")
-                    .into_any_element()
-            }),
-    };
-
-    div()
-        .mb_4()
-        .mx_auto()
-        .w_full()
-        .max_w(px(820.0))
-        .rounded_xl()
-        .border_1()
-        .border_color(colors.border)
-        .bg(colors.panel)
-        .p_4()
-        .flex()
-        .flex_col()
-        .gap_3()
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .child(
-                    div()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child("System Prompt"),
-                )
-                .child(div().text_xs().text_color(colors.muted).child(source)),
-        )
-        .child(content)
-        .child(actions)
-        .into_any_element()
-}
-
-fn prompt_preview(prompt: &str) -> String {
-    const MAX_CHARACTERS: usize = 160;
-    let prompt = prompt.split_whitespace().collect::<Vec<_>>().join(" ");
-    let mut characters = prompt.chars();
-    let preview = characters.by_ref().take(MAX_CHARACTERS).collect::<String>();
-    if characters.next().is_some() {
-        format!("{preview}…")
-    } else {
-        preview
-    }
 }
 
 fn render_model_picker(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
@@ -1026,19 +735,6 @@ fn render_model_picker(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>)
         .into_any_element()
 }
 
-fn format_token_count(value: Option<u64>, estimated: bool) -> String {
-    value.map_or_else(
-        || "—".into(),
-        |value| {
-            if estimated {
-                format!("~{value}")
-            } else {
-                value.to_string()
-            }
-        },
-    )
-}
-
 pub(crate) fn button(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
@@ -1058,7 +754,7 @@ pub(crate) fn button(
         .child(label.into())
 }
 
-fn compact_button(
+pub(crate) fn compact_button(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     colors: Colors,

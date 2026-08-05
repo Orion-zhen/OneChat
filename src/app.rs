@@ -1,6 +1,13 @@
-use std::{collections::BTreeMap, sync::Arc, time::Instant};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    sync::Arc,
+    time::Instant,
+};
 
-use gpui::{ClipboardItem, Context, Entity, FocusHandle, Render, Task, Timer, Window, prelude::*};
+use gpui::{
+    ClipboardItem, Context, Entity, FocusHandle, Render, ScrollHandle, ScrollWheelEvent, Task,
+    Timer, Window, prelude::*,
+};
 use tokio::runtime::Runtime;
 use tokio_util::sync::CancellationToken;
 
@@ -11,15 +18,17 @@ use crate::{
         apply_event, interrupted_event,
     },
     model::{
-        AppSettings, Conversation, ConversationGroup, Message, Model, Page, Provider, RequestInfo,
-        SystemPromptSource, Theme, now_timestamp,
+        AppSettings, Conversation, ConversationGroup, Message, MessageRole, Model, Page, Provider,
+        RequestInfo, SystemPromptSource, Theme, now_timestamp,
     },
     providers,
     ui::{
         composer::{Composer, ComposerEvent},
         inspector::{GenerationConfigEditor, InspectorTab},
+        markdown::MarkdownDocument,
         settings::{Capability, ModelEditor, ProviderEditor},
         shell,
+        stream::follow_after_scroll,
     },
 };
 
@@ -33,6 +42,17 @@ pub(crate) enum ConnectionTestStatus {
 struct RenameEditor {
     conversation_id: String,
     input: Entity<Composer>,
+}
+
+struct SelectableMessage {
+    message_id: String,
+    content: String,
+    view: Entity<Composer>,
+}
+
+struct CachedMarkdown {
+    source: String,
+    document: MarkdownDocument,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -51,6 +71,11 @@ pub struct OneChat {
     pub(crate) inspector_open: bool,
     pub(crate) inspector_tab: InspectorTab,
     pub(crate) model_picker_open: bool,
+    selected_request_id: Option<String>,
+    expanded_error_ids: HashSet<String>,
+    selectable_message: Option<SelectableMessage>,
+    pub(crate) message_scroll: ScrollHandle,
+    pub(crate) follow_latest: bool,
     pub(crate) system_prompt_mode: SystemPromptMode,
     pub(crate) system_prompt_editor: Option<Entity<Composer>>,
     pub(crate) default_system_prompt_editor: Option<Entity<Composer>>,
@@ -62,6 +87,7 @@ pub struct OneChat {
     pub(crate) search_input: Entity<Composer>,
     pub(crate) composer: Entity<Composer>,
     pub(crate) generations: GenerationManager,
+    markdown_documents: HashMap<String, CachedMarkdown>,
     pub(crate) connection_tests: BTreeMap<String, ConnectionTestStatus>,
     pub(crate) provider_editor: Option<ProviderEditor>,
     pub(crate) model_editor: Option<ModelEditor>,
@@ -97,6 +123,11 @@ impl OneChat {
             inspector_open: false,
             inspector_tab: InspectorTab::default(),
             model_picker_open: false,
+            selected_request_id: None,
+            expanded_error_ids: HashSet::new(),
+            selectable_message: None,
+            message_scroll: ScrollHandle::new(),
+            follow_latest: true,
             system_prompt_mode: SystemPromptMode::default(),
             system_prompt_editor: None,
             default_system_prompt_editor: None,
@@ -108,6 +139,7 @@ impl OneChat {
             search_input,
             composer,
             generations: GenerationManager::default(),
+            markdown_documents: HashMap::new(),
             connection_tests: BTreeMap::new(),
             provider_editor: None,
             model_editor: None,
@@ -153,9 +185,68 @@ impl OneChat {
                 } else {
                     self.sync_generation_config_editor(cx);
                 }
+                self.refresh_markdown_documents(cx);
             }
             Err(error) => self.error = Some(format!("Database error: {error}")),
         }
+    }
+
+    fn refresh_markdown_documents(&mut self, cx: &mut Context<Self>) {
+        self.markdown_documents.retain(|message_id, cached| {
+            self.snapshot.current_messages.iter().any(|message| {
+                message.id == *message_id
+                    && message.role == MessageRole::Assistant
+                    && message.content == cached.source
+            })
+        });
+        let pending = self
+            .snapshot
+            .current_messages
+            .iter()
+            .filter(|message| {
+                message.role == MessageRole::Assistant
+                    && !self.markdown_documents.contains_key(&message.id)
+            })
+            .map(|message| (message.id.clone(), message.content.clone()))
+            .collect::<Vec<_>>();
+        if pending.is_empty() {
+            return;
+        }
+        cx.spawn(async move |this, cx| {
+            let parsed = cx
+                .background_spawn(async move {
+                    pending
+                        .into_iter()
+                        .map(|(id, source)| {
+                            let document = MarkdownDocument::parse(&source);
+                            (id, source, document)
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                for (id, source, document) in parsed {
+                    if this
+                        .snapshot
+                        .current_messages
+                        .iter()
+                        .any(|message| message.id == id && message.content == source)
+                    {
+                        this.markdown_documents
+                            .insert(id, CachedMarkdown { source, document });
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    pub(crate) fn markdown_for(&self, message: &Message) -> Option<&MarkdownDocument> {
+        self.markdown_documents
+            .get(&message.id)
+            .filter(|cached| cached.source == message.content)
+            .map(|cached| &cached.document)
     }
 
     fn sync_generation_config_editor(&mut self, cx: &mut Context<Self>) {
@@ -183,6 +274,12 @@ impl OneChat {
         self.system_prompt_mode = SystemPromptMode::Compact;
         self.system_prompt_editor = None;
         self.model_picker_open = false;
+        self.selected_request_id = None;
+        self.expanded_error_ids.clear();
+        self.selectable_message = None;
+        self.follow_latest = true;
+        self.message_scroll = ScrollHandle::new();
+        self.message_scroll.scroll_to_bottom();
         self.generation_config_editor = None;
         self.parameter_error = None;
         self.sync_generation_config_editor(cx);
@@ -287,6 +384,139 @@ impl OneChat {
         self.snapshot.current_requests.first()
     }
 
+    pub(crate) fn request_for_message(&self, message: &Message) -> Option<&RequestInfo> {
+        let request_id = message.request_id.as_deref()?;
+        self.snapshot
+            .current_requests
+            .iter()
+            .find(|request| request.id == request_id)
+    }
+
+    pub(crate) fn inspected_request(&self) -> Option<&RequestInfo> {
+        self.selected_request_id
+            .as_deref()
+            .and_then(|id| {
+                self.snapshot
+                    .current_requests
+                    .iter()
+                    .find(|request| request.id == id)
+            })
+            .or_else(|| self.current_request())
+    }
+
+    pub(crate) fn is_latest_assistant(&self, message_id: &str) -> bool {
+        self.snapshot
+            .current_messages
+            .iter()
+            .rev()
+            .find(|message| message.role == MessageRole::Assistant)
+            .is_some_and(|message| message.id == message_id)
+    }
+
+    pub(crate) fn copy_assistant(&mut self, message_id: String, cx: &mut Context<Self>) {
+        let Some(content) = self
+            .snapshot
+            .current_messages
+            .iter()
+            .find(|message| message.id == message_id && message.role == MessageRole::Assistant)
+            .map(|message| message.content.clone())
+        else {
+            return;
+        };
+        cx.write_to_clipboard(ClipboardItem::new_string(content));
+    }
+
+    pub(crate) fn selectable_message(&self, message: &Message) -> Option<Entity<Composer>> {
+        self.selectable_message
+            .as_ref()
+            .filter(|selectable| {
+                selectable.message_id == message.id && selectable.content == message.content
+            })
+            .map(|selectable| selectable.view.clone())
+    }
+
+    pub(crate) fn toggle_message_selection(&mut self, message_id: String, cx: &mut Context<Self>) {
+        if self
+            .selectable_message
+            .as_ref()
+            .is_some_and(|selectable| selectable.message_id == message_id)
+        {
+            self.selectable_message = None;
+            cx.notify();
+            return;
+        }
+        let Some(content) = self
+            .snapshot
+            .current_messages
+            .iter()
+            .find(|message| message.id == message_id && message.role == MessageRole::Assistant)
+            .map(|message| message.content.clone())
+        else {
+            return;
+        };
+        let view = cx.new(|cx| Composer::read_only(content.clone(), cx));
+        self.selectable_message = Some(SelectableMessage {
+            message_id,
+            content,
+            view,
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn inspect_message_request(&mut self, message_id: String, cx: &mut Context<Self>) {
+        let request_id = self
+            .snapshot
+            .current_messages
+            .iter()
+            .find(|message| message.id == message_id)
+            .and_then(|message| message.request_id.clone());
+        if let Some(request_id) = request_id {
+            self.selected_request_id = Some(request_id);
+            self.inspector_open = true;
+            self.inspector_tab = InspectorTab::Info;
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn error_detail_expanded(&self, message_id: &str) -> bool {
+        self.expanded_error_ids.contains(message_id)
+    }
+
+    pub(crate) fn toggle_error_detail(&mut self, message_id: String, cx: &mut Context<Self>) {
+        if !self.expanded_error_ids.remove(&message_id) {
+            self.expanded_error_ids.insert(message_id);
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn on_message_scroll(
+        &mut self,
+        event: &ScrollWheelEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let delta = event.delta.pixel_delta(window.line_height()).y;
+        let distance = self.message_scroll.max_offset().height + self.message_scroll.offset().y;
+        self.follow_latest =
+            follow_after_scroll(self.follow_latest, f32::from(delta), f32::from(distance));
+        cx.notify();
+    }
+
+    pub(crate) fn jump_to_latest(&mut self, cx: &mut Context<Self>) {
+        self.follow_latest = true;
+        self.message_scroll.scroll_to_bottom();
+        cx.notify();
+    }
+
+    pub(crate) fn open_inspector(&mut self, tab: InspectorTab, cx: &mut Context<Self>) {
+        self.inspector_open = true;
+        self.inspector_tab = tab;
+        if tab == InspectorTab::Model {
+            self.sync_generation_config_editor(cx);
+        }
+        cx.notify();
+    }
+
     pub(crate) fn is_current_generating(&self) -> bool {
         self.current_conversation()
             .is_some_and(|conversation| self.generations.is_active(&conversation.id))
@@ -309,36 +539,14 @@ impl OneChat {
     }
 
     fn start_generation(&mut self, prompt: String, cx: &mut Context<Self>) {
-        let Some(conversation) = self.current_conversation().cloned() else {
-            self.error = Some("Create or select a conversation first.".into());
-            cx.notify();
-            return;
+        let (conversation, provider, model) = match self.generation_target() {
+            Ok(target) => target,
+            Err(error) => {
+                self.error = Some(error);
+                cx.notify();
+                return;
+            }
         };
-        if self.generations.is_active(&conversation.id) {
-            self.error = Some("This conversation already has an active generation.".into());
-            cx.notify();
-            return;
-        }
-        let Some(model) = self.current_model().cloned() else {
-            self.error = Some("Choose a model before sending.".into());
-            cx.notify();
-            return;
-        };
-        if !model.capabilities.streaming {
-            self.error = Some("The selected model does not support streaming.".into());
-            cx.notify();
-            return;
-        }
-        let Some(provider) = self.current_provider().cloned() else {
-            self.error = Some("The selected model has no provider.".into());
-            cx.notify();
-            return;
-        };
-        if !provider.enabled {
-            self.error = Some("The selected provider is disabled.".into());
-            cx.notify();
-            return;
-        }
         let prepared = PreparedGeneration::new(
             &conversation,
             &provider,
@@ -346,15 +554,92 @@ impl OneChat {
             &self.snapshot.current_messages,
             prompt,
         );
+        self.begin_prepared_generation(prepared, cx);
+    }
+
+    fn generation_target(&self) -> Result<(Conversation, Provider, Model), String> {
+        let conversation = self
+            .current_conversation()
+            .cloned()
+            .ok_or_else(|| "Create or select a conversation first.".to_string())?;
+        let model = self
+            .current_model()
+            .cloned()
+            .ok_or_else(|| "Choose a model before sending.".to_string())?;
+        if !model.capabilities.streaming {
+            return Err("The selected model does not support streaming.".into());
+        }
+        let provider = self
+            .current_provider()
+            .cloned()
+            .ok_or_else(|| "The selected model has no provider.".to_string())?;
+        if !provider.enabled {
+            return Err("The selected provider is disabled.".into());
+        }
+        Ok((conversation, provider, model))
+    }
+
+    pub(crate) fn regenerate_assistant(&mut self, message_id: String, cx: &mut Context<Self>) {
+        let (conversation, provider, model) = match self.generation_target() {
+            Ok(target) => target,
+            Err(error) => {
+                self.error = Some(error);
+                cx.notify();
+                return;
+            }
+        };
+        let Some(latest_assistant) = self
+            .snapshot
+            .current_messages
+            .iter()
+            .rev()
+            .find(|message| message.role == MessageRole::Assistant)
+        else {
+            return;
+        };
+        if latest_assistant.id != message_id {
+            self.error = Some("Only the latest assistant response can be regenerated.".into());
+            cx.notify();
+            return;
+        }
+        let Some(index) = self
+            .snapshot
+            .current_messages
+            .iter()
+            .position(|message| message.id == message_id)
+        else {
+            return;
+        };
+        let previous_assistant = self.snapshot.current_messages[index].clone();
+        let prepared = PreparedGeneration::regenerate(
+            &conversation,
+            &provider,
+            &model,
+            &self.snapshot.current_messages[..index],
+            &previous_assistant,
+        );
+        self.begin_prepared_generation(prepared, cx);
+    }
+
+    fn begin_prepared_generation(&mut self, prepared: PreparedGeneration, cx: &mut Context<Self>) {
+        let conversation_id = prepared.request_info.conversation_id.clone();
+        if self.generations.is_active(&conversation_id) {
+            self.error = Some("This conversation already has an active generation.".into());
+            cx.notify();
+            return;
+        }
         let cancellation = CancellationToken::new();
         if !self.generations.start(
-            conversation.id.clone(),
+            conversation_id.clone(),
             prepared.request_info.id.clone(),
             prepared.assistant.id.clone(),
             cancellation.clone(),
         ) {
             return;
         }
+        self.follow_latest = true;
+        self.selectable_message = None;
+        self.message_scroll.scroll_to_bottom();
         cx.notify();
 
         let persisted = prepared.clone();
@@ -364,11 +649,16 @@ impl OneChat {
             previous.await;
             let result = cx
                 .background_spawn(async move {
-                    database.begin_generation(
-                        &persisted.user,
-                        &persisted.assistant,
-                        &persisted.request_info,
-                    )?;
+                    if let Some(user) = persisted.user.as_ref() {
+                        database.begin_generation(
+                            user,
+                            &persisted.assistant,
+                            &persisted.request_info,
+                        )?;
+                    } else {
+                        database
+                            .begin_regeneration(&persisted.assistant, &persisted.request_info)?;
+                    }
                     database.load_snapshot()
                 })
                 .await;
@@ -376,12 +666,14 @@ impl OneChat {
                 Ok(snapshot) => {
                     this.snapshot = snapshot;
                     this.error = None;
+                    this.selected_request_id = Some(prepared.request_info.id.clone());
+                    this.refresh_markdown_documents(cx);
                     this.launch_generation(prepared, cancellation, cx);
                     cx.notify();
                 }
                 Err(error) => {
                     this.generations
-                        .finish(&conversation.id, &prepared.request_info.id);
+                        .finish(&conversation_id, &prepared.request_info.id);
                     this.error = Some(format!("Could not start generation: {error}"));
                     cx.notify();
                 }
@@ -401,10 +693,11 @@ impl OneChat {
             .spawn(providers::generate(provider_request, sender, cancellation));
 
         let database = self.database.clone();
-        let conversation_id = prepared.user.conversation_id.clone();
+        let conversation_id = prepared.request_info.conversation_id.clone();
         let request_id = prepared.request_info.id.clone();
         let mut assistant = prepared.assistant;
         let mut request = prepared.request_info;
+        let mut last_markdown_source = String::new();
         cx.spawn(async move |this, cx| {
             let started = Instant::now();
             let mut last_database_flush = Instant::now();
@@ -425,10 +718,32 @@ impl OneChat {
                 for event in events {
                     terminal |= apply_event(event, &mut assistant, &mut request, started.elapsed());
                 }
-                let _ = this.update(cx, |this, cx| {
-                    this.update_generation_snapshot(&conversation_id, &assistant, &request);
-                    cx.notify();
-                });
+                let parsed_markdown = if assistant.content != last_markdown_source {
+                    last_markdown_source.clone_from(&assistant.content);
+                    let source = assistant.content.clone();
+                    Some(
+                        cx.background_spawn(async move {
+                            let document = MarkdownDocument::parse(&source);
+                            (source, document)
+                        })
+                        .await,
+                    )
+                } else {
+                    None
+                };
+                let _ =
+                    this.update(cx, |this, cx| {
+                        this.update_generation_snapshot(&conversation_id, &assistant, &request);
+                        if let Some((source, document)) = parsed_markdown
+                            && this.snapshot.current_messages.iter().any(|message| {
+                                message.id == assistant.id && message.content == source
+                            })
+                        {
+                            this.markdown_documents
+                                .insert(assistant.id.clone(), CachedMarkdown { source, document });
+                        }
+                        cx.notify();
+                    });
 
                 if terminal || last_database_flush.elapsed() >= DATABASE_FLUSH_INTERVAL {
                     let database = database.clone();
@@ -485,6 +800,9 @@ impl OneChat {
             .find(|info| info.id == request.id)
         {
             *info = request.clone();
+        }
+        if self.follow_latest {
+            self.message_scroll.scroll_to_bottom();
         }
     }
 
