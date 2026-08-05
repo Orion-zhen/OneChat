@@ -339,15 +339,6 @@ impl OneChat {
             cx.notify();
             return;
         }
-        if !matches!(
-            provider.kind,
-            crate::model::ProviderKind::OpenAi | crate::model::ProviderKind::OpenAiCompatible
-        ) {
-            self.error = Some("Streaming is not available for this provider yet.".into());
-            cx.notify();
-            return;
-        }
-
         let prepared = PreparedGeneration::new(
             &conversation,
             &provider,
@@ -570,7 +561,18 @@ impl OneChat {
     }
 
     pub(crate) fn begin_add_model(&mut self, provider_id: String, cx: &mut Context<Self>) {
-        self.model_editor = Some(ModelEditor::new(provider_id, None, cx));
+        let Some(provider_kind) = self
+            .snapshot
+            .providers
+            .iter()
+            .find(|provider| provider.id == provider_id)
+            .map(|provider| provider.kind)
+        else {
+            self.form_error = Some("Provider not found.".into());
+            cx.notify();
+            return;
+        };
+        self.model_editor = Some(ModelEditor::new(provider_id, provider_kind, None, cx));
         self.form_error = None;
         cx.notify();
     }
@@ -583,7 +585,23 @@ impl OneChat {
             .find(|model| model.id == id)
             .cloned();
         if let Some(model) = model {
-            self.model_editor = Some(ModelEditor::new(model.provider_id.clone(), Some(model), cx));
+            let Some(provider_kind) = self
+                .snapshot
+                .providers
+                .iter()
+                .find(|provider| provider.id == model.provider_id)
+                .map(|provider| provider.kind)
+            else {
+                self.form_error = Some("Provider not found.".into());
+                cx.notify();
+                return;
+            };
+            self.model_editor = Some(ModelEditor::new(
+                model.provider_id.clone(),
+                provider_kind,
+                Some(model),
+                cx,
+            ));
             self.form_error = None;
             cx.notify();
         }

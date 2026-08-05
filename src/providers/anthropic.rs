@@ -4,7 +4,7 @@ use rig_core::{
     client::{CompletionClient, VerifyClient},
     completion::{CompletionModel, GetTokenUsage},
     message::ReasoningContent,
-    providers::openai as rig_openai,
+    providers::anthropic as rig_anthropic,
     streaming::StreamedAssistantContent,
 };
 use serde_json::{Map, Value, json};
@@ -18,8 +18,6 @@ use crate::{
         sdk_verify_error,
     },
 };
-
-type OpenAiClient = rig_openai::CompletionsClient<reqwest::Client>;
 
 pub async fn test_connection(provider: &Provider) -> Result<(), AppError> {
     build_client(provider)?
@@ -39,7 +37,10 @@ pub async fn stream(
 
     let client = build_client(&request.provider)?;
     let model = client.completion_model(request.model.remote_id.clone());
-    let sdk_request = sdk_request(&request, additional_parameters(&request))?;
+    let mut sdk_request = sdk_request(&request, additional_parameters(&request))?;
+    if sdk_request.max_tokens.is_none() {
+        sdk_request.max_tokens = Some(4096);
+    }
     let mut response = tokio::select! {
         _ = cancellation.cancelled() => return Err(AppError::cancelled()),
         response = model.stream(sdk_request) => response.map_err(|error| sdk_completion_error(error, false))?,
@@ -94,7 +95,7 @@ pub async fn stream(
         }
     }
 
-    if !saw_final || (had_output && !saw_usage) {
+    if !saw_final || !saw_usage {
         return Err(AppError::new(
             AppErrorKind::StreamInterrupted,
             "Provider stream ended before completion",
@@ -111,21 +112,23 @@ fn additional_parameters(request: &GenerationRequest) -> Map<String, Value> {
     let capabilities = &request.model.capabilities;
     let config = &request.config;
     let mut parameters = config.extra.clone();
+    let raw_thinking = parameters.remove("thinking");
     remove_keys(
         &mut parameters,
         &[
             "model",
             "messages",
+            "system",
             "stream",
             "temperature",
             "top_p",
             "top_k",
             "max_tokens",
-            "max_completion_tokens",
             "frequency_penalty",
             "presence_penalty",
             "seed",
             "stop",
+            "stop_sequences",
             "thinking_budget",
         ],
     );
@@ -139,38 +142,22 @@ fn additional_parameters(request: &GenerationRequest) -> Map<String, Value> {
         "top_k",
         capabilities.top_k.then_some(config.top_k).flatten(),
     );
-    insert_optional(
-        &mut parameters,
-        "frequency_penalty",
-        capabilities
-            .frequency_penalty
-            .then_some(config.frequency_penalty)
-            .flatten(),
-    );
-    insert_optional(
-        &mut parameters,
-        "presence_penalty",
-        capabilities
-            .presence_penalty
-            .then_some(config.presence_penalty)
-            .flatten(),
-    );
-    insert_optional(
-        &mut parameters,
-        "seed",
-        capabilities.seed.then_some(config.seed).flatten(),
-    );
     if capabilities.stop_sequences && !config.stop_sequences.is_empty() {
-        parameters.insert("stop".into(), json!(config.stop_sequences));
+        parameters.insert("stop_sequences".into(), json!(config.stop_sequences));
     }
-    insert_optional(
-        &mut parameters,
-        "thinking_budget",
-        capabilities
-            .thinking_budget
-            .then_some(config.thinking_budget)
-            .flatten(),
-    );
+    if capabilities.thinking
+        && let Some(thinking) = raw_thinking
+    {
+        parameters.insert("thinking".into(), thinking);
+    }
+    if capabilities.thinking_budget
+        && let Some(budget) = config.thinking_budget
+    {
+        parameters.insert(
+            "thinking".into(),
+            json!({"type": "enabled", "budget_tokens": budget}),
+        );
+    }
     parameters
 }
 
@@ -196,14 +183,13 @@ fn reasoning_text(content: &[ReasoningContent]) -> String {
         .collect()
 }
 
-fn build_client(provider: &Provider) -> Result<OpenAiClient, AppError> {
-    rig_openai::Client::builder()
+fn build_client(provider: &Provider) -> Result<rig_anthropic::Client, AppError> {
+    rig_anthropic::Client::builder()
         .api_key(provider.api_key.clone())
         .base_url(sdk_base_url(provider)?)
         .http_headers(sdk_headers(provider)?)
         .http_client(sdk_http_client(provider)?)
         .build()
-        .map(|client| client.completions_api())
         .map_err(|error| {
             AppError::new(
                 AppErrorKind::UnsupportedParameter,
@@ -222,21 +208,22 @@ mod tests {
     };
 
     fn request() -> GenerationRequest {
-        let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-        let mut model = Model::new(&provider.id, "gpt-test", "GPT Test");
-        model.capabilities.seed = true;
+        let provider = Provider::new("Anthropic", ProviderKind::Anthropic);
+        let mut model = Model::new(&provider.id, "claude-test", "Claude Test");
+        model.capabilities = ProviderKind::Anthropic.default_capabilities();
         GenerationRequest {
             provider,
             model,
             system_prompt: "Be concise".into(),
             config: GenerationConfig {
                 temperature: Some(0.2),
+                top_p: Some(0.8),
                 top_k: Some(40),
-                seed: Some(7),
-                extra: Map::from_iter([
-                    ("reasoning_effort".into(), json!("high")),
-                    ("top_k".into(), json!(999)),
-                ]),
+                max_output_tokens: Some(512),
+                frequency_penalty: Some(1.0),
+                stop_sequences: vec!["stop".into()],
+                thinking_budget: Some(2048),
+                extra: Map::from_iter([("top_k".into(), json!(999))]),
                 ..GenerationConfig::default()
             },
             messages: vec![ChatMessage {
@@ -247,61 +234,67 @@ mod tests {
     }
 
     #[test]
-    fn request_parameters_are_filtered_before_rig_serializes_them() {
+    fn request_parameters_follow_anthropic_capabilities() {
         let request = request();
         let parameters = additional_parameters(&request);
         let sdk_request = sdk_request(&request, parameters.clone()).unwrap();
 
         assert_eq!(sdk_request.temperature, Some(0.2));
-        assert_eq!(parameters["seed"], 7);
-        assert!(parameters.get("top_k").is_none());
-        assert_eq!(parameters["reasoning_effort"], "high");
+        assert_eq!(sdk_request.max_tokens, Some(512));
+        assert_eq!(parameters["top_p"], 0.8);
+        assert_eq!(parameters["top_k"], 40);
+        assert_eq!(parameters["stop_sequences"], json!(["stop"]));
+        assert_eq!(parameters["thinking"]["budget_tokens"], 2048);
+        assert!(parameters.get("frequency_penalty").is_none());
         assert_eq!(sdk_request.preamble.as_deref(), Some("Be concise"));
     }
 
     #[test]
-    fn base_url_accepts_a_complete_custom_path() {
-        let mut provider = Provider::new("Local", ProviderKind::OpenAiCompatible);
-        provider.endpoint = "http://localhost:8080/v1/chat/completions".into();
-        assert_eq!(sdk_base_url(&provider).unwrap(), "http://localhost:8080/v1");
-        provider.endpoint = "http://localhost:8080/v1/models".into();
-        assert_eq!(sdk_base_url(&provider).unwrap(), "http://localhost:8080/v1");
+    fn base_url_is_normalized_for_rig() {
+        let mut provider = Provider::new("Anthropic", ProviderKind::Anthropic);
+        provider.endpoint = "http://localhost:8080/v1/messages".into();
+        assert_eq!(sdk_base_url(&provider).unwrap(), "http://localhost:8080");
     }
 
     #[tokio::test]
-    async fn rig_stream_handles_fragmented_openai_sse_and_request_body() {
+    async fn rig_stream_handles_fragmented_text_thinking_usage_and_request_body() {
         use crate::providers::test_support::{fragmented, request_json, server};
 
-        let fixture = include_str!("../../tests/fixtures/openai_success.sse");
+        let fixture = include_str!("../../tests/fixtures/anthropic_success.sse");
         let (endpoint, captured) =
-            server("200 OK", "text/event-stream", fragmented(fixture, 9)).await;
+            server("200 OK", "text/event-stream", fragmented(fixture, 13)).await;
         let mut request = request();
-        request.provider.endpoint = format!("{endpoint}/v1");
+        request.provider.endpoint = endpoint;
+        request
+            .provider
+            .headers
+            .insert("X-Test".into(), "value".into());
         let (sender, receiver) = async_channel::unbounded();
 
         stream(request, &sender, CancellationToken::new())
             .await
             .unwrap();
-        let body = request_json(&captured.await.unwrap());
-        assert_eq!(body["model"], "gpt-test");
-        assert_eq!(body["messages"][0]["role"], "system");
-        assert_eq!(body["temperature"], 0.2);
-        assert_eq!(body["seed"], 7);
-        assert_eq!(body["reasoning_effort"], "high");
-        assert!(body.get("top_k").is_none());
-        assert_eq!(body["stream"], true);
-        assert_eq!(body["stream_options"]["include_usage"], true);
+        let raw_request = captured.await.unwrap();
+        let body = request_json(&raw_request);
+        assert!(raw_request.to_lowercase().contains("x-test: value"));
+        assert_eq!(body["model"], "claude-test");
+        assert_eq!(body["system"][0]["text"], "Be concise");
+        assert_eq!(body["top_p"], 0.8);
+        assert_eq!(body["top_k"], 40);
+        assert_eq!(body["thinking"]["budget_tokens"], 2048);
+        assert!(body.get("frequency_penalty").is_none());
 
         let mut events = Vec::new();
         while let Ok(event) = receiver.try_recv() {
             events.push(event);
         }
+        assert_eq!(events.first(), Some(&GenerationEvent::Started));
         assert!(events.contains(&GenerationEvent::ThinkingDelta("Think".into())));
-        assert!(events.contains(&GenerationEvent::TextDelta("Hi".into())));
+        assert!(events.contains(&GenerationEvent::TextDelta("Hello".into())));
         assert!(
             events.contains(&GenerationEvent::UsageUpdated(crate::model::TokenUsage {
-                input_tokens: Some(3),
-                output_tokens: Some(2),
+                input_tokens: Some(4),
+                output_tokens: Some(3),
                 estimated: false,
             }))
         );
@@ -309,14 +302,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rig_stream_maps_stream_http_errors_and_early_eof() {
+    async fn rig_stream_maps_provider_error_and_interrupted_fixture() {
         use crate::providers::test_support::{fragmented, server};
         use std::time::Duration;
 
-        let fixture = include_str!("../../tests/fixtures/openai_error.sse");
-        let (endpoint, _) = server("200 OK", "text/event-stream", fragmented(fixture, 5)).await;
+        let error = include_str!("../../tests/fixtures/anthropic_error.json");
+        let (endpoint, _) = server(
+            "400 Bad Request",
+            "application/json",
+            vec![(Duration::ZERO, error.into())],
+        )
+        .await;
         let mut failed = request();
-        failed.provider.endpoint = format!("{endpoint}/v1");
+        failed.provider.endpoint = endpoint;
         let (sender, _receiver) = async_channel::unbounded();
         assert_eq!(
             stream(failed, &sender, CancellationToken::new())
@@ -326,30 +324,10 @@ mod tests {
             AppErrorKind::UnsupportedParameter
         );
 
-        let (endpoint, _) = server(
-            "401 Unauthorized",
-            "application/json",
-            vec![(
-                Duration::ZERO,
-                "{\"error\":{\"message\":\"bad key\"}}".into(),
-            )],
-        )
-        .await;
+        let interrupted = include_str!("../../tests/fixtures/anthropic_interrupted.sse");
+        let (endpoint, _) = server("200 OK", "text/event-stream", fragmented(interrupted, 7)).await;
         let mut failed = request();
-        failed.provider.endpoint = format!("{endpoint}/v1");
-        let (sender, _receiver) = async_channel::unbounded();
-        assert_eq!(
-            stream(failed, &sender, CancellationToken::new())
-                .await
-                .unwrap_err()
-                .kind,
-            AppErrorKind::Authentication
-        );
-
-        let fixture = include_str!("../../tests/fixtures/openai_interrupted.sse");
-        let (endpoint, _) = server("200 OK", "text/event-stream", fragmented(fixture, 4)).await;
-        let mut failed = request();
-        failed.provider.endpoint = format!("{endpoint}/v1");
+        failed.provider.endpoint = endpoint;
         let (sender, _receiver) = async_channel::unbounded();
         assert_eq!(
             stream(failed, &sender, CancellationToken::new())
@@ -361,19 +339,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn connection_test_uses_rig_models_endpoint() {
+    async fn connection_test_and_cancellation_use_rig() {
         use crate::providers::test_support::server;
         use std::time::Duration;
 
-        let (endpoint, captured) = server(
+        let (endpoint, _) = server(
             "200 OK",
             "application/json",
             vec![(Duration::ZERO, "{}".into())],
         )
         .await;
-        let mut provider = Provider::new("Local", ProviderKind::OpenAiCompatible);
-        provider.endpoint = format!("{endpoint}/v1");
+        let mut provider = Provider::new("Anthropic", ProviderKind::Anthropic);
+        provider.endpoint = endpoint;
         test_connection(&provider).await.unwrap();
-        assert!(captured.await.unwrap().starts_with("GET /v1/models "));
+
+        let fixture = include_str!("../../tests/fixtures/anthropic_success.sse");
+        let (endpoint, _) = server(
+            "200 OK",
+            "text/event-stream",
+            vec![(Duration::from_secs(2), fixture.into())],
+        )
+        .await;
+        let mut request = request();
+        request.provider.endpoint = endpoint;
+        let (sender, _receiver) = async_channel::unbounded();
+        let cancellation = CancellationToken::new();
+        let task_cancellation = cancellation.clone();
+        let task = tokio::spawn(async move { stream(request, &sender, task_cancellation).await });
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        cancellation.cancel();
+
+        assert_eq!(
+            task.await.unwrap().unwrap_err().kind,
+            AppErrorKind::UserCancelled
+        );
     }
 }

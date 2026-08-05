@@ -73,6 +73,43 @@ impl ProviderKind {
             Self::Gemini => Self::OpenAi,
         }
     }
+
+    pub fn default_capabilities(self) -> ModelCapabilities {
+        match self {
+            Self::OpenAi | Self::OpenAiCompatible => ModelCapabilities {
+                thinking: true,
+                frequency_penalty: true,
+                presence_penalty: true,
+                seed: true,
+                ..ModelCapabilities::default()
+            },
+            Self::Anthropic => ModelCapabilities {
+                thinking: true,
+                top_k: true,
+                thinking_budget: true,
+                ..ModelCapabilities::default()
+            },
+            Self::Gemini => ModelCapabilities {
+                vision: true,
+                thinking: true,
+                top_k: true,
+                frequency_penalty: true,
+                presence_penalty: true,
+                thinking_budget: true,
+                ..ModelCapabilities::default()
+            },
+        }
+    }
+
+    pub fn default_generation_config(self) -> GenerationConfig {
+        match self {
+            Self::Anthropic => GenerationConfig {
+                max_output_tokens: Some(4096),
+                ..GenerationConfig::default()
+            },
+            _ => GenerationConfig::default(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -207,14 +244,23 @@ impl Model {
         remote_id: impl Into<String>,
         display_name: impl Into<String>,
     ) -> Self {
+        Self::new_for_provider(provider_id, remote_id, display_name, ProviderKind::OpenAi)
+    }
+
+    pub fn new_for_provider(
+        provider_id: impl Into<String>,
+        remote_id: impl Into<String>,
+        display_name: impl Into<String>,
+        provider_kind: ProviderKind,
+    ) -> Self {
         let now = now_timestamp();
         Self {
             id: new_id("model"),
             provider_id: provider_id.into(),
             remote_id: remote_id.into(),
             display_name: display_name.into(),
-            capabilities: ModelCapabilities::default(),
-            default_config: GenerationConfig::default(),
+            capabilities: provider_kind.default_capabilities(),
+            default_config: provider_kind.default_generation_config(),
             created_at: now,
             updated_at: now,
         }
@@ -599,6 +645,29 @@ mod tests {
         );
         assert_eq!(config.temperature, Some(0.2));
         assert_eq!(config.stop_sequences, vec!["stop"]);
+    }
+
+    #[test]
+    fn new_models_use_provider_defaults_that_users_can_override() {
+        let anthropic = Model::new_for_provider(
+            "anthropic",
+            "claude-test",
+            "Claude",
+            ProviderKind::Anthropic,
+        );
+        assert!(anthropic.capabilities.thinking);
+        assert!(anthropic.capabilities.top_k);
+        assert!(anthropic.capabilities.thinking_budget);
+        assert!(!anthropic.capabilities.frequency_penalty);
+        assert_eq!(anthropic.default_config.max_output_tokens, Some(4096));
+
+        let mut gemini =
+            Model::new_for_provider("gemini", "gemini-test", "Gemini", ProviderKind::Gemini);
+        assert!(gemini.capabilities.vision);
+        assert!(gemini.capabilities.frequency_penalty);
+        assert!(!gemini.capabilities.seed);
+        gemini.capabilities.seed = true;
+        assert!(gemini.capabilities.seed);
     }
 
     #[test]

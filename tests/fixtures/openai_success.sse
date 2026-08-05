@@ -1,6 +1,8 @@
-data: {"choices":[{"delta":{"content":"Hi"}}]}
+data: {"choices":[{"delta":{"reasoning_content":"Think"},"finish_reason":null}]}
 
-data: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2}}
+data: {"choices":[{"delta":{"content":"Hi"},"finish_reason":"stop"}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}
 
 data: [DONE]
 

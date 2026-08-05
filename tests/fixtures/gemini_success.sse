@@ -1,0 +1,4 @@
+data: {"responseId":"response-test","modelVersion":"gemini-test","candidates":[{"content":{"parts":[{"text":"Think","thought":true}],"role":"model"},"index":0}]}
+
+data: {"responseId":"response-test","modelVersion":"gemini-test","candidates":[{"content":{"parts":[{"text":"Hello"}],"role":"model"},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":4,"candidatesTokenCount":3,"thoughtsTokenCount":1,"totalTokenCount":8}}
+

@@ -8,7 +8,8 @@ async-channel = "*"
 chrono = "*"
 futures-util = "*"
 gpui = "*"
-reqwest = { version = "*", features = ["json", "socks", "stream"] }
+reqwest = { version = "*", features = ["socks"] }
+rig-core = "*"
 rusqlite = "*"
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"

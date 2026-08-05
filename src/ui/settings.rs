@@ -82,6 +82,7 @@ impl ProviderEditor {
 
 pub struct ModelEditor {
     original: Option<Model>,
+    provider_kind: ProviderKind,
     pub provider_id: String,
     pub remote_id: Entity<Composer>,
     pub display_name: Entity<Composer>,
@@ -90,14 +91,20 @@ pub struct ModelEditor {
 }
 
 impl ModelEditor {
-    pub fn new(provider_id: String, model: Option<Model>, cx: &mut Context<OneChat>) -> Self {
+    pub fn new(
+        provider_id: String,
+        provider_kind: ProviderKind,
+        model: Option<Model>,
+        cx: &mut Context<OneChat>,
+    ) -> Self {
         let value = model
             .clone()
-            .unwrap_or_else(|| Model::new(&provider_id, "", ""));
+            .unwrap_or_else(|| Model::new_for_provider(&provider_id, "", "", provider_kind));
         let config =
             serde_json::to_string_pretty(&value.default_config).unwrap_or_else(|_| "{}".into());
         Self {
             original: model,
+            provider_kind,
             provider_id,
             remote_id: cx.new(|cx| Composer::single_line(value.remote_id, "Remote model ID", cx)),
             display_name: cx
@@ -113,10 +120,9 @@ impl ModelEditor {
     }
 
     pub fn build(&self, cx: &App) -> Result<Model, String> {
-        let mut model = self
-            .original
-            .clone()
-            .unwrap_or_else(|| Model::new(&self.provider_id, "", ""));
+        let mut model = self.original.clone().unwrap_or_else(|| {
+            Model::new_for_provider(&self.provider_id, "", "", self.provider_kind)
+        });
         model.provider_id = self.provider_id.clone();
         model.remote_id = self.remote_id.read(cx).text().trim().to_string();
         if model.remote_id.is_empty() {
