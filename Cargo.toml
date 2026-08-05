@@ -1,0 +1,8 @@
+[package]
+name = "onechat"
+edition = "2024"
+description = "A minimal cross-platform LLM chat app"
+
+[dependencies]
+gpui = "*"
+unicode-segmentation = "*"
