@@ -5,20 +5,21 @@ use gpui::{
 
 use crate::{
     app::OneChat,
-    model::{Conversation, MessageRole, Page, Theme},
+    model::{Conversation, MessageRole, MessageStatus, Page, RequestStatus, Theme},
+    ui::settings,
 };
 
 #[derive(Clone, Copy)]
-struct Colors {
-    canvas: Rgba,
-    panel: Rgba,
-    raised: Rgba,
-    text: Rgba,
-    muted: Rgba,
-    border: Rgba,
-    accent: Rgba,
-    accent_soft: Rgba,
-    danger: Rgba,
+pub(crate) struct Colors {
+    pub(crate) canvas: Rgba,
+    pub(crate) panel: Rgba,
+    pub(crate) raised: Rgba,
+    pub(crate) text: Rgba,
+    pub(crate) muted: Rgba,
+    pub(crate) border: Rgba,
+    pub(crate) accent: Rgba,
+    pub(crate) accent_soft: Rgba,
+    pub(crate) danger: Rgba,
     dark: bool,
 }
 
@@ -67,7 +68,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
     let top_bar = render_top_bar(app, colors, cx);
     let page = match app.page {
         Page::Chat => render_chat_page(app, colors, cx),
-        Page::Settings => render_settings_page(app, colors, cx),
+        Page::Settings => settings::render(app, colors, cx),
     };
 
     let inspector = app
@@ -452,7 +453,12 @@ fn render_chat_page(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) ->
             colors,
             cx,
         )
-    } else if app.snapshot.models.is_empty() {
+    } else if !app.snapshot.models.iter().any(|model| {
+        app.snapshot
+            .providers
+            .iter()
+            .any(|provider| provider.id == model.provider_id && provider.enabled)
+    }) {
         empty_state(
             "Your provider has no models",
             "Add at least one remote model ID before creating a conversation.",
@@ -502,7 +508,7 @@ fn render_chat_page(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) ->
             cx,
         )
     } else {
-        render_conversation(app, colors)
+        render_conversation(app, colors, cx)
     };
 
     div()
@@ -548,8 +554,7 @@ fn empty_state(
         .into_any_element()
 }
 
-fn render_conversation(app: &OneChat, colors: Colors) -> AnyElement {
-    let conversation = app.current_conversation().expect("checked above");
+fn render_conversation(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
     let mut messages = div()
         .id("message-list")
         .min_h_0()
@@ -563,12 +568,26 @@ fn render_conversation(app: &OneChat, colors: Colors) -> AnyElement {
                 div()
                     .text_center()
                     .text_color(colors.muted)
-                    .child("This conversation is empty. Streaming chat is connected in stage 3."),
+                    .child("Send a message to start this conversation."),
             ),
         );
     } else {
         for message in app.current_messages() {
             let assistant = message.role == MessageRole::Assistant;
+            let status = match message.status {
+                MessageStatus::Pending => "Sending",
+                MessageStatus::Streaming => "Streaming",
+                MessageStatus::Completed => "Completed",
+                MessageStatus::Stopped => "Stopped",
+                MessageStatus::Failed => "Failed",
+                MessageStatus::Interrupted => "Interrupted",
+            };
+            let content =
+                if message.content.is_empty() && message.status == MessageStatus::Streaming {
+                    "Waiting for provider…".to_string()
+                } else {
+                    message.content.clone()
+                };
             messages = messages.child(
                 div()
                     .mb_4()
@@ -591,16 +610,67 @@ fn render_conversation(app: &OneChat, colors: Colors) -> AnyElement {
                             .child(
                                 div()
                                     .pb_2()
+                                    .flex()
+                                    .gap_2()
                                     .text_xs()
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .text_color(colors.muted)
-                                    .child(if assistant { "Assistant" } else { "You" }),
+                                    .child(if assistant { "Assistant" } else { "You" })
+                                    .child(status),
                             )
-                            .child(message.content.clone()),
+                            .when(!message.thinking.is_empty(), |element| {
+                                element.child(
+                                    div()
+                                        .mb_3()
+                                        .rounded_lg()
+                                        .bg(colors.raised)
+                                        .p_3()
+                                        .text_sm()
+                                        .text_color(colors.muted)
+                                        .child(message.thinking.clone()),
+                                )
+                            })
+                            .child(content),
                     ),
             );
         }
     }
+
+    let generating = app.is_current_generating();
+    let action = if generating {
+        button("stop-generation", "Stop", colors)
+            .text_color(colors.danger)
+            .on_click(cx.listener(|this, _, _, cx| this.stop_current_generation(cx)))
+    } else {
+        button("send-message", "Send", colors)
+            .on_click(cx.listener(|this, _, _, cx| this.send_composer(cx)))
+    };
+    let request_summary = app.current_request().map(|request| {
+        let status = match request.status {
+            RequestStatus::Sending => "Sending",
+            RequestStatus::Streaming => "Streaming",
+            RequestStatus::Stopped => "Stopped",
+            RequestStatus::Failed => "Failed",
+            RequestStatus::Completed => "Completed",
+            RequestStatus::Interrupted => "Interrupted",
+        };
+        let mut summary = format!(
+            "{status} · input {} · output {} · TTFT {} · total {}",
+            format_token_count(request.usage.input_tokens, request.usage.estimated),
+            format_token_count(request.usage.output_tokens, request.usage.estimated),
+            request
+                .ttft_ms
+                .map_or_else(|| "—".into(), |value| format!("{value} ms")),
+            request
+                .duration_ms
+                .map_or_else(|| "—".into(), |value| format!("{value} ms")),
+        );
+        if let Some(error) = &request.error {
+            summary.push_str(" · ");
+            summary.push_str(&error.message);
+        }
+        summary
+    });
 
     div()
         .size_full()
@@ -617,116 +687,21 @@ fn render_conversation(app: &OneChat, colors: Colors) -> AnyElement {
                 .pb_5()
                 .child(
                     div()
-                        .rounded_xl()
-                        .border_1()
-                        .border_color(colors.border)
-                        .bg(colors.panel)
-                        .px_4()
-                        .py_3()
-                        .text_sm()
-                        .text_color(colors.muted)
-                        .child(format!(
-                            "{} · Local data ready · Message streaming is added in stage 3",
-                            conversation.title
-                        )),
-                ),
-        )
-        .into_any_element()
-}
-
-fn render_settings_page(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
-    let theme = app.settings().theme.label();
-    let reduce_motion = if app.settings().reduce_motion {
-        "On"
-    } else {
-        "Off"
-    };
-    div()
-        .id("settings-page")
-        .min_w_0()
-        .flex_1()
-        .h_full()
-        .overflow_y_scroll()
-        .p_6()
-        .child(
-            div()
-                .mx_auto()
-                .w_full()
-                .max_w(px(760.0))
-                .flex()
-                .flex_col()
-                .gap_5()
-                .child(
-                    div()
-                        .text_xl()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child("Local settings"),
-                )
-                .child(settings_card(
-                    "Appearance",
-                    "Theme and motion preferences are restored at launch.",
-                    div()
                         .flex()
-                        .gap_2()
-                        .child(
-                            button("cycle-theme", format!("Theme: {theme}"), colors)
-                                .on_click(cx.listener(|this, _, _, cx| this.cycle_theme(cx))),
-                        )
-                        .child(
-                            button(
-                                "toggle-reduce-motion",
-                                format!("Reduce Motion: {reduce_motion}"),
-                                colors,
-                            )
-                            .on_click(cx.listener(|this, _, _, cx| this.toggle_reduce_motion(cx))),
-                        ),
-                    colors,
-                ))
-                .child(settings_card(
-                    "Providers",
-                    &format!(
-                        "{} configured provider(s). Provider editing is implemented in stage 3.",
-                        app.snapshot.providers.len()
-                    ),
-                    div().child(""),
-                    colors,
-                ))
-                .child(settings_card(
-                    "Models",
-                    &format!(
-                        "{} local model definition(s). Model editing is implemented in stage 3.",
-                        app.snapshot.models.len()
-                    ),
-                    div().child(""),
-                    colors,
-                )),
+                        .items_end()
+                        .gap_3()
+                        .child(div().min_w_0().flex_1().child(app.composer.clone()))
+                        .child(action),
+                )
+                .children(request_summary.map(|summary| {
+                    div()
+                        .pt_2()
+                        .px_2()
+                        .text_xs()
+                        .text_color(colors.muted)
+                        .child(summary)
+                })),
         )
-        .into_any_element()
-}
-
-fn settings_card(
-    title: impl Into<SharedString>,
-    detail: &str,
-    action: impl IntoElement,
-    colors: Colors,
-) -> AnyElement {
-    div()
-        .rounded_xl()
-        .border_1()
-        .border_color(colors.border)
-        .bg(colors.panel)
-        .p_5()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .child(div().font_weight(FontWeight::SEMIBOLD).child(title.into()))
-        .child(
-            div()
-                .text_sm()
-                .text_color(colors.muted)
-                .child(detail.to_string()),
-        )
-        .child(div().pt_2().child(action))
         .into_any_element()
 }
 
@@ -738,6 +713,71 @@ fn render_inspector(
 ) -> AnyElement {
     let model = app.current_model();
     let provider = app.current_provider();
+    let request_details = if let Some(request) = app.current_request() {
+        let status = match request.status {
+            RequestStatus::Sending => "Sending",
+            RequestStatus::Streaming => "Streaming",
+            RequestStatus::Stopped => "Stopped",
+            RequestStatus::Failed => "Failed",
+            RequestStatus::Completed => "Completed",
+            RequestStatus::Interrupted => "Interrupted",
+        };
+        div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(inspector_field("Request status", status, colors))
+            .child(inspector_field(
+                "Input tokens",
+                &format_token_count(request.usage.input_tokens, request.usage.estimated),
+                colors,
+            ))
+            .child(inspector_field(
+                "Output tokens",
+                &format_token_count(request.usage.output_tokens, request.usage.estimated),
+                colors,
+            ))
+            .child(inspector_field(
+                "First token",
+                &request
+                    .ttft_ms
+                    .map_or_else(|| "—".into(), |value| format!("{value} ms")),
+                colors,
+            ))
+            .child(inspector_field(
+                "Total time",
+                &request
+                    .duration_ms
+                    .map_or_else(|| "—".into(), |value| format!("{value} ms")),
+                colors,
+            ))
+            .children(request.error.as_ref().map(|error| {
+                div()
+                    .rounded_lg()
+                    .bg(colors.raised)
+                    .p_3()
+                    .text_sm()
+                    .text_color(colors.danger)
+                    .child(error.message.clone())
+                    .children(error.detail.clone().map(|detail| {
+                        div()
+                            .pt_2()
+                            .text_xs()
+                            .text_color(colors.muted)
+                            .child(detail)
+                    }))
+            }))
+            .into_any_element()
+    } else {
+        div()
+            .rounded_lg()
+            .bg(colors.raised)
+            .p_3()
+            .text_sm()
+            .text_color(colors.muted)
+            .child("No request information yet.")
+            .into_any_element()
+    };
     div()
         .w(px(328.0))
         .h_full()
@@ -787,17 +827,21 @@ fn render_inspector(
             &app.current_messages().len().to_string(),
             colors,
         ))
-        .child(
-            div()
-                .mt_2()
-                .rounded_lg()
-                .bg(colors.raised)
-                .p_3()
-                .text_sm()
-                .text_color(colors.muted)
-                .child("Model parameters and request information are added in later stages."),
-        )
+        .child(request_details)
         .into_any_element()
+}
+
+fn format_token_count(value: Option<u64>, estimated: bool) -> String {
+    value.map_or_else(
+        || "—".into(),
+        |value| {
+            if estimated {
+                format!("~{value}")
+            } else {
+                value.to_string()
+            }
+        },
+    )
 }
 
 fn inspector_field(label: &str, value: &str, colors: Colors) -> AnyElement {
@@ -815,7 +859,7 @@ fn inspector_field(label: &str, value: &str, colors: Colors) -> AnyElement {
         .into_any_element()
 }
 
-fn button(
+pub(crate) fn button(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
     colors: Colors,

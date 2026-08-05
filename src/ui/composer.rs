@@ -3,12 +3,49 @@ use std::{cell::RefCell, ops::Range, rc::Rc};
 use gpui::{
     App, AvailableSpace, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId,
     ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle, Focusable,
-    GlobalElementId, KeyBinding, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, PaintQuad, Pixels, Point, SharedString, Style, TextAlign, TextRun,
+    GlobalElementId, Hsla, KeyBinding, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, PaintQuad, Pixels, Point, Rgba, SharedString, Style, TextAlign, TextRun,
     UTF16Selection, UnderlineStyle, Window, WrappedLine, actions, div, fill, point, prelude::*, px,
     relative, rgb, rgba, size,
 };
 use unicode_segmentation::UnicodeSegmentation;
+
+#[derive(Clone, Copy)]
+struct InputPalette {
+    text: Hsla,
+    placeholder: Hsla,
+    background: Rgba,
+    border: Rgba,
+    focused_border: Rgba,
+    cursor: Rgba,
+    selection: Rgba,
+}
+
+impl InputPalette {
+    fn for_inherited_text(text: Hsla) -> Self {
+        if text.l > 0.55 {
+            Self {
+                text,
+                placeholder: rgb(0x9299a6).into(),
+                background: rgb(0x1d2024),
+                border: rgb(0x454b55),
+                focused_border: rgb(0x7aa7ff),
+                cursor: rgb(0x7aa7ff),
+                selection: rgba(0x5b8cff52),
+            }
+        } else {
+            Self {
+                text,
+                placeholder: rgb(0x9298a5).into(),
+                background: rgb(0xffffff),
+                border: rgb(0xcfd3da),
+                focused_border: rgb(0x4f7fe8),
+                cursor: rgb(0x2563eb),
+                selection: rgba(0x3377ff38),
+            }
+        }
+    }
+}
 
 actions!(
     composer,
@@ -98,6 +135,14 @@ impl Composer {
         Self::configured(text, placeholder, true, false, cx)
     }
 
+    pub fn multiline(
+        text: impl Into<String>,
+        placeholder: impl Into<SharedString>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        Self::configured(text, placeholder, false, false, cx)
+    }
+
     fn configured(
         text: impl Into<String>,
         placeholder: impl Into<SharedString>,
@@ -127,6 +172,29 @@ impl Composer {
 
     pub fn focus_handle(&self, _: &App) -> FocusHandle {
         self.focus_handle.clone()
+    }
+
+    pub fn text(&self) -> &str {
+        &self.editor.text
+    }
+
+    pub fn set_text(&mut self, text: impl Into<String>, cx: &mut Context<Self>) {
+        self.editor.text = text.into();
+        self.editor.move_to(self.editor.text.len());
+        self.marked_range = None;
+        self.changed(cx);
+    }
+
+    pub fn take_text(&mut self, cx: &mut Context<Self>) -> Option<String> {
+        if self.editor.text.trim().is_empty() {
+            return None;
+        }
+        let text = std::mem::take(&mut self.editor.text);
+        self.editor.selection = 0..0;
+        self.editor.selection_reversed = false;
+        self.marked_range = None;
+        self.changed(cx);
+        Some(text)
     }
 
     fn changed(&mut self, cx: &mut Context<Self>) {
@@ -469,6 +537,7 @@ impl EntityInputHandler for Composer {
 
 impl Render for Composer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let palette = InputPalette::for_inherited_text(window.text_style().color);
         div()
             .key_context("Composer")
             .track_focus(&self.focus_handle(cx))
@@ -476,11 +545,12 @@ impl Render for Composer {
             .rounded_xl()
             .border_1()
             .border_color(if self.focus_handle.is_focused(window) {
-                rgb(0x7aa7f7)
+                palette.focused_border
             } else {
-                rgb(0xcfd3da)
+                palette.border
             })
-            .bg(rgb(0xffffff))
+            .bg(palette.background)
+            .text_color(palette.text)
             .p_3()
             .on_action(cx.listener(Self::backspace))
             .on_action(cx.listener(Self::delete))
@@ -573,6 +643,7 @@ impl Element for TextElement {
         let text_style = window.text_style();
         let font = text_style.font();
         let text_color = text_style.color;
+        let placeholder_color = InputPalette::for_inherited_text(text_color).placeholder;
         let font_size = text_style.font_size.to_pixels(window.rem_size());
         let line_height = text_style.line_height_in_pixels(window.rem_size());
         let requested_layout = RequestedLayout::default();
@@ -583,7 +654,7 @@ impl Element for TextElement {
                 let input = input.read(cx);
                 let content: SharedString = input.editor.text.clone().into();
                 let (display_text, color, marked_range) = if content.is_empty() {
-                    (input.placeholder.clone(), rgb(0x9298a5).into(), None)
+                    (input.placeholder.clone(), placeholder_color, None)
                 } else {
                     (content, text_color, input.marked_range.clone())
                 };
@@ -632,7 +703,9 @@ impl Element for TextElement {
         cx: &mut App,
     ) -> Self::PrepaintState {
         let input = self.input.read(cx);
-        let line_height = window.text_style().line_height_in_pixels(window.rem_size());
+        let text_style = window.text_style();
+        let palette = InputPalette::for_inherited_text(text_style.color);
+        let line_height = text_style.line_height_in_pixels(window.rem_size());
         let layout = requested_layout
             .0
             .borrow()
@@ -647,9 +720,9 @@ impl Element for TextElement {
                 ),
                 size(px(1.5), line_height),
             ),
-            rgb(0x2563eb),
+            palette.cursor,
         );
-        let selection = layout.selection_quads(bounds, &input.editor.selection);
+        let selection = layout.selection_quads(bounds, &input.editor.selection, palette.selection);
 
         PrepaintState {
             layout,
@@ -838,7 +911,12 @@ impl InputLayout {
         (line.range.start + local).min(line.range.end)
     }
 
-    fn selection_quads(&self, bounds: Bounds<Pixels>, selection: &Range<usize>) -> Vec<PaintQuad> {
+    fn selection_quads(
+        &self,
+        bounds: Bounds<Pixels>,
+        selection: &Range<usize>,
+        color: Rgba,
+    ) -> Vec<PaintQuad> {
         if selection.is_empty() {
             return Vec::new();
         }
@@ -888,7 +966,7 @@ impl InputLayout {
                         ),
                         size((x2 - x1).max(px(1.0)), self.line_height),
                     ),
-                    rgba(0x3377ff38),
+                    color,
                 ));
             }
 
@@ -911,7 +989,7 @@ impl InputLayout {
                             self.line_height,
                         ),
                     ),
-                    rgba(0x3377ff38),
+                    color,
                 ));
             }
         }
@@ -1036,6 +1114,18 @@ fn range_from_utf16_in(text: &str, range: &Range<usize>) -> Range<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn input_palette_keeps_background_contrasted_with_inherited_text() {
+        let dark = InputPalette::for_inherited_text(rgb(0xf3f4f6).into());
+        assert_eq!(dark.background, rgb(0x1d2024));
+        assert_eq!(dark.placeholder, rgb(0x9299a6).into());
+        assert_ne!(dark.background, rgb(0xffffff));
+
+        let light = InputPalette::for_inherited_text(rgb(0x202124).into());
+        assert_eq!(light.background, rgb(0xffffff));
+        assert_eq!(light.placeholder, rgb(0x9298a5).into());
+    }
 
     #[test]
     fn translates_utf16_ranges_for_ime_text() {

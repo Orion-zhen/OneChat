@@ -55,6 +55,24 @@ impl ProviderKind {
             Self::Gemini => "Gemini",
         }
     }
+
+    pub fn default_endpoint(self) -> &'static str {
+        match self {
+            Self::OpenAi => "https://api.openai.com/v1",
+            Self::OpenAiCompatible => "",
+            Self::Anthropic => "https://api.anthropic.com/v1",
+            Self::Gemini => "https://generativelanguage.googleapis.com/v1beta",
+        }
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            Self::OpenAi => Self::OpenAiCompatible,
+            Self::OpenAiCompatible => Self::Anthropic,
+            Self::Anthropic => Self::Gemini,
+            Self::Gemini => Self::OpenAi,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -78,7 +96,7 @@ impl Provider {
             id: new_id("provider"),
             name: name.into(),
             kind,
-            endpoint: String::new(),
+            endpoint: kind.default_endpoint().into(),
             api_key: String::new(),
             headers: BTreeMap::new(),
             proxy: None,
@@ -127,6 +145,7 @@ impl Default for ModelCapabilities {
 }
 
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
+#[serde(default)]
 pub struct GenerationConfig {
     pub temperature: Option<f64>,
     pub top_p: Option<f64>,
@@ -345,6 +364,8 @@ pub struct RequestInfo {
     pub started_at: Timestamp,
     pub first_token_at: Option<Timestamp>,
     pub finished_at: Option<Timestamp>,
+    pub ttft_ms: Option<u64>,
+    pub duration_ms: Option<u64>,
 }
 
 impl RequestInfo {
@@ -364,6 +385,8 @@ impl RequestInfo {
             started_at: now_timestamp(),
             first_token_at: None,
             finished_at: None,
+            ttft_ms: None,
+            duration_ms: None,
         }
     }
 }

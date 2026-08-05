@@ -15,6 +15,82 @@ use crate::model::{
 };
 
 const APP_SETTINGS_KEY: &str = "app";
+const EXPECTED_SCHEMA: &[(&str, &[&str])] = &[
+    (
+        "providers",
+        &[
+            "id",
+            "name",
+            "kind",
+            "endpoint",
+            "api_key",
+            "headers_json",
+            "proxy",
+            "enabled",
+            "created_at",
+            "updated_at",
+        ],
+    ),
+    (
+        "models",
+        &[
+            "id",
+            "provider_id",
+            "remote_id",
+            "display_name",
+            "capabilities_json",
+            "default_config_json",
+            "created_at",
+            "updated_at",
+        ],
+    ),
+    (
+        "conversations",
+        &[
+            "id",
+            "title",
+            "model_id",
+            "system_prompt_json",
+            "generation_config_json",
+            "pinned",
+            "created_at",
+            "updated_at",
+        ],
+    ),
+    (
+        "messages",
+        &[
+            "id",
+            "conversation_id",
+            "request_id",
+            "role",
+            "status",
+            "content",
+            "thinking",
+            "created_at",
+            "updated_at",
+        ],
+    ),
+    (
+        "requests",
+        &[
+            "id",
+            "conversation_id",
+            "assistant_message_id",
+            "provider_id",
+            "model_id",
+            "status",
+            "usage_json",
+            "error_json",
+            "started_at",
+            "first_token_at",
+            "finished_at",
+            "ttft_ms",
+            "duration_ms",
+        ],
+    ),
+    ("settings", &["key", "value_json"]),
+];
 
 pub type DbResult<T> = std::result::Result<T, DbError>;
 type Result<T> = DbResult<T>;
@@ -56,6 +132,13 @@ impl From<serde_json::Error> for DbError {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SchemaState {
+    Empty,
+    Current,
+    Incompatible,
+}
+
 #[derive(Clone, Debug)]
 pub struct Database {
     path: PathBuf,
@@ -67,6 +150,7 @@ pub struct DatabaseSnapshot {
     pub models: Vec<Model>,
     pub conversations: Vec<Conversation>,
     pub current_messages: Vec<Message>,
+    pub current_requests: Vec<RequestInfo>,
     pub settings: AppSettings,
 }
 
@@ -92,6 +176,9 @@ impl Database {
             fs::create_dir_all(parent)?;
         }
         let database = Self { path };
+        if database.schema_state()? == SchemaState::Incompatible {
+            database.reset_files()?;
+        }
         database.initialize()?;
         Ok(database)
     }
@@ -101,6 +188,53 @@ impl Database {
         connection.pragma_update(None, "foreign_keys", true)?;
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
         Ok(connection)
+    }
+
+    fn schema_state(&self) -> Result<SchemaState> {
+        let connection = self.connect()?;
+        let mut statement = connection.prepare(
+            "SELECT name FROM sqlite_master
+             WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+        )?;
+        let tables = statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        if tables.is_empty() {
+            return Ok(SchemaState::Empty);
+        }
+
+        let mut expected_tables = EXPECTED_SCHEMA
+            .iter()
+            .map(|(table, _)| (*table).to_string())
+            .collect::<Vec<_>>();
+        expected_tables.sort();
+        if tables != expected_tables {
+            return Ok(SchemaState::Incompatible);
+        }
+
+        for (table, expected_columns) in EXPECTED_SCHEMA {
+            let mut statement = connection.prepare(&format!("PRAGMA table_info(\"{table}\")"))?;
+            let columns = statement
+                .query_map([], |row| row.get::<_, String>(1))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            if columns != *expected_columns {
+                return Ok(SchemaState::Incompatible);
+            }
+        }
+        Ok(SchemaState::Current)
+    }
+
+    fn reset_files(&self) -> Result<()> {
+        for suffix in ["", "-wal", "-shm", "-journal"] {
+            let mut path = self.path.as_os_str().to_os_string();
+            path.push(suffix);
+            match fs::remove_file(PathBuf::from(path)) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(())
     }
 
     fn initialize(&self) -> Result<()> {
@@ -165,7 +299,9 @@ impl Database {
                 error_json TEXT,
                 started_at INTEGER NOT NULL,
                 first_token_at INTEGER,
-                finished_at INTEGER
+                finished_at INTEGER,
+                ttft_ms INTEGER,
+                duration_ms INTEGER
             );
 
             CREATE TABLE IF NOT EXISTS settings (
@@ -191,15 +327,17 @@ impl Database {
 
     pub fn load_snapshot(&self) -> Result<DatabaseSnapshot> {
         let settings = self.load_settings()?;
-        let current_messages = match settings.current_conversation_id.as_deref() {
-            Some(id) => self.list_messages(id)?,
-            None => Vec::new(),
+        let (current_messages, current_requests) = match settings.current_conversation_id.as_deref()
+        {
+            Some(id) => (self.list_messages(id)?, self.list_requests(id)?),
+            None => (Vec::new(), Vec::new()),
         };
         Ok(DatabaseSnapshot {
             providers: self.list_providers()?,
             models: self.list_models()?,
             conversations: self.list_conversations()?,
             current_messages,
+            current_requests,
             settings,
         })
     }
@@ -497,12 +635,37 @@ impl Database {
         Ok(())
     }
 
-    pub fn insert_request(&self, request: &RequestInfo) -> Result<()> {
-        self.connect()?.execute(
+    pub fn begin_generation(
+        &self,
+        user: &Message,
+        assistant: &Message,
+        request: &RequestInfo,
+    ) -> Result<()> {
+        let mut connection = self.connect()?;
+        let transaction = connection.transaction()?;
+        for message in [user, assistant] {
+            transaction.execute(
+                "INSERT INTO messages
+                 (id, conversation_id, request_id, role, status, content, thinking,
+                  created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                params![
+                    message.id,
+                    message.conversation_id,
+                    message.request_id,
+                    message.role.as_str(),
+                    message.status.as_str(),
+                    message.content,
+                    message.thinking,
+                    message.created_at,
+                    message.updated_at,
+                ],
+            )?;
+        }
+        transaction.execute(
             "INSERT INTO requests
              (id, conversation_id, assistant_message_id, provider_id, model_id, status,
-              usage_json, error_json, started_at, first_token_at, finished_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              usage_json, error_json, started_at, first_token_at, finished_at, ttft_ms, duration_ms)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 request.id,
                 request.conversation_id,
@@ -515,6 +678,71 @@ impl Database {
                 request.started_at,
                 request.first_token_at,
                 request.finished_at,
+                sql_u64(request.ttft_ms),
+                sql_u64(request.duration_ms),
+            ],
+        )?;
+        transaction.execute(
+            "UPDATE conversations SET updated_at = ? WHERE id = ?",
+            params![user.created_at, user.conversation_id],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn persist_generation(&self, assistant: &Message, request: &RequestInfo) -> Result<()> {
+        let mut connection = self.connect()?;
+        let transaction = connection.transaction()?;
+        transaction.execute(
+            "UPDATE messages SET request_id = ?, status = ?, content = ?, thinking = ?,
+             updated_at = ? WHERE id = ?",
+            params![
+                assistant.request_id,
+                assistant.status.as_str(),
+                assistant.content,
+                assistant.thinking,
+                assistant.updated_at,
+                assistant.id,
+            ],
+        )?;
+        transaction.execute(
+            "UPDATE requests SET status = ?, usage_json = ?, error_json = ?, first_token_at = ?,
+             finished_at = ?, ttft_ms = ?, duration_ms = ? WHERE id = ?",
+            params![
+                request.status.as_str(),
+                to_json(&request.usage)?,
+                optional_json(request.error.as_ref())?,
+                request.first_token_at,
+                request.finished_at,
+                sql_u64(request.ttft_ms),
+                sql_u64(request.duration_ms),
+                request.id,
+            ],
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    pub fn insert_request(&self, request: &RequestInfo) -> Result<()> {
+        self.connect()?.execute(
+            "INSERT INTO requests
+             (id, conversation_id, assistant_message_id, provider_id, model_id, status,
+              usage_json, error_json, started_at, first_token_at, finished_at, ttft_ms, duration_ms)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params![
+                request.id,
+                request.conversation_id,
+                request.assistant_message_id,
+                request.provider_id,
+                request.model_id,
+                request.status.as_str(),
+                to_json(&request.usage)?,
+                optional_json(request.error.as_ref())?,
+                request.started_at,
+                request.first_token_at,
+                request.finished_at,
+                sql_u64(request.ttft_ms),
+                sql_u64(request.duration_ms),
             ],
         )?;
         Ok(())
@@ -524,7 +752,7 @@ impl Database {
         self.connect()?.execute(
             "UPDATE requests SET conversation_id = ?, assistant_message_id = ?, provider_id = ?,
              model_id = ?, status = ?, usage_json = ?, error_json = ?, started_at = ?,
-             first_token_at = ?, finished_at = ? WHERE id = ?",
+             first_token_at = ?, finished_at = ?, ttft_ms = ?, duration_ms = ? WHERE id = ?",
             params![
                 request.conversation_id,
                 request.assistant_message_id,
@@ -536,6 +764,8 @@ impl Database {
                 request.started_at,
                 request.first_token_at,
                 request.finished_at,
+                sql_u64(request.ttft_ms),
+                sql_u64(request.duration_ms),
                 request.id,
             ],
         )?;
@@ -547,8 +777,8 @@ impl Database {
         Ok(connection
             .query_row(
                 "SELECT id, conversation_id, assistant_message_id, provider_id, model_id,
-                 status, usage_json, error_json, started_at, first_token_at, finished_at
-                 FROM requests WHERE id = ?",
+                 status, usage_json, error_json, started_at, first_token_at, finished_at,
+                 ttft_ms, duration_ms FROM requests WHERE id = ?",
                 [id],
                 request_from_row,
             )
@@ -559,8 +789,9 @@ impl Database {
         let connection = self.connect()?;
         let mut statement = connection.prepare(
             "SELECT id, conversation_id, assistant_message_id, provider_id, model_id,
-             status, usage_json, error_json, started_at, first_token_at, finished_at
-             FROM requests WHERE conversation_id = ? ORDER BY started_at DESC, id DESC",
+             status, usage_json, error_json, started_at, first_token_at, finished_at,
+             ttft_ms, duration_ms FROM requests WHERE conversation_id = ?
+             ORDER BY started_at DESC, id DESC",
         )?;
         Ok(statement
             .query_map([conversation_id], request_from_row)?
@@ -695,6 +926,8 @@ fn request_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RequestInfo> {
         started_at: row.get(8)?,
         first_token_at: row.get(9)?,
         finished_at: row.get(10)?,
+        ttft_ms: row.get::<_, Option<i64>>(11)?.map(|value| value as u64),
+        duration_ms: row.get::<_, Option<i64>>(12)?.map(|value| value as u64),
     })
 }
 
@@ -785,6 +1018,10 @@ fn optional_json_from_column<T: DeserializeOwned>(
         })
     })
     .transpose()
+}
+
+fn sql_u64(value: Option<u64>) -> Option<i64> {
+    value.map(|value| value.min(i64::MAX as u64) as i64)
 }
 
 fn escape_like(query: &str) -> String {
@@ -949,6 +1186,54 @@ mod tests {
     }
 
     #[test]
+    fn generation_rows_are_started_and_finalized_together() {
+        let test = TestDatabase::new();
+        let database = &test.database;
+        let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+        database.insert_provider(&provider).unwrap();
+        let model = Model::new(&provider.id, "gpt-test", "GPT Test");
+        database.insert_model(&model).unwrap();
+        let conversation = Conversation::new("Generation", Some(&model));
+        database.insert_conversation(&conversation).unwrap();
+        let user = Message::new(&conversation.id, MessageRole::User, "Hello");
+        let mut assistant = Message::new(&conversation.id, MessageRole::Assistant, "");
+        assistant.status = MessageStatus::Streaming;
+        let mut request = RequestInfo::new(&conversation.id, &assistant.id);
+        request.provider_id = Some(provider.id);
+        request.model_id = Some(model.id);
+        assistant.request_id = Some(request.id.clone());
+
+        database
+            .begin_generation(&user, &assistant, &request)
+            .unwrap();
+        assert_eq!(database.list_messages(&conversation.id).unwrap().len(), 2);
+        assert_eq!(
+            database.get_request(&request.id).unwrap().unwrap().status,
+            RequestStatus::Sending
+        );
+
+        assistant.content = "Hi".into();
+        assistant.status = MessageStatus::Completed;
+        request.status = RequestStatus::Completed;
+        request.ttft_ms = Some(25);
+        request.duration_ms = Some(80);
+        database.persist_generation(&assistant, &request).unwrap();
+
+        assert_eq!(
+            database
+                .get_message(&assistant.id)
+                .unwrap()
+                .unwrap()
+                .content,
+            "Hi"
+        );
+        let restored = database.get_request(&request.id).unwrap().unwrap();
+        assert_eq!(restored.status, RequestStatus::Completed);
+        assert_eq!(restored.ttft_ms, Some(25));
+        assert_eq!(restored.duration_ms, Some(80));
+    }
+
+    #[test]
     fn restart_restores_snapshot_and_interrupts_unfinished_generation() {
         let test = TestDatabase::new();
         let database = &test.database;
@@ -983,9 +1268,56 @@ mod tests {
             MessageStatus::Interrupted
         );
         assert_eq!(
+            snapshot.current_requests[0].status,
+            RequestStatus::Interrupted
+        );
+        assert_eq!(
             reopened.list_requests(&conversation.id).unwrap()[0].status,
             RequestStatus::Interrupted
         );
+    }
+
+    #[test]
+    fn incompatible_columns_reset_the_database_on_open() {
+        let test = TestDatabase::new();
+        let provider = Provider::new("Will be reset", ProviderKind::OpenAi);
+        test.database.insert_provider(&provider).unwrap();
+
+        let connection = Connection::open(&test.path).unwrap();
+        connection
+            .execute_batch(
+                "ALTER TABLE requests RENAME TO requests_current;
+                 CREATE TABLE requests (
+                    id TEXT PRIMARY KEY,
+                    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+                    assistant_message_id TEXT NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+                    provider_id TEXT,
+                    model_id TEXT,
+                    status TEXT NOT NULL,
+                    usage_json TEXT NOT NULL,
+                    error_json TEXT,
+                    started_at INTEGER NOT NULL,
+                    first_token_at INTEGER,
+                    finished_at INTEGER
+                 );
+                 DROP TABLE requests_current;",
+            )
+            .unwrap();
+        drop(connection);
+
+        let reopened = Database::open(&test.path).unwrap();
+        assert_eq!(reopened.schema_state().unwrap(), SchemaState::Current);
+        assert!(reopened.list_providers().unwrap().is_empty());
+        let columns = Connection::open(&test.path)
+            .unwrap()
+            .prepare("PRAGMA table_info(requests)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap();
+        assert!(columns.contains(&"ttft_ms".into()));
+        assert!(columns.contains(&"duration_ms".into()));
     }
 
     #[test]

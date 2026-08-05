@@ -4,9 +4,14 @@ edition = "2024"
 description = "A minimal cross-platform LLM chat app"
 
 [dependencies]
+async-channel = "*"
 chrono = "*"
+futures-util = "*"
 gpui = "*"
+reqwest = { version = "*", features = ["json", "socks", "stream"] }
 rusqlite = "*"
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"
+tokio = { version = "*", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio-util = { version = "*", features = ["rt"] }
 unicode-segmentation = "*"

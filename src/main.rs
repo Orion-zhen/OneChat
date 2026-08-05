@@ -1,6 +1,8 @@
 mod app;
 pub mod db;
+pub mod generation;
 pub mod model;
+pub mod providers;
 pub mod ui;
 
 use std::sync::Arc;
@@ -11,6 +13,12 @@ use gpui::{App, Application, Bounds, WindowBounds, WindowOptions, prelude::*, px
 
 fn main() {
     let database = Arc::new(Database::open_default().expect("failed to open OneChat database"));
+    let runtime = Arc::new(
+        tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("failed to start network runtime"),
+    );
     Application::new().run(move |cx: &mut App| {
         ui::init(cx);
 
@@ -24,7 +32,8 @@ fn main() {
                 },
                 {
                     let database = database.clone();
-                    move |_, cx| cx.new(|cx| OneChat::new(database, cx))
+                    let runtime = runtime.clone();
+                    move |_, cx| cx.new(|cx| OneChat::new(database, runtime, cx))
                 },
             )
             .expect("failed to open OneChat window");
