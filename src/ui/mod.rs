@@ -1,4 +1,6 @@
 pub mod composer;
+pub mod shell;
+pub mod stream;
 
 use gpui::App;
 

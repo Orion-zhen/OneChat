@@ -1,11 +1,17 @@
 mod app;
-mod ui;
+pub mod db;
+pub mod model;
+pub mod ui;
+
+use std::sync::Arc;
 
 use app::OneChat;
+use db::Database;
 use gpui::{App, Application, Bounds, WindowBounds, WindowOptions, prelude::*, px, size};
 
 fn main() {
-    Application::new().run(|cx: &mut App| {
+    let database = Arc::new(Database::open_default().expect("failed to open OneChat database"));
+    Application::new().run(move |cx: &mut App| {
         ui::init(cx);
 
         let bounds = Bounds::centered(None, size(px(1100.0), px(760.0)), cx);
@@ -16,13 +22,16 @@ fn main() {
                     window_min_size: Some(size(px(900.0), px(640.0))),
                     ..Default::default()
                 },
-                |_, cx| cx.new(OneChat::new),
+                {
+                    let database = database.clone();
+                    move |_, cx| cx.new(|cx| OneChat::new(database, cx))
+                },
             )
             .expect("failed to open OneChat window");
 
         window
             .update(cx, |app, window, cx| {
-                window.focus(&app.composer_focus_handle(cx));
+                window.focus(&app.initial_focus_handle(cx));
                 cx.activate(true);
             })
             .expect("failed to initialize OneChat window");

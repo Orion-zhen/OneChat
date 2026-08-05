@@ -34,6 +34,7 @@ actions!(
         Cut,
         Copy,
         ShowCharacterPalette,
+        Cancel,
     ]
 );
 
@@ -60,12 +61,15 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("cmd-x", Cut, Some("Composer")),
         KeyBinding::new("cmd-c", Copy, Some("Composer")),
         KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, Some("Composer")),
+        KeyBinding::new("escape", Cancel, Some("Composer")),
     ]);
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ComposerEvent {
+    Changed(String),
     Submit(String),
+    Cancel,
 }
 
 pub struct Composer {
@@ -77,19 +81,47 @@ pub struct Composer {
     last_bounds: Option<Bounds<Pixels>>,
     is_selecting: bool,
     scroll_handle: gpui::ScrollHandle,
+    single_line: bool,
+    clear_on_submit: bool,
 }
 
 impl Composer {
     pub fn new(cx: &mut Context<Self>) -> Self {
+        Self::configured("", "Message OneChat…", false, true, cx)
+    }
+
+    pub fn single_line(
+        text: impl Into<String>,
+        placeholder: impl Into<SharedString>,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        Self::configured(text, placeholder, true, false, cx)
+    }
+
+    fn configured(
+        text: impl Into<String>,
+        placeholder: impl Into<SharedString>,
+        single_line: bool,
+        clear_on_submit: bool,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let text = text.into();
+        let cursor = text.len();
         Self {
             focus_handle: cx.focus_handle(),
-            editor: EditorState::default(),
-            placeholder: "Message OneChat…".into(),
+            editor: EditorState {
+                text,
+                selection: cursor..cursor,
+                selection_reversed: false,
+            },
+            placeholder: placeholder.into(),
             marked_range: None,
             last_layout: None,
             last_bounds: None,
             is_selecting: false,
             scroll_handle: gpui::ScrollHandle::new(),
+            single_line,
+            clear_on_submit,
         }
     }
 
@@ -99,6 +131,7 @@ impl Composer {
 
     fn changed(&mut self, cx: &mut Context<Self>) {
         self.scroll_handle.scroll_to_bottom();
+        cx.emit(ComposerEvent::Changed(self.editor.text.clone()));
         cx.notify();
     }
 
@@ -217,6 +250,9 @@ impl Composer {
     }
 
     fn newline(&mut self, _: &Newline, _: &mut Window, cx: &mut Context<Self>) {
+        if self.single_line {
+            return;
+        }
         self.editor.replace_selection("\n");
         self.marked_range = None;
         self.changed(cx);
@@ -226,12 +262,19 @@ impl Composer {
         if self.editor.text.trim().is_empty() {
             return;
         }
-        let text = std::mem::take(&mut self.editor.text);
-        self.editor.selection = 0..0;
-        self.editor.selection_reversed = false;
-        self.marked_range = None;
-        self.changed(cx);
+        let text = self.editor.text.clone();
+        if self.clear_on_submit {
+            self.editor.text.clear();
+            self.editor.selection = 0..0;
+            self.editor.selection_reversed = false;
+            self.marked_range = None;
+            self.changed(cx);
+        }
         cx.emit(ComposerEvent::Submit(text));
+    }
+
+    fn cancel(&mut self, _: &Cancel, _: &mut Window, cx: &mut Context<Self>) {
+        cx.emit(ComposerEvent::Cancel);
     }
 
     fn show_character_palette(
@@ -460,6 +503,7 @@ impl Render for Composer {
             .on_action(cx.listener(Self::paste))
             .on_action(cx.listener(Self::cut))
             .on_action(cx.listener(Self::copy))
+            .on_action(cx.listener(Self::cancel))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
@@ -468,7 +512,11 @@ impl Render for Composer {
                 div()
                     .id("composer-input-scroll")
                     .w_full()
-                    .max_h(px(196.0))
+                    .max_h(if self.single_line {
+                        px(24.0)
+                    } else {
+                        px(196.0)
+                    })
                     .overflow_y_scroll()
                     .track_scroll(&self.scroll_handle)
                     .line_height(px(24.0))

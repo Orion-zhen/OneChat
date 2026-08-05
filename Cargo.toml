@@ -4,5 +4,9 @@ edition = "2024"
 description = "A minimal cross-platform LLM chat app"
 
 [dependencies]
+chrono = "*"
 gpui = "*"
+rusqlite = "*"
+serde = { version = "*", features = ["derive"] }
+serde_json = "*"
 unicode-segmentation = "*"
