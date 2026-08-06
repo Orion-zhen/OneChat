@@ -31,6 +31,7 @@ use crate::{
     desktop::ui::{
         composer::{Composer, ComposerEvent, PickerDirection},
         inspector::{GenerationConfigEditor, InspectorTab},
+        selectable_text::TextSelection,
         settings::{Capability, ModelEditor, ProviderEditor, SettingsSection},
         shell,
         stream::follow_after_scroll,
@@ -228,6 +229,7 @@ impl OneChat {
         })
         .detach();
 
+        let text_selection = TextSelection::new(cx.focus_handle());
         let mut this = Self {
             root_focus,
             services: Services { storage, runtime },
@@ -269,6 +271,7 @@ impl OneChat {
                 collapsed_thinking_ids: HashSet::new(),
                 message_editor: None,
                 message_scroll: ScrollHandle::new(),
+                text_selection,
                 thinking_scrolls: HashMap::new(),
                 thinking_motions: HashMap::new(),
                 thinking_started_at: HashMap::new(),

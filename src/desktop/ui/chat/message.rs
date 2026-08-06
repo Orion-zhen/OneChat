@@ -8,12 +8,12 @@ pub(super) fn render_message(
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     match message.role {
-        MessageRole::User => render_user_message(message, colors),
+        MessageRole::User => render_user_message(app, message, colors),
         MessageRole::Assistant => render_assistant_message(app, message, colors, scale_factor, cx),
     }
 }
 
-fn render_user_message(message: &Message, colors: Colors) -> AnyElement {
+fn render_user_message(app: &OneChat, message: &Message, colors: Colors) -> AnyElement {
     div()
         .mx_auto()
         .mb_7()
@@ -31,7 +31,12 @@ fn render_user_message(message: &Message, colors: Colors) -> AnyElement {
                 .text_color(colors.on_accent)
                 .whitespace_normal()
                 .line_height(px(23.0))
-                .child(message.content.clone()),
+                .child(SelectableText::new(
+                    SharedString::from(format!("user-message-content-{}", message.id)),
+                    message.content.clone(),
+                    app.chat.text_selection.clone(),
+                    rgba(0x00000038),
+                )),
         )
         .into_any_element()
 }
@@ -102,9 +107,20 @@ fn render_assistant_message(
             })
             .into_any_element()
     } else if let Some(document) = app.markdown_for(message) {
-        markdown::render(document, colors, scale_factor)
+        markdown::render(
+            document,
+            &message.id,
+            &app.chat.text_selection,
+            colors,
+            scale_factor,
+        )
     } else {
-        markdown::render_plain(&message.content, colors)
+        markdown::render_plain(
+            &message.content,
+            &message.id,
+            &app.chat.text_selection,
+            colors,
+        )
     };
 
     let latest = app.is_latest_assistant(&message.id);
@@ -326,7 +342,12 @@ fn render_reasoning(
         .whitespace_normal()
         .overflow_y_scroll()
         .pr_2()
-        .child(message.thinking.clone());
+        .child(SelectableText::new(
+            SharedString::from(format!("thinking-text-{}", message.id)),
+            message.thinking.clone(),
+            app.chat.text_selection.clone(),
+            selection_color(colors.dark),
+        ));
     let body = if let Some(scroll) = scroll.as_ref() {
         body.track_scroll(scroll)
     } else {

@@ -14,7 +14,7 @@ use system_prompt::prompt_preview;
 use std::time::Duration;
 
 use gpui::{
-    Animation, AnimationExt as _, AnyElement, Context, FontWeight, SharedString, div,
+    Animation, AnimationExt as _, AnyElement, Context, FontWeight, MouseButton, SharedString, div,
     ease_out_quint, prelude::*, px, rgba,
 };
 
@@ -25,6 +25,7 @@ use super::{
     },
     inspector::InspectorTab,
     markdown,
+    selectable_text::{SelectableText, selection_color},
     theme::Colors,
 };
 use crate::{
@@ -43,13 +44,33 @@ pub(crate) fn render(
         .expect("conversation page requires a current conversation");
     let has_system_prompt = !conversation.system_prompt.content.trim().is_empty();
     let editing_system_prompt = app.chat.system_prompt_mode == SystemPromptMode::Editing;
+    let text_selection = app.chat.text_selection.clone();
+    text_selection.begin_frame();
+    let selection_focus = text_selection.focus_handle().clone();
+    let selection_mouse_down = text_selection.clone();
+    let selection_mouse_move = text_selection.clone();
+    let selection_mouse_up = text_selection.clone();
+    let selection_mouse_up_out = text_selection.clone();
+    let selection_copy = text_selection.clone();
     let mut messages = div()
         .id("message-list")
         .min_h_0()
         .flex_1()
         .overflow_y_scroll()
         .track_scroll(&app.chat.message_scroll)
+        .track_focus(&selection_focus)
         .on_scroll_wheel(cx.listener(OneChat::on_message_scroll))
+        .on_mouse_down(MouseButton::Left, move |event, window, cx| {
+            selection_mouse_down.mouse_down(event, window, cx)
+        })
+        .on_mouse_move(move |event, window, _| selection_mouse_move.mouse_move(event, window))
+        .on_mouse_up(MouseButton::Left, move |event, window, _| {
+            selection_mouse_up.mouse_up(event, window)
+        })
+        .on_mouse_up_out(MouseButton::Left, move |event, window, _| {
+            selection_mouse_up_out.mouse_up(event, window)
+        })
+        .on_key_down(move |event, window, cx| selection_copy.copy(event, window, cx))
         .px_6()
         .pt_7()
         .pb_6()

@@ -4,6 +4,7 @@ pub mod composer;
 pub mod inspector;
 pub mod markdown;
 pub(crate) mod motion;
+pub(crate) mod selectable_text;
 pub mod settings;
 pub mod shell;
 pub mod stream;

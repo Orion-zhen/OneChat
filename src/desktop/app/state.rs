@@ -125,6 +125,7 @@ pub(crate) struct ChatState {
     pub(super) collapsed_thinking_ids: HashSet<String>,
     pub(super) message_editor: Option<MessageEditor>,
     pub(crate) message_scroll: ScrollHandle,
+    pub(crate) text_selection: TextSelection,
     pub(crate) thinking_scrolls: HashMap<String, ScrollHandle>,
     pub(crate) thinking_motions: HashMap<String, ThinkingMotion>,
     pub(crate) thinking_started_at: HashMap<String, Instant>,

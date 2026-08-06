@@ -5,41 +5,96 @@ use std::{
 
 use gpui::{AnyElement, FontWeight, Image, ImageFormat, SharedString, div, img, prelude::*, px};
 
-use super::theme::Colors;
+use super::{
+    selectable_text::{SelectableText, TextSelection, selection_color},
+    theme::Colors,
+};
 use crate::markdown::{
     Block, Formula, Inline, MarkdownDocument, TableAlignment, render_formula_cached,
 };
 
-pub(crate) fn render(document: &MarkdownDocument, colors: Colors, scale_factor: f32) -> AnyElement {
-    render_blocks(&document.blocks, colors, scale_factor)
+pub(crate) fn render(
+    document: &MarkdownDocument,
+    message_id: &str,
+    selection: &TextSelection,
+    colors: Colors,
+    scale_factor: f32,
+) -> AnyElement {
+    let mut text_index = 0;
+    render_blocks(
+        &document.blocks,
+        message_id,
+        &mut text_index,
+        selection,
+        colors,
+        scale_factor,
+    )
 }
 
-pub(crate) fn render_plain(source: &str, colors: Colors) -> AnyElement {
+pub(crate) fn render_plain(
+    source: &str,
+    message_id: &str,
+    selection: &TextSelection,
+    colors: Colors,
+) -> AnyElement {
     div()
         .whitespace_normal()
         .line_height(px(24.0))
-        .child(source.to_string())
+        .child(selectable(
+            message_id,
+            0,
+            source.to_string(),
+            selection,
+            colors,
+        ))
         .text_color(colors.text)
         .into_any_element()
 }
 
-fn render_blocks(blocks: &[Block], colors: Colors, scale_factor: f32) -> AnyElement {
+fn render_blocks(
+    blocks: &[Block],
+    message_id: &str,
+    text_index: &mut usize,
+    selection: &TextSelection,
+    colors: Colors,
+    scale_factor: f32,
+) -> AnyElement {
     div()
         .w_full()
         .flex()
         .flex_col()
         .gap_3()
-        .children(
-            blocks
-                .iter()
-                .map(|block| render_block(block, colors, scale_factor)),
-        )
+        .children(blocks.iter().map(|block| {
+            render_block(
+                block,
+                message_id,
+                text_index,
+                selection,
+                colors,
+                scale_factor,
+            )
+        }))
         .into_any_element()
 }
 
-fn render_block(block: &Block, colors: Colors, scale_factor: f32) -> AnyElement {
+fn render_block(
+    block: &Block,
+    message_id: &str,
+    text_index: &mut usize,
+    selection: &TextSelection,
+    colors: Colors,
+    scale_factor: f32,
+) -> AnyElement {
     match block {
-        Block::Paragraph(inlines) => render_inlines(inlines, colors, scale_factor, false),
+        Block::Paragraph(inlines) => render_inlines(
+            inlines,
+            message_id,
+            text_index,
+            selection,
+            colors,
+            scale_factor,
+            false,
+        ),
         Block::Heading(level, inlines) => div()
             .pt(if *level <= 2 { px(8.0) } else { px(4.0) })
             .text_size(match level {
@@ -49,7 +104,15 @@ fn render_block(block: &Block, colors: Colors, scale_factor: f32) -> AnyElement 
                 _ => px(16.0),
             })
             .font_weight(FontWeight::SEMIBOLD)
-            .child(render_inlines(inlines, colors, scale_factor, false))
+            .child(render_inlines(
+                inlines,
+                message_id,
+                text_index,
+                selection,
+                colors,
+                scale_factor,
+                false,
+            ))
             .into_any_element(),
         Block::Quote(blocks) => div()
             .w_full()
@@ -58,7 +121,14 @@ fn render_block(block: &Block, colors: Colors, scale_factor: f32) -> AnyElement 
             .pl_4()
             .py_1()
             .text_color(colors.muted)
-            .child(render_blocks(blocks, colors, scale_factor))
+            .child(render_blocks(
+                blocks,
+                message_id,
+                text_index,
+                selection,
+                colors,
+                scale_factor,
+            ))
             .into_any_element(),
         Block::List {
             ordered,
@@ -88,6 +158,9 @@ fn render_block(block: &Block, colors: Colors, scale_factor: f32) -> AnyElement 
                     )
                     .child(div().min_w_0().flex_1().child(render_blocks(
                         blocks,
+                        message_id,
+                        text_index,
+                        selection,
                         colors,
                         scale_factor,
                     )))
@@ -107,11 +180,17 @@ fn render_block(block: &Block, colors: Colors, scale_factor: f32) -> AnyElement 
                     .border_color(colors.border)
                     .text_xs()
                     .text_color(colors.muted)
-                    .child(if language.is_empty() {
-                        "Code".into()
-                    } else {
-                        language.clone()
-                    }),
+                    .child(selectable(
+                        message_id,
+                        next_text_index(text_index),
+                        if language.is_empty() {
+                            "Code".into()
+                        } else {
+                            language.clone()
+                        },
+                        selection,
+                        colors,
+                    )),
             )
             .child(
                 div()
@@ -122,7 +201,13 @@ fn render_block(block: &Block, colors: Colors, scale_factor: f32) -> AnyElement 
                     .font_family("SFMono-Regular")
                     .text_sm()
                     .whitespace_nowrap()
-                    .child(content.clone()),
+                    .child(selectable(
+                        message_id,
+                        next_text_index(text_index),
+                        content.clone(),
+                        selection,
+                        colors,
+                    )),
             )
             .into_any_element(),
         Block::Formula(formula) => render_formula_element(formula, colors, scale_factor),
@@ -130,7 +215,16 @@ fn render_block(block: &Block, colors: Colors, scale_factor: f32) -> AnyElement 
             alignments,
             header,
             rows,
-        } => render_table(alignments, header, rows, colors, scale_factor),
+        } => render_table(
+            alignments,
+            header,
+            rows,
+            message_id,
+            text_index,
+            selection,
+            colors,
+            scale_factor,
+        ),
         Block::Rule => div()
             .w_full()
             .h(px(1.0))
@@ -142,6 +236,9 @@ fn render_block(block: &Block, colors: Colors, scale_factor: f32) -> AnyElement 
 
 fn render_inlines(
     inlines: &[Inline],
+    message_id: &str,
+    text_index: &mut usize,
+    selection: &TextSelection,
     colors: Colors,
     scale_factor: f32,
     table_cell: bool,
@@ -172,7 +269,13 @@ fn render_inlines(
                             .text_sm()
                     })
                     .when(style.link, |element| element.text_color(colors.accent))
-                    .child(content)
+                    .child(selectable(
+                        message_id,
+                        next_text_index(text_index),
+                        content,
+                        selection,
+                        colors,
+                    ))
                     .into_any_element()
             }
             Inline::Formula(formula) => render_formula_element(formula, colors, scale_factor),
@@ -220,13 +323,16 @@ fn render_table(
     alignments: &[TableAlignment],
     header: &[Vec<Inline>],
     rows: &[Vec<Vec<Inline>>],
+    message_id: &str,
+    text_index: &mut usize,
+    selection: &TextSelection,
     colors: Colors,
     scale_factor: f32,
 ) -> AnyElement {
     let columns = header
         .len()
         .max(rows.iter().map(Vec::len).max().unwrap_or_default());
-    let render_row = |cells: &[Vec<Inline>], header_row: bool| {
+    let mut render_row = |cells: &[Vec<Inline>], header_row: bool| {
         div()
             .min_w(px(columns.max(1) as f32 * 130.0))
             .flex()
@@ -251,11 +357,17 @@ fn render_table(
                     .when(alignment == TableAlignment::Right, |element| {
                         element.text_right()
                     })
-                    .children(
-                        cells
-                            .get(index)
-                            .map(|cell| render_inlines(cell, colors, scale_factor, true)),
-                    )
+                    .children(cells.get(index).map(|cell| {
+                        render_inlines(
+                            cell,
+                            message_id,
+                            text_index,
+                            selection,
+                            colors,
+                            scale_factor,
+                            true,
+                        )
+                    }))
             }))
     };
 
@@ -284,6 +396,27 @@ fn render_table(
                 .children(rows.iter().map(|row| render_row(row, false))),
         )
         .into_any_element()
+}
+
+fn next_text_index(index: &mut usize) -> usize {
+    let current = *index;
+    *index += 1;
+    current
+}
+
+fn selectable(
+    message_id: &str,
+    index: usize,
+    content: String,
+    selection: &TextSelection,
+    colors: Colors,
+) -> SelectableText {
+    SelectableText::new(
+        SharedString::from(format!("message-text-{message_id}-{index}")),
+        content,
+        selection.clone(),
+        selection_color(colors.dark),
+    )
 }
 
 fn element_key(prefix: &str, content: &str) -> SharedString {
