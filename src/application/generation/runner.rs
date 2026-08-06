@@ -21,6 +21,7 @@ pub struct GenerationSnapshot {
     pub assistant: Message,
     pub request: RequestInfo,
     pub terminal: bool,
+    pub thinking_finished: bool,
 }
 
 pub enum GenerationUpdate {
@@ -60,8 +61,11 @@ pub async fn run_generation(
             continue;
         }
 
+        let mut thinking_finished = false;
         for event in events {
-            terminal |= apply_event(event, &mut assistant, &mut request, started.elapsed());
+            let outcome = apply_event(event, &mut assistant, &mut request, started.elapsed());
+            terminal |= outcome.terminal;
+            thinking_finished |= outcome.thinking_finished;
         }
 
         if terminal || last_storage_flush.elapsed() >= STORAGE_FLUSH_INTERVAL {
@@ -104,6 +108,7 @@ pub async fn run_generation(
                 assistant: assistant.clone(),
                 request: request.clone(),
                 terminal,
+                thinking_finished,
             })))
             .await
             .is_err()

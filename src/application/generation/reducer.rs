@@ -5,45 +5,58 @@ use crate::domain::{
     RequestInfo, RequestStatus, now_timestamp,
 };
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct EventOutcome {
+    pub terminal: bool,
+    pub thinking_finished: bool,
+}
+
 pub fn apply_event(
     event: GenerationEvent,
     assistant: &mut Message,
     request: &mut RequestInfo,
     elapsed: Duration,
-) -> bool {
+) -> EventOutcome {
     match event {
         GenerationEvent::Started => {
             request.status = RequestStatus::Streaming;
-            false
+            EventOutcome::default()
         }
         GenerationEvent::TextDelta(delta) => {
             mark_first_token(request, elapsed);
-            if !delta.is_empty() && assistant.content.is_empty() && !assistant.thinking.is_empty() {
-                request.thinking_duration_ms = Some(elapsed.as_millis() as u64);
-            }
+            let thinking_finished = !delta.is_empty()
+                && assistant.content.is_empty()
+                && !assistant.thinking.is_empty()
+                && finish_thinking(assistant, request, elapsed);
             assistant.content.push_str(&delta);
             assistant.updated_at = now_timestamp();
-            false
+            EventOutcome {
+                thinking_finished,
+                ..EventOutcome::default()
+            }
         }
         GenerationEvent::ThinkingDelta(delta) => {
             mark_first_token(request, elapsed);
             assistant.thinking.push_str(&delta);
             assistant.updated_at = now_timestamp();
-            false
+            EventOutcome::default()
         }
         GenerationEvent::UsageUpdated(usage) => {
             request.usage = usage;
-            false
+            EventOutcome::default()
         }
         GenerationEvent::Completed => {
-            finish_thinking(assistant, request, elapsed);
+            let thinking_finished = finish_thinking(assistant, request, elapsed);
             estimate_output_usage(assistant, request);
             assistant.status = MessageStatus::Completed;
             finish_request(request, RequestStatus::Completed, elapsed);
-            true
+            EventOutcome {
+                terminal: true,
+                thinking_finished,
+            }
         }
         GenerationEvent::Failed(error) => {
-            finish_thinking(assistant, request, elapsed);
+            let thinking_finished = finish_thinking(assistant, request, elapsed);
             estimate_output_usage(assistant, request);
             let cancelled = error.kind == GenerationErrorKind::UserCancelled;
             assistant.status = if cancelled {
@@ -61,7 +74,10 @@ pub fn apply_event(
                 },
                 elapsed,
             );
-            true
+            EventOutcome {
+                terminal: true,
+                thinking_finished,
+            }
         }
     }
 }
@@ -81,10 +97,12 @@ fn mark_first_token(request: &mut RequestInfo, elapsed: Duration) {
     request.status = RequestStatus::Streaming;
 }
 
-fn finish_thinking(assistant: &Message, request: &mut RequestInfo, elapsed: Duration) {
-    if !assistant.thinking.is_empty() && request.thinking_duration_ms.is_none() {
-        request.thinking_duration_ms = Some(elapsed.as_millis() as u64);
+fn finish_thinking(assistant: &Message, request: &mut RequestInfo, elapsed: Duration) -> bool {
+    if assistant.thinking.is_empty() || request.thinking_duration_ms.is_some() {
+        return false;
     }
+    request.thinking_duration_ms = Some(elapsed.as_millis() as u64);
+    true
 }
 
 fn finish_request(request: &mut RequestInfo, status: RequestStatus, elapsed: Duration) {

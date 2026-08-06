@@ -233,6 +233,7 @@ impl OneChat {
                         let assistant = snapshot.assistant;
                         let request = snapshot.request;
                         let terminal = snapshot.terminal;
+                        let thinking_finished = snapshot.thinking_finished;
                         let parsed_markdown = if assistant.content != last_markdown_source {
                             last_markdown_source.clone_from(&assistant.content);
                             let source = assistant.content.clone();
@@ -250,7 +251,18 @@ impl OneChat {
                             if request.thinking_duration_ms.is_some() || terminal {
                                 this.chat.thinking_started_at.remove(&request.id);
                             }
-                            this.update_generation_snapshot(&conversation_id, &assistant, &request);
+                            let visible = this.update_generation_snapshot(
+                                &conversation_id,
+                                &assistant,
+                                &request,
+                            );
+                            if visible
+                                && thinking_finished
+                                && !assistant.thinking.is_empty()
+                                && this.thinking_expanded(&assistant.id)
+                            {
+                                this.toggle_thinking(assistant.id.clone(), cx);
+                            }
                             if let Some((source, document)) = parsed_markdown
                                 && this.data.snapshot.current_messages.iter().any(|message| {
                                     message.id == assistant.id && message.content == source
@@ -284,7 +296,7 @@ impl OneChat {
         conversation_id: &str,
         assistant: &Message,
         request: &RequestInfo,
-    ) {
+    ) -> bool {
         if self
             .data
             .snapshot
@@ -293,7 +305,7 @@ impl OneChat {
             .as_deref()
             != Some(conversation_id)
         {
-            return;
+            return false;
         }
         let thinking_grew = self
             .data
@@ -330,5 +342,6 @@ impl OneChat {
         if self.chat.follow_latest {
             self.chat.message_scroll.scroll_to_bottom();
         }
+        true
     }
 }

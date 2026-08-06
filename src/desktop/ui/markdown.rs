@@ -216,9 +216,11 @@ fn render_block(
             header,
             rows,
         } => render_table(
-            alignments,
-            header,
-            rows,
+            TableContent {
+                alignments,
+                header,
+                rows,
+            },
             message_id,
             text_index,
             selection,
@@ -319,25 +321,31 @@ fn render_formula_element(formula: &Formula, colors: Colors, scale_factor: f32) 
     }
 }
 
+struct TableContent<'a> {
+    alignments: &'a [TableAlignment],
+    header: &'a [Vec<Inline>],
+    rows: &'a [Vec<Vec<Inline>>],
+}
+
 fn render_table(
-    alignments: &[TableAlignment],
-    header: &[Vec<Inline>],
-    rows: &[Vec<Vec<Inline>>],
+    table: TableContent<'_>,
     message_id: &str,
     text_index: &mut usize,
     selection: &TextSelection,
     colors: Colors,
     scale_factor: f32,
 ) -> AnyElement {
-    let columns = header
+    let columns = table
+        .header
         .len()
-        .max(rows.iter().map(Vec::len).max().unwrap_or_default());
+        .max(table.rows.iter().map(Vec::len).max().unwrap_or_default());
     let mut render_row = |cells: &[Vec<Inline>], header_row: bool| {
         div()
             .min_w(px(columns.max(1) as f32 * 130.0))
             .flex()
             .children((0..columns).map(|index| {
-                let alignment = alignments
+                let alignment = table
+                    .alignments
                     .get(index)
                     .copied()
                     .unwrap_or(TableAlignment::None);
@@ -374,7 +382,8 @@ fn render_table(
     div()
         .id(element_key(
             "table",
-            header
+            table
+                .header
                 .first()
                 .and_then(|cell| cell.first())
                 .and_then(|inline| match inline {
@@ -392,8 +401,8 @@ fn render_table(
             div()
                 .flex()
                 .flex_col()
-                .children((!header.is_empty()).then(|| render_row(header, true)))
-                .children(rows.iter().map(|row| render_row(row, false))),
+                .children((!table.header.is_empty()).then(|| render_row(table.header, true)))
+                .children(table.rows.iter().map(|row| render_row(row, false))),
         )
         .into_any_element()
 }

@@ -1,4 +1,5 @@
 use super::*;
+use crate::desktop::ui::stream::should_capture_nested_scroll;
 
 pub(super) fn render_message(
     app: &OneChat,
@@ -334,6 +335,7 @@ fn render_reasoning(
     );
 
     let scroll = app.chat.thinking_scrolls.get(&message.id).cloned();
+    let boundary_scroll = scroll.clone();
     let body = div()
         .id(SharedString::from(format!(
             "thinking-content-{}",
@@ -396,7 +398,21 @@ fn render_reasoning(
                 "thinking-scroll-boundary-{}",
                 message.id
             )))
-            .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+            .on_scroll_wheel(move |event, window, cx| {
+                let Some(scroll) = boundary_scroll.as_ref() else {
+                    return;
+                };
+                let delta_y = event.delta.pixel_delta(window.line_height()).y;
+                // GPUI scrolls the child before this ancestor listener runs.
+                let offset_before_event = scroll.offset().y - delta_y;
+                if should_capture_nested_scroll(
+                    f32::from(delta_y),
+                    f32::from(offset_before_event),
+                    f32::from(scroll.max_offset().height),
+                ) {
+                    cx.stop_propagation();
+                }
+            })
             .child(body)
             .into_any_element()
     };

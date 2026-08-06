@@ -5,7 +5,7 @@ mod runner;
 
 pub use active::{ActiveGeneration, GenerationManager};
 pub use prepare::PreparedGeneration;
-pub use reducer::{apply_event, interrupted_event};
+pub use reducer::{EventOutcome, apply_event, interrupted_event};
 pub use runner::{
     GenerationSnapshot, GenerationUpdate, STORAGE_FLUSH_INTERVAL, UI_FLUSH_INTERVAL, run_generation,
 };
@@ -84,18 +84,24 @@ mod tests {
         message.status = MessageStatus::Streaming;
         let mut request = RequestInfo::new("conversation", &message.id);
 
-        assert!(!apply_event(
-            GenerationEvent::TextDelta("partial".into()),
-            &mut message,
-            &mut request,
-            Duration::from_millis(25),
-        ));
-        assert!(apply_event(
-            GenerationEvent::Failed(GenerationError::cancelled()),
-            &mut message,
-            &mut request,
-            Duration::from_millis(80),
-        ));
+        assert!(
+            !apply_event(
+                GenerationEvent::TextDelta("partial".into()),
+                &mut message,
+                &mut request,
+                Duration::from_millis(25),
+            )
+            .terminal
+        );
+        assert!(
+            apply_event(
+                GenerationEvent::Failed(GenerationError::cancelled()),
+                &mut message,
+                &mut request,
+                Duration::from_millis(80),
+            )
+            .terminal
+        );
 
         assert_eq!(message.content, "partial");
         assert_eq!(message.status, MessageStatus::Stopped);
@@ -110,26 +116,53 @@ mod tests {
         message.status = MessageStatus::Streaming;
         let mut request = RequestInfo::new("conversation", &message.id);
 
-        apply_event(
+        let thinking = apply_event(
             GenerationEvent::ThinkingDelta("Working".into()),
             &mut message,
             &mut request,
             Duration::from_millis(400),
         );
-        apply_event(
+        let first_text = apply_event(
             GenerationEvent::TextDelta("Done".into()),
             &mut message,
             &mut request,
             Duration::from_millis(1_250),
         );
-        apply_event(
+        let second_text = apply_event(
             GenerationEvent::TextDelta(".".into()),
             &mut message,
             &mut request,
             Duration::from_millis(1_500),
         );
 
+        assert!(!thinking.thinking_finished);
+        assert!(first_text.thinking_finished);
+        assert!(!second_text.thinking_finished);
         assert_eq!(request.thinking_duration_ms, Some(1_250));
+    }
+
+    #[test]
+    fn reasoning_only_generation_signals_completion() {
+        let mut message = Message::new("conversation", MessageRole::Assistant, "");
+        message.status = MessageStatus::Streaming;
+        let mut request = RequestInfo::new("conversation", &message.id);
+        apply_event(
+            GenerationEvent::ThinkingDelta("Working".into()),
+            &mut message,
+            &mut request,
+            Duration::from_millis(400),
+        );
+
+        let completed = apply_event(
+            GenerationEvent::Completed,
+            &mut message,
+            &mut request,
+            Duration::from_millis(800),
+        );
+
+        assert!(completed.terminal);
+        assert!(completed.thinking_finished);
+        assert_eq!(request.thinking_duration_ms, Some(800));
     }
 
     #[test]
