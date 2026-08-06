@@ -11,7 +11,7 @@ use crate::{
     model::{Conversation, GenerationConfig, Model, RequestStatus, SystemPromptSource},
     ui::{
         composer::Composer,
-        shell::{Colors, button},
+        shell::{Colors, button, icon_button, primary_button},
     },
 };
 
@@ -165,7 +165,7 @@ pub(crate) fn render(
     overlay: bool,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    let mut tabs = div().flex().gap_2();
+    let mut tabs = div().rounded_lg().bg(colors.raised).p_1().flex().gap_1();
     for tab in [
         InspectorTab::Model,
         InspectorTab::Context,
@@ -176,12 +176,32 @@ pub(crate) fn render(
             InspectorTab::Context => "inspector-tab-context",
             InspectorTab::Info => "inspector-tab-info",
         };
+        let selected = app.inspector_tab == tab;
         tabs = tabs.child(
-            button(id, tab.label(), colors)
-                .when(app.inspector_tab == tab, |element| {
-                    element.bg(colors.accent_soft).border_color(colors.accent)
+            div()
+                .id(id)
+                .flex_1()
+                .rounded_md()
+                .px_2()
+                .py_2()
+                .text_center()
+                .text_size(px(12.0))
+                .font_weight(if selected {
+                    FontWeight::SEMIBOLD
+                } else {
+                    FontWeight::NORMAL
                 })
-                .on_click(cx.listener(move |this, _, _, cx| this.set_inspector_tab(tab, cx))),
+                .bg(if selected {
+                    colors.panel
+                } else {
+                    colors.raised
+                })
+                .when(selected, |element| element.shadow_sm())
+                .cursor_pointer()
+                .hover(move |style| style.bg(if selected { colors.panel } else { colors.hover }))
+                .active(move |style| style.bg(colors.accent_soft))
+                .on_click(cx.listener(move |this, _, _, cx| this.set_inspector_tab(tab, cx)))
+                .child(tab.label()),
         );
     }
 
@@ -192,7 +212,7 @@ pub(crate) fn render(
     };
 
     let inspector = div()
-        .w(px(328.0))
+        .w(px(340.0))
         .h_full()
         .flex_none()
         .when(overlay, |element| {
@@ -200,8 +220,8 @@ pub(crate) fn render(
         })
         .border_l_1()
         .border_color(colors.border)
-        .bg(colors.panel)
-        .p_5()
+        .bg(colors.toolbar)
+        .p_4()
         .flex()
         .flex_col()
         .gap_4()
@@ -210,9 +230,14 @@ pub(crate) fn render(
                 .flex()
                 .items_center()
                 .justify_between()
-                .child(div().font_weight(FontWeight::SEMIBOLD).child("Inspector"))
                 .child(
-                    button("close-inspector", "×", colors)
+                    div()
+                        .text_size(px(14.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("Details"),
+                )
+                .child(
+                    icon_button("close-inspector", "×", colors)
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_inspector(cx))),
                 ),
         )
@@ -240,7 +265,7 @@ pub(crate) fn render(
                 if reduce_motion {
                     inspector
                 } else {
-                    inspector.w(px(300.0 + 28.0 * delta))
+                    inspector.w(px(300.0 + 40.0 * delta))
                 }
             },
         )
@@ -301,7 +326,7 @@ fn render_model(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> Any
                 .text_sm()
                 .text_color(colors.muted)
                 .child(format!(
-                    "已忽略：{}。值仍保留，但请求不会发送。",
+                    "Not sent by this model: {}. The saved values are preserved.",
                     ignored.join(", ")
                 )),
         );
@@ -376,7 +401,7 @@ fn render_model(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> Any
                 .child(error.clone())
         }))
         .child(
-            button("save-generation-config", "Save parameters", colors)
+            primary_button("save-generation-config", "Save Parameters", colors)
                 .on_click(cx.listener(|this, _, _, cx| this.save_generation_config(cx))),
         )
         .into_any_element()
@@ -415,13 +440,13 @@ fn render_context(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> A
             colors,
         ))
         .child(
-            button("context-edit-system-prompt", "Edit System Prompt", colors)
+            primary_button("context-edit-system-prompt", "Edit System Prompt", colors)
                 .on_click(cx.listener(|this, _, _, cx| this.begin_edit_system_prompt(cx))),
         )
         .child(
             button("clear-conversation-context", "Clear context", colors)
                 .text_color(colors.danger)
-                .on_click(cx.listener(|this, _, _, cx| this.clear_current_context(cx))),
+                .on_click(cx.listener(|this, _, _, cx| this.request_clear_current_context(cx))),
         )
         .into_any_element()
 }
@@ -519,7 +544,7 @@ fn render_info(app: &OneChat, colors: Colors) -> AnyElement {
                     .children(error.detail.clone().map(|detail| {
                         div()
                             .pt_2()
-                            .text_xs()
+                            .text_size(px(11.0))
                             .text_color(colors.muted)
                             .child(detail)
                     })),
@@ -583,7 +608,7 @@ fn parameter_field(label: &str, input: Entity<Composer>, colors: Colors) -> AnyE
         .gap_1()
         .child(
             div()
-                .text_xs()
+                .text_size(px(11.0))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(colors.muted)
                 .child(label.to_string()),
@@ -594,12 +619,12 @@ fn parameter_field(label: &str, input: Entity<Composer>, colors: Colors) -> AnyE
 
 fn inspector_field(label: &str, value: &str, colors: Colors) -> AnyElement {
     div()
-        .border_b_1()
-        .border_color(colors.border)
-        .pb_3()
+        .rounded_lg()
+        .bg(colors.raised)
+        .p_3()
         .child(
             div()
-                .text_xs()
+                .text_size(px(11.0))
                 .text_color(colors.muted)
                 .child(label.to_string()),
         )
@@ -609,10 +634,11 @@ fn inspector_field(label: &str, value: &str, colors: Colors) -> AnyElement {
 
 fn notice(message: &str, colors: Colors) -> AnyElement {
     div()
-        .rounded_lg()
+        .rounded_xl()
         .bg(colors.raised)
-        .p_3()
+        .p_4()
         .text_sm()
+        .line_height(px(21.0))
         .text_color(colors.muted)
         .child(message.to_string())
         .into_any_element()

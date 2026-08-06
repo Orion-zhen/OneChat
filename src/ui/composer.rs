@@ -15,6 +15,7 @@ struct InputPalette {
     text: Hsla,
     placeholder: Hsla,
     background: Rgba,
+    prominent_background: Rgba,
     border: Rgba,
     focused_border: Rgba,
     cursor: Rgba,
@@ -26,22 +27,24 @@ impl InputPalette {
         if text.l > 0.55 {
             Self {
                 text,
-                placeholder: rgb(0x9299a6).into(),
-                background: rgb(0x1d2024),
-                border: rgb(0x454b55),
-                focused_border: rgb(0x7aa7ff),
-                cursor: rgb(0x7aa7ff),
-                selection: rgba(0x5b8cff52),
+                placeholder: rgb(0x8e8e93).into(),
+                background: rgba(0xffffff10),
+                prominent_background: rgba(0x2c2c2ef7),
+                border: rgba(0xffffff18),
+                focused_border: rgb(0x0a84ff),
+                cursor: rgb(0x0a84ff),
+                selection: rgba(0x0a84ff52),
             }
         } else {
             Self {
                 text,
-                placeholder: rgb(0x9298a5).into(),
-                background: rgb(0xffffff),
-                border: rgb(0xcfd3da),
-                focused_border: rgb(0x4f7fe8),
-                cursor: rgb(0x2563eb),
-                selection: rgba(0x3377ff38),
+                placeholder: rgb(0x8e8e93).into(),
+                background: rgba(0x76768014),
+                prominent_background: rgba(0xfffffffa),
+                border: rgba(0x3c3c431f),
+                focused_border: rgb(0x007aff),
+                cursor: rgb(0x007aff),
+                selection: rgba(0x007aff38),
             }
         }
     }
@@ -142,6 +145,7 @@ pub struct Composer {
     clear_on_submit: bool,
     read_only: bool,
     picker_navigation: bool,
+    prominent: bool,
     previous_visual_lines: usize,
     visual_lines: usize,
     height_revision: u64,
@@ -149,7 +153,7 @@ pub struct Composer {
 
 impl Composer {
     pub fn new(cx: &mut Context<Self>) -> Self {
-        Self::configured("", "Message OneChat…", false, true, false, false, cx)
+        Self::configured("", "Message", false, true, false, false, cx)
     }
 
     pub fn single_line(
@@ -205,6 +209,7 @@ impl Composer {
             clear_on_submit,
             read_only,
             picker_navigation,
+            prominent: clear_on_submit,
             previous_visual_lines: visual_lines,
             visual_lines,
             height_revision: 0,
@@ -623,16 +628,22 @@ impl Render for Composer {
             .key_context("Composer")
             .track_focus(&self.focus_handle(cx))
             .cursor(CursorStyle::IBeam)
-            .rounded_xl()
+            .when(self.prominent, |element| element.rounded_xl().shadow_md())
+            .when(!self.prominent, |element| element.rounded_lg())
             .border_1()
             .border_color(if self.focus_handle.is_focused(window) {
                 palette.focused_border
             } else {
                 palette.border
             })
-            .bg(palette.background)
+            .bg(if self.prominent {
+                palette.prominent_background
+            } else {
+                palette.background
+            })
             .text_color(palette.text)
-            .p_3()
+            .when(self.prominent, |element| element.px_4().py_3())
+            .when(!self.prominent, |element| element.p_3())
             .on_action(cx.listener(Self::backspace))
             .on_action(cx.listener(Self::delete))
             .on_action(cx.listener(Self::left))
@@ -1214,13 +1225,14 @@ mod tests {
     #[test]
     fn input_palette_keeps_background_contrasted_with_inherited_text() {
         let dark = InputPalette::for_inherited_text(rgb(0xf3f4f6).into());
-        assert_eq!(dark.background, rgb(0x1d2024));
-        assert_eq!(dark.placeholder, rgb(0x9299a6).into());
-        assert_ne!(dark.background, rgb(0xffffff));
+        assert_eq!(dark.background, rgba(0xffffff10));
+        assert_eq!(dark.prominent_background, rgba(0x2c2c2ef7));
+        assert_eq!(dark.placeholder, rgb(0x8e8e93).into());
 
         let light = InputPalette::for_inherited_text(rgb(0x202124).into());
-        assert_eq!(light.background, rgb(0xffffff));
-        assert_eq!(light.placeholder, rgb(0x9298a5).into());
+        assert_eq!(light.background, rgba(0x76768014));
+        assert_eq!(light.prominent_background, rgba(0xfffffffa));
+        assert_eq!(light.placeholder, rgb(0x8e8e93).into());
     }
 
     #[test]

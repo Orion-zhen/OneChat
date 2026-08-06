@@ -26,7 +26,7 @@ use crate::{
         composer::{Composer, ComposerEvent, PickerDirection},
         inspector::{GenerationConfigEditor, InspectorTab},
         markdown::MarkdownDocument,
-        settings::{Capability, ModelEditor, ProviderEditor},
+        settings::{Capability, ModelEditor, ProviderEditor, SettingsSection},
         shell,
         stream::follow_after_scroll,
     },
@@ -39,15 +39,22 @@ pub(crate) enum ConnectionTestStatus {
     Failed(String),
 }
 
+#[derive(Clone, Debug)]
+pub(crate) enum DestructiveAction {
+    DeleteConversation { id: String, title: String },
+    DeleteProvider { id: String, name: String },
+    DeleteModel { id: String, name: String },
+    ClearContext { conversation_id: String },
+}
+
 struct RenameEditor {
     conversation_id: String,
     input: Entity<Composer>,
 }
 
-struct SelectableMessage {
+struct MessageEditor {
     message_id: String,
-    content: String,
-    view: Entity<Composer>,
+    input: Entity<Composer>,
 }
 
 struct CachedMarkdown {
@@ -136,11 +143,13 @@ impl PaletteCommand {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PendingFocus {
+    Root,
     CommandPalette,
     ModelPicker,
     ConversationSearch,
     SystemPrompt,
     DefaultSystemPrompt,
+    MessageEditor,
     Composer,
 }
 
@@ -150,6 +159,7 @@ pub struct OneChat {
     pub(crate) runtime: Arc<Runtime>,
     pub(crate) snapshot: DatabaseSnapshot,
     pub(crate) page: Page,
+    pub(crate) settings_section: SettingsSection,
     pub(crate) inspector_open: bool,
     pub(crate) inspector_tab: InspectorTab,
     pub(crate) command_palette_open: bool,
@@ -158,6 +168,7 @@ pub struct OneChat {
     pub(crate) command_selection: usize,
     pub(crate) command_scroll: ScrollHandle,
     pub(crate) model_picker_open: bool,
+    pub(crate) destructive_action: Option<DestructiveAction>,
     pub(crate) model_query: String,
     pub(crate) model_search_input: Entity<Composer>,
     pub(crate) model_selection: usize,
@@ -165,7 +176,8 @@ pub struct OneChat {
     pub(crate) pending_focus: Option<PendingFocus>,
     selected_request_id: Option<String>,
     expanded_error_ids: HashSet<String>,
-    selectable_message: Option<SelectableMessage>,
+    expanded_thinking_ids: HashSet<String>,
+    message_editor: Option<MessageEditor>,
     pub(crate) message_scroll: ScrollHandle,
     pub(crate) follow_latest: bool,
     pub(crate) system_prompt_mode: SystemPromptMode,
@@ -242,6 +254,7 @@ impl OneChat {
             runtime,
             snapshot: DatabaseSnapshot::default(),
             page: Page::Chat,
+            settings_section: SettingsSection::default(),
             inspector_open: false,
             inspector_tab: InspectorTab::default(),
             command_palette_open: false,
@@ -250,6 +263,7 @@ impl OneChat {
             command_selection: 0,
             command_scroll: ScrollHandle::new(),
             model_picker_open: false,
+            destructive_action: None,
             model_query: String::new(),
             model_search_input,
             model_selection: 0,
@@ -257,7 +271,8 @@ impl OneChat {
             pending_focus: None,
             selected_request_id: None,
             expanded_error_ids: HashSet::new(),
-            selectable_message: None,
+            expanded_thinking_ids: HashSet::new(),
+            message_editor: None,
             message_scroll: ScrollHandle::new(),
             follow_latest: true,
             system_prompt_mode: SystemPromptMode::default(),
@@ -412,7 +427,8 @@ impl OneChat {
         self.model_picker_open = false;
         self.selected_request_id = None;
         self.expanded_error_ids.clear();
-        self.selectable_message = None;
+        self.expanded_thinking_ids.clear();
+        self.message_editor = None;
         self.follow_latest = true;
         self.message_scroll = ScrollHandle::new();
         self.message_scroll.scroll_to_bottom();
@@ -600,23 +616,21 @@ impl OneChat {
         cx.write_to_clipboard(ClipboardItem::new_string(content));
     }
 
-    pub(crate) fn selectable_message(&self, message: &Message) -> Option<Entity<Composer>> {
-        self.selectable_message
+    pub(crate) fn assistant_message_editor(&self, message: &Message) -> Option<Entity<Composer>> {
+        self.message_editor
             .as_ref()
-            .filter(|selectable| {
-                selectable.message_id == message.id && selectable.content == message.content
-            })
-            .map(|selectable| selectable.view.clone())
+            .filter(|editor| editor.message_id == message.id)
+            .map(|editor| editor.input.clone())
     }
 
-    pub(crate) fn toggle_message_selection(&mut self, message_id: String, cx: &mut Context<Self>) {
-        if self
-            .selectable_message
+    pub(crate) fn active_message_editor(&self) -> Option<Entity<Composer>> {
+        self.message_editor
             .as_ref()
-            .is_some_and(|selectable| selectable.message_id == message_id)
-        {
-            self.selectable_message = None;
-            cx.notify();
+            .map(|editor| editor.input.clone())
+    }
+
+    pub(crate) fn begin_edit_assistant(&mut self, message_id: String, cx: &mut Context<Self>) {
+        if self.is_current_generating() || self.message_editor.is_some() {
             return;
         }
         let Some(content) = self
@@ -628,13 +642,47 @@ impl OneChat {
         else {
             return;
         };
-        let view = cx.new(|cx| Composer::read_only(content.clone(), cx));
-        self.selectable_message = Some(SelectableMessage {
-            message_id,
-            content,
-            view,
-        });
+        let input = cx.new(|cx| Composer::multiline(content, "Edit assistant response", cx));
+        cx.subscribe(&input, |this, _, event, cx| {
+            if matches!(event, ComposerEvent::Cancel) {
+                this.cancel_assistant_edit(cx);
+            }
+        })
+        .detach();
+        self.message_editor = Some(MessageEditor { message_id, input });
+        self.pending_focus = Some(PendingFocus::MessageEditor);
         cx.notify();
+    }
+
+    pub(crate) fn cancel_assistant_edit(&mut self, cx: &mut Context<Self>) {
+        self.message_editor = None;
+        self.pending_focus = Some(PendingFocus::Composer);
+        cx.notify();
+    }
+
+    pub(crate) fn save_assistant_edit(&mut self, message_id: String, cx: &mut Context<Self>) {
+        let Some(editor) = self
+            .message_editor
+            .as_ref()
+            .filter(|editor| editor.message_id == message_id)
+        else {
+            return;
+        };
+        let content = editor.input.read(cx).text().to_string();
+        let Some(mut message) = self
+            .snapshot
+            .current_messages
+            .iter()
+            .find(|message| message.id == message_id && message.role == MessageRole::Assistant)
+            .cloned()
+        else {
+            return;
+        };
+        message.content = content;
+        message.updated_at = now_timestamp();
+        self.message_editor = None;
+        self.pending_focus = Some(PendingFocus::Composer);
+        self.mutate_and_reload(move |database| database.update_message(&message), cx);
     }
 
     pub(crate) fn inspect_message_request(&mut self, message_id: String, cx: &mut Context<Self>) {
@@ -659,6 +707,17 @@ impl OneChat {
     pub(crate) fn toggle_error_detail(&mut self, message_id: String, cx: &mut Context<Self>) {
         if !self.expanded_error_ids.remove(&message_id) {
             self.expanded_error_ids.insert(message_id);
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn thinking_expanded(&self, message_id: &str) -> bool {
+        self.expanded_thinking_ids.contains(message_id)
+    }
+
+    pub(crate) fn toggle_thinking(&mut self, message_id: String, cx: &mut Context<Self>) {
+        if !self.expanded_thinking_ids.remove(&message_id) {
+            self.expanded_thinking_ids.insert(message_id);
         }
         cx.notify();
     }
@@ -812,7 +871,7 @@ impl OneChat {
             return;
         }
         self.follow_latest = true;
-        self.selectable_message = None;
+        self.message_editor = None;
         self.message_scroll.scroll_to_bottom();
         cx.notify();
 
@@ -980,8 +1039,26 @@ impl OneChat {
         }
     }
 
+    pub(crate) fn select_settings_section(
+        &mut self,
+        section: SettingsSection,
+        cx: &mut Context<Self>,
+    ) {
+        if self.settings_section == section {
+            return;
+        }
+        self.settings_section = section;
+        self.provider_editor = None;
+        self.model_editor = None;
+        self.default_system_prompt_editor = None;
+        self.form_error = None;
+        cx.notify();
+    }
+
     pub(crate) fn begin_add_provider(&mut self, cx: &mut Context<Self>) {
+        self.settings_section = SettingsSection::NewProvider;
         self.provider_editor = Some(ProviderEditor::new(None, cx));
+        self.model_editor = None;
         self.form_error = None;
         cx.notify();
     }
@@ -994,7 +1071,9 @@ impl OneChat {
             .find(|provider| provider.id == id)
             .cloned();
         if let Some(provider) = provider {
+            self.settings_section = SettingsSection::Provider(provider.id.clone());
             self.provider_editor = Some(ProviderEditor::new(Some(provider), cx));
+            self.model_editor = None;
             self.form_error = None;
             cx.notify();
         }
@@ -1027,6 +1106,7 @@ impl OneChat {
             }
         };
         let insert = editor.is_new();
+        self.settings_section = SettingsSection::Provider(provider.id.clone());
         self.provider_editor = None;
         self.form_error = None;
         self.mutate_and_reload(
@@ -1042,13 +1122,38 @@ impl OneChat {
     }
 
     pub(crate) fn cancel_provider_editor(&mut self, cx: &mut Context<Self>) {
+        if self.settings_section == SettingsSection::NewProvider {
+            self.settings_section = SettingsSection::General;
+        }
         self.provider_editor = None;
         self.form_error = None;
         cx.notify();
     }
 
-    pub(crate) fn delete_provider(&mut self, id: String, cx: &mut Context<Self>) {
+    pub(crate) fn request_delete_provider(&mut self, id: String, cx: &mut Context<Self>) {
+        let Some(name) = self
+            .snapshot
+            .providers
+            .iter()
+            .find(|provider| provider.id == id)
+            .map(|provider| provider.name.clone())
+        else {
+            return;
+        };
+        self.destructive_action = Some(DestructiveAction::DeleteProvider { id, name });
+        self.pending_focus = Some(PendingFocus::Root);
+        self.command_palette_open = false;
+        self.model_picker_open = false;
+        cx.notify();
+    }
+
+    fn delete_provider(&mut self, id: String, cx: &mut Context<Self>) {
         self.connection_tests.remove(&id);
+        if self.settings_section == SettingsSection::Provider(id.clone()) {
+            self.settings_section = SettingsSection::General;
+            self.provider_editor = None;
+            self.model_editor = None;
+        }
         self.mutate_and_reload(move |database| database.delete_provider(&id), cx);
     }
 
@@ -1064,6 +1169,8 @@ impl OneChat {
             cx.notify();
             return;
         };
+        self.settings_section = SettingsSection::Provider(provider_id.clone());
+        self.provider_editor = None;
         self.model_editor = Some(ModelEditor::new(provider_id, provider_kind, None, cx));
         self.form_error = None;
         cx.notify();
@@ -1088,6 +1195,8 @@ impl OneChat {
                 cx.notify();
                 return;
             };
+            self.settings_section = SettingsSection::Provider(model.provider_id.clone());
+            self.provider_editor = None;
             self.model_editor = Some(ModelEditor::new(
                 model.provider_id.clone(),
                 provider_kind,
@@ -1143,7 +1252,24 @@ impl OneChat {
         cx.notify();
     }
 
-    pub(crate) fn delete_model(&mut self, id: String, cx: &mut Context<Self>) {
+    pub(crate) fn request_delete_model(&mut self, id: String, cx: &mut Context<Self>) {
+        let Some(name) = self
+            .snapshot
+            .models
+            .iter()
+            .find(|model| model.id == id)
+            .map(|model| model.display_name.clone())
+        else {
+            return;
+        };
+        self.destructive_action = Some(DestructiveAction::DeleteModel { id, name });
+        self.pending_focus = Some(PendingFocus::Root);
+        self.command_palette_open = false;
+        self.model_picker_open = false;
+        cx.notify();
+    }
+
+    fn delete_model(&mut self, id: String, cx: &mut Context<Self>) {
         self.mutate_and_reload(move |database| database.delete_model(&id), cx);
     }
 
@@ -1300,7 +1426,9 @@ impl OneChat {
     }
 
     pub(crate) fn dismiss_overlay(&mut self, cx: &mut Context<Self>) {
-        if self.command_palette_open {
+        if self.destructive_action.is_some() {
+            self.cancel_destructive_action(cx);
+        } else if self.command_palette_open {
             self.close_command_palette(cx);
         } else if self.model_picker_open {
             self.close_model_picker(cx);
@@ -1546,7 +1674,7 @@ impl OneChat {
         );
     }
 
-    pub(crate) fn clear_current_context(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn request_clear_current_context(&mut self, cx: &mut Context<Self>) {
         let Some(conversation_id) = self.current_conversation().map(|value| value.id.clone())
         else {
             return;
@@ -1556,6 +1684,12 @@ impl OneChat {
             cx.notify();
             return;
         }
+        self.destructive_action = Some(DestructiveAction::ClearContext { conversation_id });
+        self.pending_focus = Some(PendingFocus::Root);
+        cx.notify();
+    }
+
+    fn clear_current_context(&mut self, conversation_id: String, cx: &mut Context<Self>) {
         self.mutate_and_reload(
             move |database| database.clear_conversation_context(&conversation_id),
             cx,
@@ -1687,7 +1821,24 @@ impl OneChat {
         );
     }
 
-    pub(crate) fn delete_conversation(&mut self, id: String, cx: &mut Context<Self>) {
+    pub(crate) fn request_delete_conversation(&mut self, id: String, cx: &mut Context<Self>) {
+        let Some(title) = self
+            .snapshot
+            .conversations
+            .iter()
+            .find(|conversation| conversation.id == id)
+            .map(|conversation| conversation.title.clone())
+        else {
+            return;
+        };
+        self.destructive_action = Some(DestructiveAction::DeleteConversation { id, title });
+        self.pending_focus = Some(PendingFocus::Root);
+        self.command_palette_open = false;
+        self.model_picker_open = false;
+        cx.notify();
+    }
+
+    fn delete_conversation(&mut self, id: String, cx: &mut Context<Self>) {
         self.generations.stop(&id);
         let mut settings = self.snapshot.settings.clone();
         if settings.current_conversation_id.as_deref() == Some(&id) {
@@ -1705,6 +1856,26 @@ impl OneChat {
             },
             cx,
         );
+    }
+
+    pub(crate) fn cancel_destructive_action(&mut self, cx: &mut Context<Self>) {
+        self.destructive_action = None;
+        self.pending_focus = Some(PendingFocus::Composer);
+        cx.notify();
+    }
+
+    pub(crate) fn confirm_destructive_action(&mut self, cx: &mut Context<Self>) {
+        let Some(action) = self.destructive_action.take() else {
+            return;
+        };
+        match action {
+            DestructiveAction::DeleteConversation { id, .. } => self.delete_conversation(id, cx),
+            DestructiveAction::DeleteProvider { id, .. } => self.delete_provider(id, cx),
+            DestructiveAction::DeleteModel { id, .. } => self.delete_model(id, cx),
+            DestructiveAction::ClearContext { conversation_id } => {
+                self.clear_current_context(conversation_id, cx)
+            }
+        }
     }
 
     pub(crate) fn dismiss_error(&mut self, cx: &mut Context<Self>) {
