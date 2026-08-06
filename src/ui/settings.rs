@@ -10,7 +10,10 @@ use crate::{
     model::{Model, ModelCapabilities, Provider, ProviderKind, now_timestamp},
     ui::{
         composer::Composer,
-        shell::{Colors, button, compact_button, icon_button, primary_button},
+        shell::{
+            Colors, IconTone, UiIcon, button, compact_button, primary_button, svg_icon,
+            svg_icon_button,
+        },
     },
 };
 
@@ -244,7 +247,12 @@ impl Capability {
     }
 }
 
-pub(crate) fn render(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
+pub(crate) fn render(
+    app: &OneChat,
+    colors: Colors,
+    scale_factor: f32,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
     let detail = match &app.settings_section {
         SettingsSection::General => general_page(app, colors, cx),
         SettingsSection::SystemPrompts => system_prompts_page(app, colors, cx),
@@ -263,12 +271,17 @@ pub(crate) fn render(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -
         .size_full()
         .min_w_0()
         .flex()
-        .child(settings_sidebar(app, colors, cx))
+        .child(settings_sidebar(app, colors, scale_factor, cx))
         .child(detail)
         .into_any_element()
 }
 
-fn settings_sidebar(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
+fn settings_sidebar(
+    app: &OneChat,
+    colors: Colors,
+    scale_factor: f32,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
     let general_selected = app.settings_section == SettingsSection::General;
     let prompts_selected = app.settings_section == SettingsSection::SystemPrompts;
     let mut providers = div().flex().flex_col().gap_1();
@@ -328,11 +341,12 @@ fn settings_sidebar(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) ->
                 .child(
                     settings_nav_row(
                         "settings-general",
-                        "⚙",
+                        SettingsNavIcon::Text("⚙"),
                         "General",
                         "Appearance and behavior",
                         general_selected,
                         colors,
+                        scale_factor,
                     )
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.select_settings_section(SettingsSection::General, cx)
@@ -341,11 +355,12 @@ fn settings_sidebar(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) ->
                 .child(
                     settings_nav_row(
                         "settings-system-prompts",
-                        "✦",
+                        SettingsNavIcon::Text("✦"),
                         "System Prompts",
                         "Default instructions",
                         prompts_selected,
                         colors,
+                        scale_factor,
                     )
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.select_settings_section(SettingsSection::SystemPrompts, cx)
@@ -368,9 +383,15 @@ fn settings_sidebar(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) ->
                         .child("PROVIDERS"),
                 )
                 .child(
-                    icon_button("add-provider-sidebar", "+", colors)
-                        .size(px(26.0))
-                        .on_click(cx.listener(|this, _, _, cx| this.begin_add_provider(cx))),
+                    svg_icon_button(
+                        "add-provider-sidebar",
+                        UiIcon::Plus,
+                        IconTone::Muted,
+                        colors,
+                        scale_factor,
+                    )
+                    .size(px(26.0))
+                    .on_click(cx.listener(|this, _, _, cx| this.begin_add_provider(cx))),
                 ),
         )
         .child(
@@ -386,11 +407,12 @@ fn settings_sidebar(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) ->
             div().border_t_1().border_color(colors.border).p_3().child(
                 settings_nav_row(
                     "settings-add-provider",
-                    "+",
+                    SettingsNavIcon::Svg(UiIcon::Plus),
                     "Add Provider",
                     "Connect another service",
                     app.settings_section == SettingsSection::NewProvider,
                     colors,
+                    scale_factor,
                 )
                 .on_click(cx.listener(|this, _, _, cx| this.begin_add_provider(cx))),
             ),
@@ -398,14 +420,35 @@ fn settings_sidebar(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) ->
         .into_any_element()
 }
 
+enum SettingsNavIcon {
+    Text(&'static str),
+    Svg(UiIcon),
+}
+
 fn settings_nav_row(
     id: impl Into<ElementId>,
-    icon: &'static str,
+    icon: SettingsNavIcon,
     title: &'static str,
     detail: &'static str,
     selected: bool,
     colors: Colors,
+    scale_factor: f32,
 ) -> Stateful<Div> {
+    let icon = match icon {
+        SettingsNavIcon::Text(icon) => div().child(icon).into_any_element(),
+        SettingsNavIcon::Svg(icon) => svg_icon(
+            icon,
+            if selected {
+                IconTone::Accent
+            } else {
+                IconTone::Muted
+            },
+            colors,
+            scale_factor,
+            16.0,
+        ),
+    };
+
     div()
         .id(id)
         .rounded_lg()

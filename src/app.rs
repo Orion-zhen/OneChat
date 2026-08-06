@@ -12,9 +12,8 @@ use tokio::runtime::Runtime;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    db::{Database, DatabaseSnapshot, DbResult},
     generation::{
-        DATABASE_FLUSH_INTERVAL, GenerationManager, PreparedGeneration, UI_FLUSH_INTERVAL,
+        GenerationManager, PreparedGeneration, STORAGE_FLUSH_INTERVAL, UI_FLUSH_INTERVAL,
         apply_event, interrupted_event,
     },
     model::{
@@ -22,6 +21,7 @@ use crate::{
         ProviderKind, RequestInfo, SystemPromptSource, Theme, now_timestamp,
     },
     providers,
+    storage::{Storage, StorageResult, StorageSnapshot},
     ui::{
         composer::{Composer, ComposerEvent, PickerDirection},
         inspector::{GenerationConfigEditor, InspectorTab},
@@ -155,9 +155,9 @@ pub(crate) enum PendingFocus {
 
 pub struct OneChat {
     pub(crate) root_focus: FocusHandle,
-    pub(crate) database: Arc<Database>,
+    pub(crate) storage: Arc<Storage>,
     pub(crate) runtime: Arc<Runtime>,
-    pub(crate) snapshot: DatabaseSnapshot,
+    pub(crate) snapshot: StorageSnapshot,
     pub(crate) page: Page,
     pub(crate) settings_section: SettingsSection,
     pub(crate) inspector_open: bool,
@@ -197,11 +197,11 @@ pub struct OneChat {
     pub(crate) model_editor: Option<ModelEditor>,
     pub(crate) form_error: Option<String>,
     rename_editor: Option<RenameEditor>,
-    pub(crate) database_task: Task<()>,
+    pub(crate) storage_task: Task<()>,
 }
 
 impl OneChat {
-    pub fn new(database: Arc<Database>, runtime: Arc<Runtime>, cx: &mut Context<Self>) -> Self {
+    pub fn new(storage: Arc<Storage>, runtime: Arc<Runtime>, cx: &mut Context<Self>) -> Self {
         let root_focus = cx.focus_handle();
         let search_input = cx.new(|cx| Composer::single_line("", "Search conversations", cx));
         cx.subscribe(&search_input, |this, _, event, cx| {
@@ -250,9 +250,9 @@ impl OneChat {
 
         let mut this = Self {
             root_focus,
-            database,
+            storage,
             runtime,
-            snapshot: DatabaseSnapshot::default(),
+            snapshot: StorageSnapshot::default(),
             page: Page::Chat,
             settings_section: SettingsSection::default(),
             inspector_open: false,
@@ -292,7 +292,7 @@ impl OneChat {
             model_editor: None,
             form_error: None,
             rename_editor: None,
-            database_task: Task::ready(()),
+            storage_task: Task::ready(()),
         };
         this.load_startup_snapshot(cx);
         this
@@ -303,12 +303,12 @@ impl OneChat {
     }
 
     fn load_startup_snapshot(&mut self, cx: &mut Context<Self>) {
-        let previous = std::mem::replace(&mut self.database_task, Task::ready(()));
-        let database = self.database.clone();
-        self.database_task = cx.spawn(async move |this, cx| {
+        let previous = std::mem::replace(&mut self.storage_task, Task::ready(()));
+        let storage = self.storage.clone();
+        self.storage_task = cx.spawn(async move |this, cx| {
             previous.await;
             let result = cx
-                .background_spawn(async move { database.load_startup_snapshot() })
+                .background_spawn(async move { storage.load_startup_snapshot() })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.loading = false;
@@ -318,7 +318,7 @@ impl OneChat {
         });
     }
 
-    fn apply_snapshot(&mut self, result: DbResult<DatabaseSnapshot>, cx: &mut Context<Self>) {
+    fn apply_snapshot(&mut self, result: StorageResult<StorageSnapshot>, cx: &mut Context<Self>) {
         match result {
             Ok(snapshot) => {
                 let previous_conversation_id =
@@ -337,7 +337,7 @@ impl OneChat {
                 }
                 self.refresh_markdown_documents(cx);
             }
-            Err(error) => self.error = Some(format!("Database error: {error}")),
+            Err(error) => self.error = Some(format!("Storage error: {error}")),
         }
     }
 
@@ -439,16 +439,16 @@ impl OneChat {
 
     fn mutate_and_reload<F>(&mut self, operation: F, cx: &mut Context<Self>)
     where
-        F: FnOnce(&Database) -> DbResult<()> + Send + 'static,
+        F: FnOnce(&Storage) -> StorageResult<()> + Send + 'static,
     {
-        let previous = std::mem::replace(&mut self.database_task, Task::ready(()));
-        let database = self.database.clone();
-        self.database_task = cx.spawn(async move |this, cx| {
+        let previous = std::mem::replace(&mut self.storage_task, Task::ready(()));
+        let storage = self.storage.clone();
+        self.storage_task = cx.spawn(async move |this, cx| {
             previous.await;
             let result = cx
                 .background_spawn(async move {
-                    operation(&database)?;
-                    database.load_snapshot()
+                    operation(&storage)?;
+                    storage.load_snapshot()
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -459,13 +459,13 @@ impl OneChat {
     }
 
     fn save_settings(&mut self, cx: &mut Context<Self>) {
-        let previous = std::mem::replace(&mut self.database_task, Task::ready(()));
-        let database = self.database.clone();
+        let previous = std::mem::replace(&mut self.storage_task, Task::ready(()));
+        let storage = self.storage.clone();
         let settings = self.snapshot.settings.clone();
-        self.database_task = cx.spawn(async move |this, cx| {
+        self.storage_task = cx.spawn(async move |this, cx| {
             previous.await;
             let result = cx
-                .background_spawn(async move { database.save_settings(&settings) })
+                .background_spawn(async move { storage.save_settings(&settings) })
                 .await;
             if let Err(error) = result {
                 let _ = this.update(cx, |this, cx| {
@@ -682,7 +682,7 @@ impl OneChat {
         message.updated_at = now_timestamp();
         self.message_editor = None;
         self.pending_focus = Some(PendingFocus::Composer);
-        self.mutate_and_reload(move |database| database.update_message(&message), cx);
+        self.mutate_and_reload(move |storage| storage.update_message(&message), cx);
     }
 
     pub(crate) fn inspect_message_request(&mut self, message_id: String, cx: &mut Context<Self>) {
@@ -876,23 +876,23 @@ impl OneChat {
         cx.notify();
 
         let persisted = prepared.clone();
-        let database = self.database.clone();
-        let previous = std::mem::replace(&mut self.database_task, Task::ready(()));
-        self.database_task = cx.spawn(async move |this, cx| {
+        let storage = self.storage.clone();
+        let previous = std::mem::replace(&mut self.storage_task, Task::ready(()));
+        self.storage_task = cx.spawn(async move |this, cx| {
             previous.await;
             let result = cx
                 .background_spawn(async move {
                     if let Some(user) = persisted.user.as_ref() {
-                        database.begin_generation(
+                        storage.begin_generation(
                             user,
                             &persisted.assistant,
                             &persisted.request_info,
                         )?;
                     } else {
-                        database
+                        storage
                             .begin_regeneration(&persisted.assistant, &persisted.request_info)?;
                     }
-                    database.load_snapshot()
+                    storage.load_snapshot()
                 })
                 .await;
             let _ = this.update(cx, |this, cx| match result {
@@ -925,7 +925,7 @@ impl OneChat {
         self.runtime
             .spawn(providers::generate(provider_request, sender, cancellation));
 
-        let database = self.database.clone();
+        let storage = self.storage.clone();
         let conversation_id = prepared.request_info.conversation_id.clone();
         let request_id = prepared.request_info.id.clone();
         let mut assistant = prepared.assistant;
@@ -933,7 +933,7 @@ impl OneChat {
         let mut last_markdown_source = String::new();
         cx.spawn(async move |this, cx| {
             let started = Instant::now();
-            let mut last_database_flush = Instant::now();
+            let mut last_storage_flush = Instant::now();
             let mut terminal = false;
             loop {
                 Timer::after(UI_FLUSH_INTERVAL).await;
@@ -978,16 +978,16 @@ impl OneChat {
                         cx.notify();
                     });
 
-                if terminal || last_database_flush.elapsed() >= DATABASE_FLUSH_INTERVAL {
-                    let database = database.clone();
+                if terminal || last_storage_flush.elapsed() >= STORAGE_FLUSH_INTERVAL {
+                    let storage = storage.clone();
                     let saved_assistant = assistant.clone();
                     let saved_request = request.clone();
                     let result = cx
                         .background_spawn(async move {
-                            database.persist_generation(&saved_assistant, &saved_request)
+                            storage.persist_generation(&saved_assistant, &saved_request)
                         })
                         .await;
-                    last_database_flush = Instant::now();
+                    last_storage_flush = Instant::now();
                     if let Err(error) = result {
                         let _ = this.update(cx, |this, cx| {
                             this.error = Some(format!("Could not save generation: {error}"));
@@ -1118,11 +1118,11 @@ impl OneChat {
         self.provider_editor = None;
         self.form_error = None;
         self.mutate_and_reload(
-            move |database| {
+            move |storage| {
                 if insert {
-                    database.insert_provider(&provider)
+                    storage.insert_provider(&provider)
                 } else {
-                    database.update_provider(&provider)
+                    storage.update_provider(&provider)
                 }
             },
             cx,
@@ -1162,7 +1162,7 @@ impl OneChat {
             self.provider_editor = None;
             self.model_editor = None;
         }
-        self.mutate_and_reload(move |database| database.delete_provider(&id), cx);
+        self.mutate_and_reload(move |storage| storage.delete_provider(&id), cx);
     }
 
     pub(crate) fn begin_add_model(&mut self, provider_id: String, cx: &mut Context<Self>) {
@@ -1243,11 +1243,11 @@ impl OneChat {
         self.model_editor = None;
         self.form_error = None;
         self.mutate_and_reload(
-            move |database| {
+            move |storage| {
                 if insert {
-                    database.insert_model(&model)
+                    storage.insert_model(&model)
                 } else {
-                    database.update_model(&model)
+                    storage.update_model(&model)
                 }
             },
             cx,
@@ -1278,7 +1278,7 @@ impl OneChat {
     }
 
     fn delete_model(&mut self, id: String, cx: &mut Context<Self>) {
-        self.mutate_and_reload(move |database| database.delete_model(&id), cx);
+        self.mutate_and_reload(move |storage| storage.delete_model(&id), cx);
     }
 
     pub(crate) fn test_provider_connection(&mut self, provider_id: String, cx: &mut Context<Self>) {
@@ -1541,7 +1541,7 @@ impl OneChat {
         conversation.updated_at = now_timestamp();
         self.parameter_error = None;
         self.mutate_and_reload(
-            move |database| database.update_conversation(&conversation),
+            move |storage| storage.update_conversation(&conversation),
             cx,
         );
     }
@@ -1607,7 +1607,7 @@ impl OneChat {
         self.system_prompt_mode = SystemPromptMode::Compact;
         self.pending_focus = Some(PendingFocus::Composer);
         self.mutate_and_reload(
-            move |database| database.update_conversation(&conversation),
+            move |storage| storage.update_conversation(&conversation),
             cx,
         );
     }
@@ -1676,7 +1676,7 @@ impl OneChat {
         conversation.updated_at = now_timestamp();
         self.parameter_error = None;
         self.mutate_and_reload(
-            move |database| database.update_conversation(&conversation),
+            move |storage| storage.update_conversation(&conversation),
             cx,
         );
     }
@@ -1698,7 +1698,7 @@ impl OneChat {
 
     fn clear_current_context(&mut self, conversation_id: String, cx: &mut Context<Self>) {
         self.mutate_and_reload(
-            move |database| database.clear_conversation_context(&conversation_id),
+            move |storage| storage.clear_conversation_context(&conversation_id),
             cx,
         );
     }
@@ -1726,9 +1726,9 @@ impl OneChat {
         settings.current_conversation_id = Some(id);
         self.pending_focus = Some(PendingFocus::Composer);
         self.mutate_and_reload(
-            move |database| {
-                database.insert_conversation(&conversation)?;
-                database.save_settings(&settings)
+            move |storage| {
+                storage.insert_conversation(&conversation)?;
+                storage.save_settings(&settings)
             },
             cx,
         );
@@ -1748,7 +1748,7 @@ impl OneChat {
         self.page = Page::Chat;
         self.reset_conversation_ui(cx);
         self.pending_focus = Some(PendingFocus::Composer);
-        self.mutate_and_reload(move |database| database.save_settings(&settings), cx);
+        self.mutate_and_reload(move |storage| storage.save_settings(&settings), cx);
     }
 
     pub(crate) fn start_rename(
@@ -1805,7 +1805,7 @@ impl OneChat {
         conversation.updated_at = now_timestamp();
         self.rename_editor = None;
         self.mutate_and_reload(
-            move |database| database.update_conversation(&conversation),
+            move |storage| storage.update_conversation(&conversation),
             cx,
         );
     }
@@ -1823,7 +1823,7 @@ impl OneChat {
         conversation.pinned = !conversation.pinned;
         conversation.updated_at = now_timestamp();
         self.mutate_and_reload(
-            move |database| database.update_conversation(&conversation),
+            move |storage| storage.update_conversation(&conversation),
             cx,
         );
     }
@@ -1857,9 +1857,9 @@ impl OneChat {
                 .map(|conversation| conversation.id.clone());
         }
         self.mutate_and_reload(
-            move |database| {
-                database.delete_conversation(&id)?;
-                database.save_settings(&settings)
+            move |storage| {
+                storage.delete_conversation(&id)?;
+                storage.save_settings(&settings)
             },
             cx,
         );

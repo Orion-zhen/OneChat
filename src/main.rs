@@ -1,21 +1,21 @@
 mod app;
-pub mod db;
 pub mod generation;
 pub mod model;
 pub mod providers;
+pub mod storage;
 pub mod ui;
 
 use std::sync::Arc;
 
 use app::OneChat;
-use db::Database;
 use gpui::{
     App, Application, Bounds, TitlebarOptions, WindowBackgroundAppearance, WindowBounds,
     WindowOptions, prelude::*, px, size,
 };
+use storage::Storage;
 
 fn main() {
-    let database = Arc::new(Database::open_default().expect("failed to open OneChat database"));
+    let storage = Arc::new(Storage::open_default().expect("failed to open OneChat storage"));
     let runtime = Arc::new(
         tokio::runtime::Builder::new_multi_thread()
             .enable_all()
@@ -40,9 +40,9 @@ fn main() {
                     ..Default::default()
                 },
                 {
-                    let database = database.clone();
+                    let storage = storage.clone();
                     let runtime = runtime.clone();
-                    move |_, cx| cx.new(|cx| OneChat::new(database, runtime, cx))
+                    move |_, cx| cx.new(|cx| OneChat::new(storage, runtime, cx))
                 },
             )
             .expect("failed to open OneChat window");

@@ -40,14 +40,15 @@ The primary shortcuts use Command on macOS and Ctrl on Linux/Windows:
 
 ## Local data
 
-The SQLite database is stored at:
+OneChat stores plain, editable JSONC/JSON files instead of a database. App settings, providers, models, and plain-text API keys are stored in:
 
-```text
-~/Library/Application Support/OneChat/onechat.sqlite3
-```
+- macOS and Linux: `~/.config/onechat/settings.jsonc`
+- Windows: `%APPDATA%\OneChat\settings.jsonc`
 
-Provider API keys are intentionally stored as plain text in this database. OneChat has no schema migration layer; after an incompatible development change, quit the app and reset it with:
+Each conversation, including its messages and request history, has one JSON file under:
 
-```sh
-rm -f "$HOME/Library/Application Support/OneChat/onechat.sqlite3"*
-```
+- macOS: `~/Library/Application Support/OneChat/conversations/`
+- Linux: `${XDG_STATE_HOME:-~/.local/state}/onechat/conversations/`
+- Windows: `%LOCALAPPDATA%\OneChat\conversations\`
+
+The settings parser accepts JSONC comments and trailing commas. Files written by OneChat are formatted as plain JSON, which is also valid JSONC. Existing comments are not preserved when the app writes the settings file. Legacy SQLite files are neither imported nor deleted.

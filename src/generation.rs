@@ -11,7 +11,7 @@ use crate::{
 };
 
 pub const UI_FLUSH_INTERVAL: Duration = Duration::from_millis(40);
-pub const DATABASE_FLUSH_INTERVAL: Duration = Duration::from_millis(320);
+pub const STORAGE_FLUSH_INTERVAL: Duration = Duration::from_millis(320);
 
 pub struct ActiveGeneration {
     pub request_id: String,
@@ -275,7 +275,7 @@ mod tests {
     use crate::model::{ProviderKind, TokenUsage};
 
     #[test]
-    fn preparation_includes_context_and_paired_database_rows() {
+    fn preparation_includes_context_and_paired_storage_records() {
         let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
         let model = Model::new(&provider.id, "gpt-test", "GPT Test");
         let mut conversation = Conversation::new("Test", Some(&model), "");
@@ -306,7 +306,7 @@ mod tests {
     }
 
     #[test]
-    fn regeneration_reuses_the_assistant_row_without_adding_a_user_message() {
+    fn regeneration_reuses_the_assistant_message_without_adding_a_user_message() {
         let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
         let model = Model::new(&provider.id, "gpt-test", "GPT Test");
         let conversation = Conversation::new("Test", Some(&model), "");
@@ -386,9 +386,9 @@ mod tests {
     }
 
     #[test]
-    fn flush_intervals_stay_within_the_ui_and_database_budgets() {
+    fn flush_intervals_stay_within_the_ui_and_storage_budgets() {
         assert!((30..=50).contains(&UI_FLUSH_INTERVAL.as_millis()));
-        assert!((250..=500).contains(&DATABASE_FLUSH_INTERVAL.as_millis()));
+        assert!((250..=500).contains(&STORAGE_FLUSH_INTERVAL.as_millis()));
     }
 
     #[test]

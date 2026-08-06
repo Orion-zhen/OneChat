@@ -147,7 +147,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
     let top_bar = render_top_bar(app, colors, cx);
     let page = match app.page {
         Page::Chat => render_chat_page(app, colors, scale_factor, cx),
-        Page::Settings => settings::render(app, colors, cx),
+        Page::Settings => settings::render(app, colors, scale_factor, cx),
     };
     let inspector = (app.page == Page::Chat && app.inspector_open)
         .then(|| inspector::render(app, colors, narrow, cx));
@@ -395,8 +395,19 @@ fn render_sidebar(
                         ),
                 )
                 .child(
-                    primary_button("new-conversation", "+  New Conversation", colors)
+                    primary_button_base("new-conversation", colors)
                         .w_full()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(svg_icon(
+                            UiIcon::Plus,
+                            IconTone::OnAccent,
+                            colors,
+                            scale_factor,
+                            16.0,
+                        ))
+                        .child("New Conversation")
                         .on_click(cx.listener(|this, _, _, cx| this.create_conversation(cx))),
                 )
                 .child(app.search_input.clone()),
@@ -1309,6 +1320,10 @@ pub(crate) fn primary_button(
     label: impl Into<SharedString>,
     colors: Colors,
 ) -> Stateful<Div> {
+    primary_button_base(id, colors).child(label.into())
+}
+
+fn primary_button_base(id: impl Into<ElementId>, colors: Colors) -> Stateful<Div> {
     div()
         .id(id)
         .px_3()
@@ -1333,7 +1348,6 @@ pub(crate) fn primary_button(
                 rgb(0x006ee6)
             })
         })
-        .child(label.into())
 }
 
 fn destructive_button(
@@ -1470,6 +1484,29 @@ pub(crate) enum IconTone {
     Accent,
     Danger,
     OnAccent,
+}
+
+pub(crate) fn svg_icon(
+    icon: UiIcon,
+    tone: IconTone,
+    colors: Colors,
+    scale_factor: f32,
+    size: f32,
+) -> AnyElement {
+    let display_color = match (tone, colors.dark) {
+        (IconTone::Muted, true) => "#a1a1aa",
+        (IconTone::Muted, false) => "#6e6e73",
+        (IconTone::Accent, true) => "#0a84ff",
+        (IconTone::Accent, false) => "#007aff",
+        (IconTone::Danger, true) => "#ff453a",
+        (IconTone::Danger, false) => "#d70015",
+        (IconTone::OnAccent, _) => "#ffffff",
+    };
+    let image = Arc::new(Image::from_bytes(
+        ImageFormat::Svg,
+        svg_icon_at_size(icon, &gpui_svg_color(display_color), scale_factor, size).into_bytes(),
+    ));
+    img(image).size(px(size)).into_any_element()
 }
 
 pub(crate) fn svg_icon_button(

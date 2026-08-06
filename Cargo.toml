@@ -9,13 +9,13 @@ chrono = "*"
 comrak = { version = "*", default-features = false }
 futures-util = "*"
 gpui = "*"
+json5 = "*"
 reqwest = { version = "*", features = ["socks"] }
 rig-core = "*"
 ratex-layout = "*"
 ratex-parser = "*"
 ratex-svg = { version = "*", features = ["embed-fonts"] }
 ratex-types = "*"
-rusqlite = "*"
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"
 tokio = { version = "*", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
