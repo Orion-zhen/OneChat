@@ -1,13 +1,53 @@
+use std::time::Duration;
+
 use gpui::{
-    AnyElement, Context, Div, ElementId, FontWeight, Rgba, SharedString, Stateful, Window,
-    WindowAppearance, div, prelude::*, px, rgb, rgba,
+    Animation, AnimationExt as _, AnyElement, App, Context, Div, ElementId, FontWeight, KeyBinding,
+    Rgba, SharedString, Stateful, Window, WindowAppearance, actions, div, ease_out_quint,
+    prelude::*, px, rgb, rgba,
 };
 
 use crate::{
-    app::OneChat,
+    app::{ConnectionTestStatus, OneChat, PaletteCommand, PendingFocus},
     model::{Conversation, Page, Theme},
     ui::{chat, inspector, settings},
 };
+
+actions!(
+    onechat,
+    [
+        NewConversation,
+        ShowCommandPalette,
+        ShowModelPicker,
+        ToggleSidebar,
+        OpenSettings,
+        DismissOverlay,
+    ]
+);
+
+pub fn init(cx: &mut App) {
+    let primary = if cfg!(target_os = "macos") {
+        "cmd"
+    } else {
+        "ctrl"
+    };
+    let shortcut = |key: &str| format!("{primary}-{key}");
+    cx.bind_keys([
+        KeyBinding::new(&shortcut("n"), NewConversation, Some("OneChat")),
+        KeyBinding::new(&shortcut("k"), ShowCommandPalette, Some("OneChat")),
+        KeyBinding::new(&shortcut("l"), ShowModelPicker, Some("OneChat")),
+        KeyBinding::new(&shortcut("shift-s"), ToggleSidebar, Some("OneChat")),
+        KeyBinding::new(&shortcut(","), OpenSettings, Some("OneChat")),
+        KeyBinding::new("escape", DismissOverlay, Some("OneChat")),
+    ]);
+}
+
+fn shortcut_label(key: &str) -> String {
+    if cfg!(target_os = "macos") {
+        format!("⌘{key}")
+    } else {
+        format!("Ctrl+{key}")
+    }
+}
 
 #[derive(Clone, Copy)]
 pub(crate) struct Colors {
@@ -62,6 +102,21 @@ impl Colors {
 }
 
 pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>) -> AnyElement {
+    if let Some(pending) = app.pending_focus.take() {
+        let input = match pending {
+            PendingFocus::CommandPalette => Some(app.command_input.clone()),
+            PendingFocus::ModelPicker => Some(app.model_search_input.clone()),
+            PendingFocus::ConversationSearch => Some(app.search_input.clone()),
+            PendingFocus::SystemPrompt => app.system_prompt_editor.clone(),
+            PendingFocus::DefaultSystemPrompt => app.default_system_prompt_editor.clone(),
+            PendingFocus::Composer if app.page == Page::Chat => Some(app.composer.clone()),
+            PendingFocus::Composer => None,
+        };
+        if let Some(input) = input {
+            window.focus(&input.read(cx).focus_handle(cx));
+        }
+    }
+
     let colors = Colors::for_theme(app.theme(), window.appearance());
     let narrow = window.viewport_size().width < px(1180.0);
     let sidebar = render_sidebar(app, colors, cx);
@@ -74,6 +129,9 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
     let inspector = app
         .inspector_open
         .then(|| inspector::render(app, colors, narrow, cx));
+    let command_palette = app
+        .command_palette_open
+        .then(|| render_command_palette(app, colors, cx));
     let model_picker = app
         .model_picker_open
         .then(|| render_model_picker(app, colors, cx));
@@ -104,6 +162,18 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         .relative()
         .size_full()
         .flex()
+        .track_focus(&app.root_focus)
+        .key_context("OneChat")
+        .on_action(cx.listener(|this, _: &NewConversation, _, cx| {
+            this.command_palette_open = false;
+            this.model_picker_open = false;
+            this.create_conversation(cx);
+        }))
+        .on_action(cx.listener(|this, _: &ShowCommandPalette, _, cx| this.open_command_palette(cx)))
+        .on_action(cx.listener(|this, _: &ShowModelPicker, _, cx| this.open_model_picker(cx)))
+        .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
+        .on_action(cx.listener(|this, _: &OpenSettings, _, cx| this.set_page(Page::Settings, cx)))
+        .on_action(cx.listener(|this, _: &DismissOverlay, _, cx| this.dismiss_overlay(cx)))
         .bg(colors.canvas)
         .text_color(colors.text)
         .child(sidebar)
@@ -126,13 +196,14 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
                         .children(inspector),
                 ),
         )
+        .children(command_palette)
         .children(model_picker)
         .into_any_element()
 }
 
 fn render_sidebar(app: &mut OneChat, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
     if app.settings().sidebar_collapsed {
-        return div()
+        let sidebar = div()
             .w(px(52.0))
             .h_full()
             .flex_none()
@@ -156,8 +227,8 @@ fn render_sidebar(app: &mut OneChat, colors: Colors, cx: &mut Context<OneChat>) 
             .child(
                 icon_button("settings-collapsed", "⚙", colors)
                     .on_click(cx.listener(|this, _, _, cx| this.set_page(Page::Settings, cx))),
-            )
-            .into_any_element();
+            );
+        return animate_sidebar(sidebar, true, app.settings().reduce_motion);
     }
 
     let groups = app.conversation_groups();
@@ -205,7 +276,7 @@ fn render_sidebar(app: &mut OneChat, colors: Colors, cx: &mut Context<OneChat>) 
         }
     }
 
-    div()
+    let sidebar = div()
         .w(px(248.0))
         .h_full()
         .flex_none()
@@ -243,7 +314,36 @@ fn render_sidebar(app: &mut OneChat, colors: Colors, cx: &mut Context<OneChat>) 
                 .child(app.search_input.clone()),
         )
         .child(list)
-        .child(render_connection_footer(app, colors, cx))
+        .child(render_connection_footer(app, colors, cx));
+    animate_sidebar(sidebar, false, app.settings().reduce_motion)
+}
+
+fn animate_sidebar(sidebar: Div, collapsed: bool, reduce_motion: bool) -> AnyElement {
+    let id = if collapsed {
+        "sidebar-collapsed"
+    } else {
+        "sidebar-expanded"
+    };
+    let duration = if reduce_motion { 160 } else { 200 };
+    sidebar
+        .overflow_hidden()
+        .with_animation(
+            id,
+            Animation::new(Duration::from_millis(duration)).with_easing(ease_out_quint()),
+            move |sidebar, delta| {
+                let sidebar = sidebar.opacity(0.82 + delta * 0.18);
+                if reduce_motion {
+                    sidebar
+                } else {
+                    let width = if collapsed {
+                        248.0 - 196.0 * delta
+                    } else {
+                        52.0 + 196.0 * delta
+                    };
+                    sidebar.w(px(width))
+                }
+            },
+        )
         .into_any_element()
 }
 
@@ -390,10 +490,20 @@ fn render_top_bar(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> A
         .current_model()
         .map(|model| model.display_name.clone())
         .unwrap_or_else(|| "No model".into());
-    let provider = app
-        .current_provider()
+    let provider = app.current_provider();
+    let provider_name = provider
         .map(|provider| provider.name.clone())
         .unwrap_or_else(|| "No provider".into());
+    let (connection, connection_color) =
+        provider.map_or(("Not configured", colors.muted), |provider| {
+            match app.connection_tests.get(&provider.id) {
+                Some(ConnectionTestStatus::Testing) => ("Testing", colors.accent),
+                Some(ConnectionTestStatus::Connected) => ("Connected", rgb(0x22a06b)),
+                Some(ConnectionTestStatus::Failed(_)) => ("Connection failed", colors.danger),
+                None if provider.enabled => ("Configured", colors.muted),
+                None => ("Disabled", colors.danger),
+            }
+        });
     let has_system_prompt = app
         .current_conversation()
         .is_some_and(|conversation| !conversation.system_prompt.content.trim().is_empty());
@@ -404,20 +514,35 @@ fn render_top_bar(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> A
         .flex()
         .items_center()
         .justify_between()
-        .gap_4()
-        .px_5()
+        .gap_3()
+        .px_4()
         .border_b_1()
         .border_color(colors.border)
         .bg(colors.panel)
         .child(
             div()
                 .min_w_0()
+                .flex_1()
                 .flex()
                 .items_center()
-                .gap_3()
-                .child(div().font_weight(FontWeight::SEMIBOLD).child(title))
+                .gap_2()
+                .child(
+                    icon_button("top-toggle-sidebar", "☰", colors)
+                        .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
+                )
+                .child(
+                    div()
+                        .min_w_0()
+                        .max_w(px(190.0))
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(title),
+                )
                 .children(has_system_prompt.then(|| {
                     div()
+                        .flex_none()
                         .rounded_md()
                         .bg(colors.accent_soft)
                         .px_2()
@@ -427,25 +552,53 @@ fn render_top_bar(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> A
                         .child("System")
                 }))
                 .child(
-                    button("open-model-picker", format!("{model} · {provider}"), colors)
-                        .on_click(cx.listener(|this, _, _, cx| this.open_model_picker(cx))),
+                    button(
+                        "open-model-picker",
+                        format!("{model} · {provider_name}"),
+                        colors,
+                    )
+                    .min_w_0()
+                    .max_w(px(250.0))
+                    .overflow_hidden()
+                    .whitespace_nowrap()
+                    .text_ellipsis()
+                    .on_click(cx.listener(|this, _, _, cx| this.open_model_picker(cx))),
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .text_xs()
+                        .text_color(connection_color)
+                        .child(div().size_2().rounded_full().bg(connection_color))
+                        .child(connection),
                 ),
         )
         .child(
             div()
+                .flex_none()
                 .flex()
                 .items_center()
                 .gap_2()
-                .child(
+                .children((app.page == Page::Settings).then(|| {
                     button("chat-page", "Chat", colors)
-                        .on_click(cx.listener(|this, _, _, cx| this.set_page(Page::Chat, cx))),
+                        .on_click(cx.listener(|this, _, _, cx| this.set_page(Page::Chat, cx)))
+                }))
+                .child(
+                    button("open-command-palette", shortcut_label("K"), colors)
+                        .on_click(cx.listener(|this, _, _, cx| this.open_command_palette(cx))),
                 )
                 .child(
                     button("toggle-inspector", "Inspector", colors)
+                        .when(app.inspector_open, |element| {
+                            element.bg(colors.accent_soft).border_color(colors.accent)
+                        })
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_inspector(cx))),
                 )
                 .child(
-                    button("top-settings", "Settings", colors)
+                    icon_button("top-settings", "⚙", colors)
                         .on_click(cx.listener(|this, _, _, cx| this.set_page(Page::Settings, cx))),
                 ),
         )
@@ -575,15 +728,154 @@ fn empty_state(
         .into_any_element()
 }
 
+fn render_command_palette(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
+    let commands = app.filtered_commands();
+    let mut rows = div()
+        .id("command-palette-list")
+        .min_h_0()
+        .overflow_y_scroll()
+        .track_scroll(&app.command_scroll)
+        .flex()
+        .flex_col()
+        .gap_1();
+    if commands.is_empty() {
+        rows = rows.child(
+            div()
+                .p_4()
+                .text_sm()
+                .text_color(colors.muted)
+                .child("No matching commands."),
+        );
+    } else {
+        for (index, command) in commands.into_iter().enumerate() {
+            let shortcut = command_shortcut(command);
+            rows = rows.child(
+                div()
+                    .id(SharedString::from(format!("command-{command:?}")))
+                    .rounded_lg()
+                    .border_1()
+                    .border_color(if index == app.command_selection {
+                        colors.accent
+                    } else {
+                        colors.panel
+                    })
+                    .bg(if index == app.command_selection {
+                        colors.accent_soft
+                    } else {
+                        colors.panel
+                    })
+                    .p_3()
+                    .cursor_pointer()
+                    .hover(move |style| style.bg(colors.raised))
+                    .on_click(cx.listener(move |this, _, _, cx| this.execute_command(command, cx)))
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap_4()
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .child(
+                                        div()
+                                            .font_weight(FontWeight::SEMIBOLD)
+                                            .child(command.label()),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(colors.muted)
+                                            .child(command.detail()),
+                                    ),
+                            )
+                            .children(shortcut.map(|shortcut| {
+                                div()
+                                    .flex_none()
+                                    .text_xs()
+                                    .text_color(colors.muted)
+                                    .child(shortcut)
+                            })),
+                    ),
+            );
+        }
+    }
+
+    let panel = div()
+        .w_full()
+        .max_w(px(560.0))
+        .max_h(px(560.0))
+        .rounded_xl()
+        .border_1()
+        .border_color(colors.border)
+        .bg(colors.panel)
+        .shadow_lg()
+        .p_4()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .child(
+                    div()
+                        .text_lg()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("Command Palette"),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(colors.muted)
+                                .child("↑↓ · Enter · Esc"),
+                        )
+                        .child(button("close-command-palette", "Close", colors).on_click(
+                            cx.listener(|this, _, _, cx| this.close_command_palette(cx)),
+                        )),
+                ),
+        )
+        .child(app.command_input.clone())
+        .child(rows);
+    animated_overlay(
+        panel,
+        "command-palette-backdrop",
+        "command-palette-panel",
+        app.settings().reduce_motion,
+    )
+}
+
+fn command_shortcut(command: PaletteCommand) -> Option<String> {
+    match command {
+        PaletteCommand::NewConversation => Some(shortcut_label("N")),
+        PaletteCommand::ChooseModel => Some(shortcut_label("L")),
+        PaletteCommand::ToggleSidebar => Some(if cfg!(target_os = "macos") {
+            "⇧⌘S".into()
+        } else {
+            "Ctrl+Shift+S".into()
+        }),
+        PaletteCommand::OpenSettings => Some(shortcut_label(",")),
+        _ => None,
+    }
+}
+
 fn render_model_picker(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
     let current_model_id = app
         .current_conversation()
         .and_then(|conversation| conversation.model_id.as_deref());
+    let filtered_models = app.filtered_models();
     let mut models = div()
         .id("model-picker-list")
         .min_h_0()
         .flex_1()
         .overflow_y_scroll()
+        .track_scroll(&app.model_scroll)
         .flex()
         .flex_col()
         .gap_2();
@@ -608,8 +900,18 @@ fn render_model_picker(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>)
                 .text_color(colors.muted)
                 .child("No models configured."),
         );
+    } else if filtered_models.is_empty() {
+        models = models.child(
+            div()
+                .rounded_lg()
+                .bg(colors.raised)
+                .p_3()
+                .text_sm()
+                .text_color(colors.muted)
+                .child("No models match this search."),
+        );
     } else {
-        for model in &app.snapshot.models {
+        for (index, model) in filtered_models.into_iter().enumerate() {
             let provider = app
                 .provider_for_model(model)
                 .map(|provider| provider.name.as_str())
@@ -617,8 +919,9 @@ fn render_model_picker(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>)
             let availability = app.model_availability(model);
             let available = availability.is_ok();
             let status = availability.map_or_else(|reason| reason, |_| "Available");
-            let selected = current_model_id == Some(model.id.as_str());
-            let status = match (selected, available) {
+            let current = current_model_id == Some(model.id.as_str());
+            let highlighted = index == app.model_selection;
+            let status = match (current, available) {
                 (true, true) => "Selected".to_string(),
                 (true, false) => format!("Selected · {status}"),
                 (false, _) => status.to_string(),
@@ -629,12 +932,12 @@ fn render_model_picker(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>)
                     .id(SharedString::from(format!("pick-model-{}", model.id)))
                     .rounded_lg()
                     .border_1()
-                    .border_color(if selected {
+                    .border_color(if highlighted || current {
                         colors.accent
                     } else {
                         colors.border
                     })
-                    .bg(if selected {
+                    .bg(if highlighted || current {
                         colors.accent_soft
                     } else {
                         colors.panel
@@ -659,11 +962,17 @@ fn render_model_picker(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>)
                                     .min_w_0()
                                     .child(
                                         div()
+                                            .overflow_hidden()
+                                            .whitespace_nowrap()
+                                            .text_ellipsis()
                                             .font_weight(FontWeight::SEMIBOLD)
                                             .child(model.display_name.clone()),
                                     )
                                     .child(
                                         div()
+                                            .overflow_hidden()
+                                            .whitespace_nowrap()
+                                            .text_ellipsis()
                                             .text_xs()
                                             .text_color(colors.muted)
                                             .child(format!("{} · {provider}", model.remote_id)),
@@ -677,6 +986,7 @@ fn render_model_picker(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>)
                             )
                             .child(
                                 div()
+                                    .flex_none()
                                     .text_xs()
                                     .text_color(if available {
                                         colors.accent
@@ -690,6 +1000,74 @@ fn render_model_picker(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>)
         }
     }
 
+    let panel = div()
+        .w_full()
+        .max_w(px(540.0))
+        .max_h(px(620.0))
+        .rounded_xl()
+        .border_1()
+        .border_color(colors.border)
+        .bg(colors.panel)
+        .shadow_lg()
+        .p_5()
+        .flex()
+        .flex_col()
+        .gap_4()
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_3()
+                .child(
+                    div()
+                        .text_lg()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("Choose model"),
+                )
+                .child(
+                    button("close-model-picker", "Close", colors)
+                        .on_click(cx.listener(|this, _, _, cx| this.close_model_picker(cx))),
+                ),
+        )
+        .child(app.model_search_input.clone())
+        .child(models)
+        .child(
+            div()
+                .text_xs()
+                .text_color(colors.muted)
+                .child("↑↓ Navigate · Enter Select · Esc Close"),
+        );
+    animated_overlay(
+        panel,
+        "model-picker-backdrop",
+        "model-picker-panel",
+        app.settings().reduce_motion,
+    )
+}
+
+fn animated_overlay(
+    panel: Div,
+    backdrop_id: &'static str,
+    panel_id: &'static str,
+    reduce_motion: bool,
+) -> AnyElement {
+    let duration = if reduce_motion { 160 } else { 200 };
+    let panel = panel
+        .with_animation(
+            panel_id,
+            Animation::new(Duration::from_millis(duration)).with_easing(ease_out_quint()),
+            move |panel, delta| {
+                let panel = panel.opacity(0.72 + delta * 0.28);
+                if reduce_motion {
+                    panel
+                } else {
+                    panel.mt(px(12.0 * (1.0 - delta)))
+                }
+            },
+        )
+        .into_any_element();
+
     div()
         .absolute()
         .top_0()
@@ -699,38 +1077,13 @@ fn render_model_picker(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>)
         .flex()
         .items_center()
         .justify_center()
+        .p_5()
         .bg(rgba(0x00000066))
-        .child(
-            div()
-                .w(px(520.0))
-                .max_h(px(620.0))
-                .rounded_xl()
-                .border_1()
-                .border_color(colors.border)
-                .bg(colors.panel)
-                .shadow_lg()
-                .p_5()
-                .flex()
-                .flex_col()
-                .gap_4()
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .child(
-                            div()
-                                .text_lg()
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child("Choose model"),
-                        )
-                        .child(
-                            button("close-model-picker", "Close", colors).on_click(
-                                cx.listener(|this, _, _, cx| this.close_model_picker(cx)),
-                            ),
-                        ),
-                )
-                .child(models),
+        .child(panel)
+        .with_animation(
+            backdrop_id,
+            Animation::new(Duration::from_millis(duration)).with_easing(ease_out_quint()),
+            |backdrop, delta| backdrop.opacity(delta),
         )
         .into_any_element()
 }

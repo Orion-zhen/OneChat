@@ -76,7 +76,13 @@ actions!(
 );
 
 pub fn init(cx: &mut App) {
-    cx.bind_keys([
+    let primary = if cfg!(target_os = "macos") {
+        "cmd"
+    } else {
+        "ctrl"
+    };
+    let shortcut = |key: &str| format!("{primary}-{key}");
+    let mut bindings = vec![
         KeyBinding::new("backspace", Backspace, Some("Composer")),
         KeyBinding::new("delete", Delete, Some("Composer")),
         KeyBinding::new("left", Left, Some("Composer")),
@@ -87,25 +93,39 @@ pub fn init(cx: &mut App) {
         KeyBinding::new("shift-right", SelectRight, Some("Composer")),
         KeyBinding::new("shift-up", SelectUp, Some("Composer")),
         KeyBinding::new("shift-down", SelectDown, Some("Composer")),
-        KeyBinding::new("cmd-a", SelectAll, Some("Composer")),
-        KeyBinding::new("cmd-left", Home, Some("Composer")),
-        KeyBinding::new("cmd-right", End, Some("Composer")),
-        KeyBinding::new("cmd-shift-left", SelectHome, Some("Composer")),
-        KeyBinding::new("cmd-shift-right", SelectEnd, Some("Composer")),
+        KeyBinding::new(&shortcut("a"), SelectAll, Some("Composer")),
+        KeyBinding::new(&shortcut("left"), Home, Some("Composer")),
+        KeyBinding::new(&shortcut("right"), End, Some("Composer")),
+        KeyBinding::new(&shortcut("shift-left"), SelectHome, Some("Composer")),
+        KeyBinding::new(&shortcut("shift-right"), SelectEnd, Some("Composer")),
         KeyBinding::new("enter", Submit, Some("Composer")),
         KeyBinding::new("shift-enter", Newline, Some("Composer")),
-        KeyBinding::new("cmd-v", Paste, Some("Composer")),
-        KeyBinding::new("cmd-x", Cut, Some("Composer")),
-        KeyBinding::new("cmd-c", Copy, Some("Composer")),
-        KeyBinding::new("ctrl-cmd-space", ShowCharacterPalette, Some("Composer")),
+        KeyBinding::new(&shortcut("v"), Paste, Some("Composer")),
+        KeyBinding::new(&shortcut("x"), Cut, Some("Composer")),
+        KeyBinding::new(&shortcut("c"), Copy, Some("Composer")),
         KeyBinding::new("escape", Cancel, Some("Composer")),
-    ]);
+    ];
+    if cfg!(target_os = "macos") {
+        bindings.push(KeyBinding::new(
+            "ctrl-cmd-space",
+            ShowCharacterPalette,
+            Some("Composer"),
+        ));
+    }
+    cx.bind_keys(bindings);
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PickerDirection {
+    Previous,
+    Next,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ComposerEvent {
     Changed(String),
     Submit(String),
+    Navigate(PickerDirection),
     Cancel,
 }
 
@@ -121,11 +141,15 @@ pub struct Composer {
     single_line: bool,
     clear_on_submit: bool,
     read_only: bool,
+    picker_navigation: bool,
+    previous_visual_lines: usize,
+    visual_lines: usize,
+    height_revision: u64,
 }
 
 impl Composer {
     pub fn new(cx: &mut Context<Self>) -> Self {
-        Self::configured("", "Message OneChat…", false, true, false, cx)
+        Self::configured("", "Message OneChat…", false, true, false, false, cx)
     }
 
     pub fn single_line(
@@ -133,7 +157,11 @@ impl Composer {
         placeholder: impl Into<SharedString>,
         cx: &mut Context<Self>,
     ) -> Self {
-        Self::configured(text, placeholder, true, false, false, cx)
+        Self::configured(text, placeholder, true, false, false, false, cx)
+    }
+
+    pub fn picker(placeholder: impl Into<SharedString>, cx: &mut Context<Self>) -> Self {
+        Self::configured("", placeholder, true, false, false, true, cx)
     }
 
     pub fn multiline(
@@ -141,11 +169,11 @@ impl Composer {
         placeholder: impl Into<SharedString>,
         cx: &mut Context<Self>,
     ) -> Self {
-        Self::configured(text, placeholder, false, false, false, cx)
+        Self::configured(text, placeholder, false, false, false, false, cx)
     }
 
     pub fn read_only(text: impl Into<String>, cx: &mut Context<Self>) -> Self {
-        Self::configured(text, "", false, false, true, cx)
+        Self::configured(text, "", false, false, true, false, cx)
     }
 
     fn configured(
@@ -154,10 +182,12 @@ impl Composer {
         single_line: bool,
         clear_on_submit: bool,
         read_only: bool,
+        picker_navigation: bool,
         cx: &mut Context<Self>,
     ) -> Self {
         let text = text.into();
         let cursor = text.len();
+        let visual_lines = estimated_visual_lines(&text);
         Self {
             focus_handle: cx.focus_handle(),
             editor: EditorState {
@@ -174,6 +204,10 @@ impl Composer {
             single_line,
             clear_on_submit,
             read_only,
+            picker_navigation,
+            previous_visual_lines: visual_lines,
+            visual_lines,
+            height_revision: 0,
         }
     }
 
@@ -183,6 +217,14 @@ impl Composer {
 
     pub fn text(&self) -> &str {
         &self.editor.text
+    }
+
+    pub fn height_transition(&self) -> (usize, usize, u64) {
+        (
+            self.previous_visual_lines,
+            self.visual_lines,
+            self.height_revision,
+        )
     }
 
     pub fn set_text(&mut self, text: impl Into<String>, cx: &mut Context<Self>) {
@@ -205,6 +247,12 @@ impl Composer {
     }
 
     fn changed(&mut self, cx: &mut Context<Self>) {
+        let visual_lines = estimated_visual_lines(&self.editor.text);
+        if visual_lines != self.visual_lines {
+            self.previous_visual_lines = self.visual_lines;
+            self.visual_lines = visual_lines;
+            self.height_revision = self.height_revision.wrapping_add(1);
+        }
         self.scroll_handle.scroll_to_bottom();
         cx.emit(ComposerEvent::Changed(self.editor.text.clone()));
         cx.notify();
@@ -267,11 +315,19 @@ impl Composer {
     }
 
     fn up(&mut self, _: &Up, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_vertical(-1.0, false, cx);
+        if self.picker_navigation {
+            cx.emit(ComposerEvent::Navigate(PickerDirection::Previous));
+        } else {
+            self.move_vertical(-1.0, false, cx);
+        }
     }
 
     fn down(&mut self, _: &Down, _: &mut Window, cx: &mut Context<Self>) {
-        self.move_vertical(1.0, false, cx);
+        if self.picker_navigation {
+            cx.emit(ComposerEvent::Navigate(PickerDirection::Next));
+        } else {
+            self.move_vertical(1.0, false, cx);
+        }
     }
 
     fn select_up(&mut self, _: &SelectUp, _: &mut Window, cx: &mut Context<Self>) {
@@ -340,7 +396,7 @@ impl Composer {
     }
 
     fn submit(&mut self, _: &Submit, _: &mut Window, cx: &mut Context<Self>) {
-        if self.read_only || self.editor.text.trim().is_empty() {
+        if self.read_only || (!self.picker_navigation && self.editor.text.trim().is_empty()) {
             return;
         }
         let text = self.editor.text.clone();
@@ -797,6 +853,13 @@ impl Element for TextElement {
     }
 }
 
+fn estimated_visual_lines(text: &str) -> usize {
+    text.split('\n')
+        .map(|line| line.chars().count().div_ceil(72).max(1))
+        .sum::<usize>()
+        .clamp(1, 8)
+}
+
 fn text_runs(base: TextRun, marked_range: Option<Range<usize>>) -> Vec<TextRun> {
     let Some(marked) = marked_range else {
         return vec![base];
@@ -1139,6 +1202,14 @@ fn range_from_utf16_in(text: &str, range: &Range<usize>) -> Range<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn composer_height_estimate_is_bounded_and_tracks_wrapping() {
+        assert_eq!(estimated_visual_lines(""), 1);
+        assert_eq!(estimated_visual_lines("first\nsecond"), 2);
+        assert_eq!(estimated_visual_lines(&"x".repeat(73)), 2);
+        assert_eq!(estimated_visual_lines(&"x".repeat(1000)), 8);
+    }
 
     #[test]
     fn input_palette_keeps_background_contrasted_with_inherited_text() {

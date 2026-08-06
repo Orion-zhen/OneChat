@@ -10,4 +10,5 @@ use gpui::App;
 
 pub fn init(cx: &mut App) {
     composer::init(cx);
+    shell::init(cx);
 }

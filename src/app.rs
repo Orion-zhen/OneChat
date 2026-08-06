@@ -23,7 +23,7 @@ use crate::{
     },
     providers,
     ui::{
-        composer::{Composer, ComposerEvent},
+        composer::{Composer, ComposerEvent, PickerDirection},
         inspector::{GenerationConfigEditor, InspectorTab},
         markdown::MarkdownDocument,
         settings::{Capability, ModelEditor, ProviderEditor},
@@ -63,14 +63,106 @@ pub(crate) enum SystemPromptMode {
     Editing,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PaletteCommand {
+    NewConversation,
+    ChooseModel,
+    FocusConversationSearch,
+    ToggleSidebar,
+    ToggleInspector,
+    EditSystemPrompt,
+    OpenChat,
+    OpenSettings,
+}
+
+impl PaletteCommand {
+    pub(crate) const ALL: [Self; 8] = [
+        Self::NewConversation,
+        Self::ChooseModel,
+        Self::FocusConversationSearch,
+        Self::ToggleSidebar,
+        Self::ToggleInspector,
+        Self::EditSystemPrompt,
+        Self::OpenChat,
+        Self::OpenSettings,
+    ];
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::NewConversation => "New conversation",
+            Self::ChooseModel => "Choose model",
+            Self::FocusConversationSearch => "Search conversations",
+            Self::ToggleSidebar => "Toggle sidebar",
+            Self::ToggleInspector => "Toggle Inspector",
+            Self::EditSystemPrompt => "Edit System Prompt",
+            Self::OpenChat => "Open chat",
+            Self::OpenSettings => "Open settings",
+        }
+    }
+
+    pub(crate) fn detail(self) -> &'static str {
+        match self {
+            Self::NewConversation => "Start a local conversation",
+            Self::ChooseModel => "Search models for the current conversation",
+            Self::FocusConversationSearch => "Filter conversations by title",
+            Self::ToggleSidebar => "Expand or collapse conversation navigation",
+            Self::ToggleInspector => "Show or hide model, context, and request info",
+            Self::EditSystemPrompt => "Customize instructions for this conversation",
+            Self::OpenChat => "Return to the current conversation",
+            Self::OpenSettings => "Manage providers, models, and appearance",
+        }
+    }
+
+    fn keywords(self) -> &'static str {
+        match self {
+            Self::NewConversation => "new create conversation chat",
+            Self::ChooseModel => "model provider llm select choose",
+            Self::FocusConversationSearch => "search find conversation title",
+            Self::ToggleSidebar => "sidebar navigation collapse expand",
+            Self::ToggleInspector => "inspector parameters context info",
+            Self::EditSystemPrompt => "system prompt instructions edit",
+            Self::OpenChat => "chat conversation messages",
+            Self::OpenSettings => "settings provider model appearance preferences",
+        }
+    }
+
+    fn matches(self, query: &str) -> bool {
+        let query = query.trim().to_lowercase();
+        query.is_empty()
+            || self.label().to_lowercase().contains(&query)
+            || self.keywords().contains(&query)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PendingFocus {
+    CommandPalette,
+    ModelPicker,
+    ConversationSearch,
+    SystemPrompt,
+    DefaultSystemPrompt,
+    Composer,
+}
+
 pub struct OneChat {
+    pub(crate) root_focus: FocusHandle,
     pub(crate) database: Arc<Database>,
     pub(crate) runtime: Arc<Runtime>,
     pub(crate) snapshot: DatabaseSnapshot,
     pub(crate) page: Page,
     pub(crate) inspector_open: bool,
     pub(crate) inspector_tab: InspectorTab,
+    pub(crate) command_palette_open: bool,
+    pub(crate) command_query: String,
+    pub(crate) command_input: Entity<Composer>,
+    pub(crate) command_selection: usize,
+    pub(crate) command_scroll: ScrollHandle,
     pub(crate) model_picker_open: bool,
+    pub(crate) model_query: String,
+    pub(crate) model_search_input: Entity<Composer>,
+    pub(crate) model_selection: usize,
+    pub(crate) model_scroll: ScrollHandle,
+    pub(crate) pending_focus: Option<PendingFocus>,
     selected_request_id: Option<String>,
     expanded_error_ids: HashSet<String>,
     selectable_message: Option<SelectableMessage>,
@@ -98,6 +190,7 @@ pub struct OneChat {
 
 impl OneChat {
     pub fn new(database: Arc<Database>, runtime: Arc<Runtime>, cx: &mut Context<Self>) -> Self {
+        let root_focus = cx.focus_handle();
         let search_input = cx.new(|cx| Composer::single_line("", "Search conversations", cx));
         cx.subscribe(&search_input, |this, _, event, cx| {
             if let ComposerEvent::Changed(query) = event {
@@ -115,14 +208,53 @@ impl OneChat {
         })
         .detach();
 
+        let command_input = cx.new(|cx| Composer::picker("Type a command…", cx));
+        cx.subscribe(&command_input, |this, _, event, cx| match event {
+            ComposerEvent::Changed(query) => {
+                this.command_query = query.clone();
+                this.command_selection = 0;
+                this.command_scroll.scroll_to_item(0);
+                cx.notify();
+            }
+            ComposerEvent::Submit(_) => this.confirm_command(cx),
+            ComposerEvent::Navigate(direction) => this.navigate_command(*direction, cx),
+            ComposerEvent::Cancel => this.close_command_palette(cx),
+        })
+        .detach();
+
+        let model_search_input = cx.new(|cx| Composer::picker("Search models…", cx));
+        cx.subscribe(&model_search_input, |this, _, event, cx| match event {
+            ComposerEvent::Changed(query) => {
+                this.model_query = query.clone();
+                this.model_selection = this.first_available_model_selection();
+                this.model_scroll.scroll_to_item(this.model_selection);
+                cx.notify();
+            }
+            ComposerEvent::Submit(_) => this.confirm_model(cx),
+            ComposerEvent::Navigate(direction) => this.navigate_model(*direction, cx),
+            ComposerEvent::Cancel => this.close_model_picker(cx),
+        })
+        .detach();
+
         let mut this = Self {
+            root_focus,
             database,
             runtime,
             snapshot: DatabaseSnapshot::default(),
             page: Page::Chat,
             inspector_open: false,
             inspector_tab: InspectorTab::default(),
+            command_palette_open: false,
+            command_query: String::new(),
+            command_input,
+            command_selection: 0,
+            command_scroll: ScrollHandle::new(),
             model_picker_open: false,
+            model_query: String::new(),
+            model_search_input,
+            model_selection: 0,
+            model_scroll: ScrollHandle::new(),
+            pending_focus: None,
             selected_request_id: None,
             expanded_error_ids: HashSet::new(),
             selectable_message: None,
@@ -151,8 +283,8 @@ impl OneChat {
         this
     }
 
-    pub fn initial_focus_handle(&self, cx: &gpui::App) -> FocusHandle {
-        self.composer.read(cx).focus_handle(cx)
+    pub fn initial_focus_handle(&self, _: &gpui::App) -> FocusHandle {
+        self.root_focus.clone()
     }
 
     fn load_startup_snapshot(&mut self, cx: &mut Context<Self>) {
@@ -182,6 +314,9 @@ impl OneChat {
                 self.error = None;
                 if conversation_changed {
                     self.reset_conversation_ui(cx);
+                    if self.current_conversation().is_some() {
+                        self.pending_focus = Some(PendingFocus::Composer);
+                    }
                 } else {
                     self.sync_generation_config_editor(cx);
                 }
@@ -273,6 +408,7 @@ impl OneChat {
     fn reset_conversation_ui(&mut self, cx: &mut Context<Self>) {
         self.system_prompt_mode = SystemPromptMode::Compact;
         self.system_prompt_editor = None;
+        self.command_palette_open = false;
         self.model_picker_open = false;
         self.selected_request_id = None;
         self.expanded_error_ids.clear();
@@ -366,6 +502,44 @@ impl OneChat {
             return Err("Streaming disabled");
         }
         Ok(())
+    }
+
+    pub(crate) fn filtered_commands(&self) -> Vec<PaletteCommand> {
+        PaletteCommand::ALL
+            .into_iter()
+            .filter(|command| command.matches(&self.command_query))
+            .collect()
+    }
+
+    pub(crate) fn filtered_models(&self) -> Vec<&Model> {
+        let query = self.model_query.trim().to_lowercase();
+        self.snapshot
+            .models
+            .iter()
+            .filter(|model| {
+                if query.is_empty() {
+                    return true;
+                }
+                let provider = self
+                    .provider_for_model(model)
+                    .map(|provider| provider.name.as_str())
+                    .unwrap_or_default();
+                [
+                    model.display_name.as_str(),
+                    model.remote_id.as_str(),
+                    provider,
+                ]
+                .into_iter()
+                .any(|value| value.to_lowercase().contains(&query))
+            })
+            .collect()
+    }
+
+    fn first_available_model_selection(&self) -> usize {
+        self.filtered_models()
+            .iter()
+            .position(|model| self.model_availability(model).is_ok())
+            .unwrap_or(0)
     }
 
     pub(crate) fn current_messages(&self) -> &[Message] {
@@ -1044,8 +1218,93 @@ impl OneChat {
 
     pub(crate) fn set_page(&mut self, page: Page, cx: &mut Context<Self>) {
         self.page = page;
+        self.command_palette_open = false;
         self.model_picker_open = false;
         cx.notify();
+    }
+
+    pub(crate) fn open_command_palette(&mut self, cx: &mut Context<Self>) {
+        self.model_picker_open = false;
+        self.command_palette_open = true;
+        self.command_selection = 0;
+        self.command_input
+            .update(cx, |input, cx| input.set_text("", cx));
+        self.pending_focus = Some(PendingFocus::CommandPalette);
+        cx.notify();
+    }
+
+    pub(crate) fn close_command_palette(&mut self, cx: &mut Context<Self>) {
+        self.command_palette_open = false;
+        self.pending_focus = Some(PendingFocus::Composer);
+        cx.notify();
+    }
+
+    pub(crate) fn navigate_command(&mut self, direction: PickerDirection, cx: &mut Context<Self>) {
+        self.command_selection = moved_selection(
+            self.command_selection,
+            self.filtered_commands().len(),
+            direction,
+        );
+        self.command_scroll.scroll_to_item(self.command_selection);
+        cx.notify();
+    }
+
+    pub(crate) fn confirm_command(&mut self, cx: &mut Context<Self>) {
+        let commands = self.filtered_commands();
+        let Some(command) = commands.get(self.command_selection).copied() else {
+            return;
+        };
+        self.execute_command(command, cx);
+    }
+
+    pub(crate) fn execute_command(&mut self, command: PaletteCommand, cx: &mut Context<Self>) {
+        self.command_palette_open = false;
+        match command {
+            PaletteCommand::NewConversation => {
+                self.pending_focus = Some(PendingFocus::Composer);
+                self.create_conversation(cx);
+            }
+            PaletteCommand::ChooseModel => self.open_model_picker(cx),
+            PaletteCommand::FocusConversationSearch => {
+                if self.snapshot.settings.sidebar_collapsed {
+                    self.snapshot.settings.sidebar_collapsed = false;
+                    self.save_settings(cx);
+                }
+                self.pending_focus = Some(PendingFocus::ConversationSearch);
+                cx.notify();
+            }
+            PaletteCommand::ToggleSidebar => {
+                self.pending_focus = Some(PendingFocus::Composer);
+                self.toggle_sidebar(cx);
+            }
+            PaletteCommand::ToggleInspector => {
+                self.pending_focus = Some(PendingFocus::Composer);
+                self.toggle_inspector(cx);
+            }
+            PaletteCommand::EditSystemPrompt => {
+                self.page = Page::Chat;
+                if self.current_conversation().is_some() {
+                    self.begin_edit_system_prompt(cx);
+                } else {
+                    self.error = Some("Create or select a conversation first.".into());
+                    cx.notify();
+                }
+            }
+            PaletteCommand::OpenChat => {
+                self.page = Page::Chat;
+                self.pending_focus = Some(PendingFocus::Composer);
+                cx.notify();
+            }
+            PaletteCommand::OpenSettings => self.set_page(Page::Settings, cx),
+        }
+    }
+
+    pub(crate) fn dismiss_overlay(&mut self, cx: &mut Context<Self>) {
+        if self.command_palette_open {
+            self.close_command_palette(cx);
+        } else if self.model_picker_open {
+            self.close_model_picker(cx);
+        }
     }
 
     pub(crate) fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
@@ -1071,13 +1330,44 @@ impl OneChat {
     }
 
     pub(crate) fn open_model_picker(&mut self, cx: &mut Context<Self>) {
+        self.command_palette_open = false;
         self.model_picker_open = true;
+        self.model_selection = self.first_available_model_selection();
+        self.model_search_input
+            .update(cx, |input, cx| input.set_text("", cx));
+        self.pending_focus = Some(PendingFocus::ModelPicker);
         cx.notify();
     }
 
     pub(crate) fn close_model_picker(&mut self, cx: &mut Context<Self>) {
         self.model_picker_open = false;
+        self.pending_focus = Some(PendingFocus::Composer);
         cx.notify();
+    }
+
+    pub(crate) fn navigate_model(&mut self, direction: PickerDirection, cx: &mut Context<Self>) {
+        let models = self.filtered_models();
+        let mut selection = self.model_selection;
+        for _ in 0..models.len() {
+            selection = moved_selection(selection, models.len(), direction);
+            if self.model_availability(models[selection]).is_ok() {
+                break;
+            }
+        }
+        self.model_selection = selection;
+        self.model_scroll.scroll_to_item(selection);
+        cx.notify();
+    }
+
+    pub(crate) fn confirm_model(&mut self, cx: &mut Context<Self>) {
+        let model_id = self
+            .filtered_models()
+            .get(self.model_selection)
+            .filter(|model| self.model_availability(model).is_ok())
+            .map(|model| model.id.clone());
+        if let Some(model_id) = model_id {
+            self.select_model(model_id, cx);
+        }
     }
 
     pub(crate) fn select_model(&mut self, model_id: String, cx: &mut Context<Self>) {
@@ -1101,6 +1391,7 @@ impl OneChat {
             return;
         };
         self.model_picker_open = false;
+        self.pending_focus = Some(PendingFocus::Composer);
         if conversation.model_id.as_deref() == Some(&model.id) {
             cx.notify();
             return;
@@ -1155,12 +1446,14 @@ impl OneChat {
         .detach();
         self.system_prompt_editor = Some(editor);
         self.system_prompt_mode = SystemPromptMode::Editing;
+        self.pending_focus = Some(PendingFocus::SystemPrompt);
         cx.notify();
     }
 
     pub(crate) fn cancel_system_prompt_edit(&mut self, cx: &mut Context<Self>) {
         self.system_prompt_editor = None;
         self.system_prompt_mode = SystemPromptMode::Compact;
+        self.pending_focus = Some(PendingFocus::Composer);
         cx.notify();
     }
 
@@ -1177,6 +1470,7 @@ impl OneChat {
         conversation.updated_at = now_timestamp();
         self.system_prompt_editor = None;
         self.system_prompt_mode = SystemPromptMode::Compact;
+        self.pending_focus = Some(PendingFocus::Composer);
         self.mutate_and_reload(
             move |database| database.update_conversation(&conversation),
             cx,
@@ -1209,6 +1503,7 @@ impl OneChat {
         })
         .detach();
         self.default_system_prompt_editor = Some(editor);
+        self.pending_focus = Some(PendingFocus::DefaultSystemPrompt);
         cx.notify();
     }
 
@@ -1288,6 +1583,7 @@ impl OneChat {
         let id = conversation.id.clone();
         let mut settings = self.snapshot.settings.clone();
         settings.current_conversation_id = Some(id);
+        self.pending_focus = Some(PendingFocus::Composer);
         self.mutate_and_reload(
             move |database| {
                 database.insert_conversation(&conversation)?;
@@ -1310,6 +1606,7 @@ impl OneChat {
         self.snapshot.current_requests.clear();
         self.page = Page::Chat;
         self.reset_conversation_ui(cx);
+        self.pending_focus = Some(PendingFocus::Composer);
         self.mutate_and_reload(move |database| database.save_settings(&settings), cx);
     }
 
@@ -1338,7 +1635,7 @@ impl OneChat {
                 this.rename_editor = None;
                 cx.notify();
             }
-            ComposerEvent::Changed(_) => {}
+            ComposerEvent::Changed(_) | ComposerEvent::Navigate(_) => {}
         })
         .detach();
         window.focus(&input.read(cx).focus_handle(cx));
@@ -1424,8 +1721,46 @@ impl OneChat {
     }
 }
 
+fn moved_selection(current: usize, len: usize, direction: PickerDirection) -> usize {
+    if len == 0 {
+        return 0;
+    }
+    match direction {
+        PickerDirection::Previous => current.checked_sub(1).unwrap_or(len - 1),
+        PickerDirection::Next => (current + 1) % len,
+    }
+}
+
 impl Render for OneChat {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         shell::render(self, window, cx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn palette_filtering_uses_labels_and_keywords() {
+        assert_eq!(
+            PaletteCommand::ALL
+                .into_iter()
+                .filter(|command| command.matches("provider"))
+                .collect::<Vec<_>>(),
+            vec![PaletteCommand::ChooseModel, PaletteCommand::OpenSettings]
+        );
+        assert!(
+            PaletteCommand::ALL
+                .into_iter()
+                .all(|command| command.matches(""))
+        );
+    }
+
+    #[test]
+    fn picker_navigation_wraps_and_handles_empty_results() {
+        assert_eq!(moved_selection(0, 3, PickerDirection::Previous), 2);
+        assert_eq!(moved_selection(2, 3, PickerDirection::Next), 0);
+        assert_eq!(moved_selection(4, 0, PickerDirection::Next), 0);
     }
 }

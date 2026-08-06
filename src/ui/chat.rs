@@ -1,4 +1,9 @@
-use gpui::{AnyElement, Context, FontWeight, SharedString, div, prelude::*, px};
+use std::time::Duration;
+
+use gpui::{
+    Animation, AnimationExt as _, AnyElement, Context, FontWeight, SharedString, div,
+    ease_out_quint, prelude::*, px,
+};
 
 use crate::{
     app::{OneChat, SystemPromptMode},
@@ -431,6 +436,31 @@ fn render_composer(
             .on_click(cx.listener(|this, _, _, cx| this.send_composer(cx)))
     };
 
+    let reduce_motion = app.settings().reduce_motion;
+    let (previous_lines, visual_lines, height_revision) = app.composer.read(cx).height_transition();
+    let previous_height = 50.0 + (previous_lines.saturating_sub(1) as f32 * 24.0);
+    let target_height = 50.0 + (visual_lines.saturating_sub(1) as f32 * 24.0);
+    let input = div()
+        .min_w_0()
+        .flex_1()
+        .overflow_hidden()
+        .child(app.composer.clone())
+        .with_animation(
+            SharedString::from(format!("composer-height-{height_revision}")),
+            Animation::new(Duration::from_millis(if reduce_motion { 160 } else { 190 }))
+                .with_easing(ease_out_quint()),
+            move |input, delta| {
+                let input = input.opacity(0.86 + delta * 0.14);
+                if reduce_motion {
+                    input
+                } else {
+                    input.max_h(px(
+                        previous_height + (target_height - previous_height) * delta
+                    ))
+                }
+            },
+        );
+
     div()
         .flex_none()
         .w_full()
@@ -481,14 +511,7 @@ fn render_composer(
                                 .on_click(cx.listener(|this, _, _, cx| this.open_model_picker(cx))),
                         ),
                 )
-                .child(
-                    div()
-                        .flex()
-                        .items_end()
-                        .gap_3()
-                        .child(div().min_w_0().flex_1().child(app.composer.clone()))
-                        .child(action),
-                ),
+                .child(div().flex().items_end().gap_3().child(input).child(action)),
         )
         .into_any_element()
 }
@@ -576,7 +599,7 @@ fn render_system_prompt_card(
             }),
     };
 
-    div()
+    let card = div()
         .mb_6()
         .w_full()
         .rounded_xl()
@@ -600,8 +623,27 @@ fn render_system_prompt_card(
                 .child(div().text_xs().text_color(colors.muted).child(source)),
         )
         .child(content)
-        .child(actions)
-        .into_any_element()
+        .child(actions);
+    let animation_id = match app.system_prompt_mode {
+        SystemPromptMode::Compact => "system-prompt-compact",
+        SystemPromptMode::Expanded => "system-prompt-expanded",
+        SystemPromptMode::Editing => "system-prompt-editing",
+    };
+    let reduce_motion = app.settings().reduce_motion;
+    card.with_animation(
+        animation_id,
+        Animation::new(Duration::from_millis(if reduce_motion { 160 } else { 190 }))
+            .with_easing(ease_out_quint()),
+        move |card, delta| {
+            let card = card.opacity(0.8 + delta * 0.2);
+            if reduce_motion {
+                card
+            } else {
+                card.mt(px(8.0 * (1.0 - delta)))
+            }
+        },
+    )
+    .into_any_element()
 }
 
 fn prompt_preview(prompt: &str) -> String {

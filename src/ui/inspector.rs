@@ -1,6 +1,9 @@
-use std::{fmt::Display, str::FromStr};
+use std::{fmt::Display, str::FromStr, time::Duration};
 
-use gpui::{AnyElement, App, Context, Entity, FontWeight, div, prelude::*, px};
+use gpui::{
+    Animation, AnimationExt as _, AnyElement, App, Context, Entity, FontWeight, div,
+    ease_out_quint, prelude::*, px,
+};
 use serde_json::{Map, Value};
 
 use crate::{
@@ -188,7 +191,7 @@ pub(crate) fn render(
         InspectorTab::Info => render_info(app, colors),
     };
 
-    div()
+    let inspector = div()
         .w(px(328.0))
         .h_full()
         .flex_none()
@@ -221,6 +224,25 @@ pub(crate) fn render(
                 .flex_1()
                 .overflow_y_scroll()
                 .child(content),
+        );
+    let reduce_motion = app.settings().reduce_motion;
+    inspector
+        .with_animation(
+            if overlay {
+                "inspector-overlay-in"
+            } else {
+                "inspector-docked-in"
+            },
+            Animation::new(Duration::from_millis(if reduce_motion { 160 } else { 200 }))
+                .with_easing(ease_out_quint()),
+            move |inspector, delta| {
+                let inspector = inspector.opacity(0.78 + delta * 0.22);
+                if reduce_motion {
+                    inspector
+                } else {
+                    inspector.w(px(300.0 + 28.0 * delta))
+                }
+            },
         )
         .into_any_element()
 }
