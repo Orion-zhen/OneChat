@@ -14,7 +14,6 @@ pub struct ProviderEditor {
     original: Option<Provider>,
     pub kind: ProviderKind,
     pub kind_menu_open: bool,
-    pub enabled: bool,
     pub name: Entity<Composer>,
     pub endpoint: Entity<Composer>,
     pub api_key: Entity<Composer>,
@@ -32,7 +31,6 @@ impl ProviderEditor {
             original: provider,
             kind: value.kind,
             kind_menu_open: false,
-            enabled: value.enabled,
             name: cx.new(|cx| Composer::single_line(value.name, "Provider name", cx)),
             endpoint: cx.new(|cx| Composer::single_line(value.endpoint, "Endpoint", cx)),
             api_key: cx.new(|cx| Composer::single_line(value.api_key, "API key", cx)),
@@ -64,7 +62,6 @@ impl ProviderEditor {
         provider.api_key = self.api_key.read(cx).text().trim().to_string();
         provider.headers = parse_headers(self.headers.read(cx).text())?;
         provider.proxy = nonempty(self.proxy.read(cx).text());
-        provider.enabled = self.enabled;
         provider.updated_at = now_timestamp();
         Ok(provider)
     }

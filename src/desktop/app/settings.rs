@@ -88,12 +88,20 @@ impl OneChat {
         }
     }
 
-    pub(crate) fn toggle_provider_enabled(&mut self, cx: &mut Context<Self>) {
-        if let Some(editor) = &mut self.settings_ui.provider_editor {
-            editor.kind_menu_open = false;
-            editor.enabled = !editor.enabled;
-            cx.notify();
-        }
+    pub(crate) fn toggle_provider_enabled(&mut self, id: String, cx: &mut Context<Self>) {
+        let Some(mut provider) = self
+            .data
+            .snapshot
+            .providers
+            .iter()
+            .find(|provider| provider.id == id)
+            .cloned()
+        else {
+            return;
+        };
+        provider.enabled = !provider.enabled;
+        provider.updated_at = now_timestamp();
+        self.mutate_and_reload(move |storage| storage.update_provider(&provider), cx);
     }
 
     pub(crate) fn save_provider(&mut self, cx: &mut Context<Self>) {

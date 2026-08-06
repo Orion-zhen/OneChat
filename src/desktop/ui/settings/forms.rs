@@ -10,7 +10,7 @@ pub(super) fn provider_kind_select(
         .id("provider-kind-options")
         .occlude()
         .absolute()
-        .top(px(40.0))
+        .top(px(54.0))
         .left_0()
         .right_0()
         .rounded_lg()
@@ -54,7 +54,7 @@ pub(super) fn provider_kind_select(
     let select = div()
         .id("provider-kind-select")
         .w_full()
-        .h(px(36.0))
+        .h(px(50.0))
         .px_3()
         .rounded_lg()
         .border_1()
@@ -111,47 +111,15 @@ pub(super) fn provider_form(
 ) -> AnyElement {
     let identity = div()
         .flex()
-        .flex_col()
-        .gap_3()
-        .child(field("Name", editor.name.clone(), colors))
+        .items_start()
+        .gap_2()
         .child(
             div()
-                .flex()
-                .items_start()
-                .gap_2()
-                .child(provider_kind_select(editor, colors, scale_factor, cx))
-                .child(
-                    div()
-                        .flex_none()
-                        .flex()
-                        .flex_col()
-                        .gap_1()
-                        .child(
-                            div()
-                                .text_size(px(11.0))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(colors.muted)
-                                .child("Status"),
-                        )
-                        .child(
-                            button(
-                                "provider-enabled",
-                                if editor.enabled {
-                                    "Enabled"
-                                } else {
-                                    "Disabled"
-                                },
-                                colors,
-                            )
-                            .when(editor.enabled, |element| {
-                                element.bg(colors.accent_soft).text_color(colors.accent)
-                            })
-                            .on_click(
-                                cx.listener(|this, _, _, cx| this.toggle_provider_enabled(cx)),
-                            ),
-                        ),
-                ),
-        );
+                .min_w(px(240.0))
+                .flex_1()
+                .child(field("Name", editor.name.clone(), colors)),
+        )
+        .child(provider_kind_select(editor, colors, scale_factor, cx));
     let connection = div()
         .flex()
         .flex_col()

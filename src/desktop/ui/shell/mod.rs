@@ -15,7 +15,7 @@ use gpui::{
 
 use super::{
     components::{
-        IconTone, UiIcon, button, compact_button, destructive_button, icon_button,
+        IconTone, UiIcon, button, button_base, compact_button, destructive_button, icon_button,
         large_svg_icon_button, primary_button, primary_button_base, primary_svg_icon_button,
         svg_icon, svg_icon_button,
     },
@@ -97,7 +97,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
     let narrow = window.viewport_size().width < px(1120.0);
     let sidebar =
         (app.navigation.page == Page::Chat).then(|| render_sidebar(app, colors, scale_factor, cx));
-    let top_bar = render_top_bar(app, colors, cx);
+    let top_bar = render_top_bar(app, colors, scale_factor, cx);
     let page = match app.navigation.page {
         Page::Chat => render_chat_page(app, colors, scale_factor, cx),
         Page::Settings => settings::render(app, colors, scale_factor, cx),
@@ -198,7 +198,12 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         .into_any_element()
 }
 
-fn render_top_bar(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
+fn render_top_bar(
+    app: &OneChat,
+    colors: Colors,
+    scale_factor: f32,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
     if app.navigation.page == Page::Settings {
         return div()
             .h(px(56.0))
@@ -235,13 +240,13 @@ fn render_top_bar(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> A
         .map(|conversation| conversation.title.clone())
         .unwrap_or_else(|| "OneChat".into());
     let selected_model = app.selected_model();
-    let model = selected_model
-        .map(|model| model.display_name.clone())
-        .unwrap_or_else(|| "Choose Model".into());
     let provider = selected_model.and_then(|model| app.provider_for_model(model));
     let provider_name = provider
         .map(|provider| provider.name.clone())
         .unwrap_or_else(|| "No provider".into());
+    let model_label = selected_model
+        .map(|model| format!("{} · {provider_name}", model.display_name))
+        .unwrap_or_else(|| "Choose Model".into());
     let (connection, connection_color) =
         provider.map_or(("Not configured", colors.muted), |provider| {
             match app.settings_ui.connection_tests.get(&provider.id) {
@@ -300,11 +305,26 @@ fn render_top_bar(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> A
                 .items_center()
                 .gap_2()
                 .child(
-                    button("open-model-picker", format!("{model}  ▾"), colors)
-                        .max_w(px(240.0))
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
+                    button_base("open-model-picker", colors)
+                        .max_w(px(300.0))
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .min_w_0()
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .text_ellipsis()
+                                .child(model_label),
+                        )
+                        .child(svg_icon(
+                            UiIcon::ChevronDown,
+                            IconTone::Muted,
+                            colors,
+                            scale_factor,
+                            14.0,
+                        ))
                         .on_click(cx.listener(|this, _, _, cx| this.open_model_picker(cx))),
                 )
                 .child(

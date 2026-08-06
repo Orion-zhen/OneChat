@@ -12,6 +12,10 @@ pub(crate) fn button(
     label: impl Into<SharedString>,
     colors: Colors,
 ) -> Stateful<Div> {
+    button_base(id, colors).child(label.into())
+}
+
+pub(crate) fn button_base(id: impl Into<ElementId>, colors: Colors) -> Stateful<Div> {
     div()
         .id(id)
         .px_3()
@@ -22,7 +26,6 @@ pub(crate) fn button(
         .cursor_pointer()
         .hover(move |style| style.bg(colors.hover))
         .active(move |style| style.bg(colors.accent_soft))
-        .child(label.into())
 }
 
 pub(crate) fn primary_button(
