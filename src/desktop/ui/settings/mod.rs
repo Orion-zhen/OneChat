@@ -4,10 +4,12 @@ mod navigation;
 mod pages;
 mod providers;
 
-pub(crate) use editors::{Capability, ModelEditor, ProviderEditor, SettingsSection};
+pub(crate) use editors::{
+    Capability, ModelEditor, ModelFetchStatus, ProviderEditor, SettingsSection,
+};
 use forms::{model_form, provider_form};
 use navigation::settings_sidebar;
-use pages::{general_page, system_prompts_page};
+use pages::{default_models_page, general_page, system_prompts_page};
 #[cfg(test)]
 use providers::model_capability_summary;
 use providers::{new_provider_page, provider_page};
@@ -15,20 +17,21 @@ use providers::{new_provider_page, provider_page};
 use std::collections::BTreeMap;
 
 use gpui::{
-    AnyElement, App, Context, Div, ElementId, Entity, FontWeight, SharedString, Stateful, div,
-    prelude::*, px, rgba,
+    AnyElement, App, Context, Div, ElementId, Entity, FontWeight, SharedString, Stateful, deferred,
+    div, prelude::*, px, rgba,
 };
 
 use super::{
     components::{
         IconTone, UiIcon, button, compact_button, primary_button, svg_icon, svg_icon_button,
     },
-    composer::Composer,
+    composer::{Composer, PickerDirection},
     theme::Colors,
 };
 use crate::{
     desktop::app::{ConnectionTestStatus, OneChat},
     domain::{Model, ModelCapabilities, Provider, ProviderKind, now_timestamp},
+    providers::AvailableModel,
 };
 
 pub(crate) fn render(
@@ -39,6 +42,7 @@ pub(crate) fn render(
 ) -> AnyElement {
     let detail = match &app.settings_ui.section {
         SettingsSection::General => general_page(app, colors, cx),
+        SettingsSection::DefaultModels => default_models_page(app, colors, scale_factor, cx),
         SettingsSection::SystemPrompts => system_prompts_page(app, colors, cx),
         SettingsSection::Provider(provider_id) => app
             .data
@@ -46,9 +50,9 @@ pub(crate) fn render(
             .providers
             .iter()
             .find(|provider| provider.id == *provider_id)
-            .map(|provider| provider_page(app, provider, colors, cx))
+            .map(|provider| provider_page(app, provider, colors, scale_factor, cx))
             .unwrap_or_else(|| general_page(app, colors, cx)),
-        SettingsSection::NewProvider => new_provider_page(app, colors, cx),
+        SettingsSection::NewProvider => new_provider_page(app, colors, scale_factor, cx),
     };
 
     div()

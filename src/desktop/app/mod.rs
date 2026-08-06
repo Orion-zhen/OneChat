@@ -39,7 +39,7 @@ use crate::{
         RequestInfo, SystemPromptSource, Theme, now_timestamp,
     },
     markdown::MarkdownDocument,
-    providers,
+    providers::{self, AvailableModel},
     storage::{Storage, StorageResult, StorageSnapshot},
 };
 
@@ -121,7 +121,7 @@ impl PaletteCommand {
     pub(crate) fn detail(self) -> &'static str {
         match self {
             Self::NewConversation => "Start a local conversation",
-            Self::ChooseModel => "Search models for the current conversation",
+            Self::ChooseModel => "Choose a conversation model or change the primary model",
             Self::FocusConversationSearch => "Filter conversations by title",
             Self::ToggleSidebar => "Expand or collapse conversation navigation",
             Self::ToggleInspector => "Show or hide model, context, and request info",
@@ -213,7 +213,7 @@ impl OneChat {
         cx.subscribe(&model_search_input, |this, _, event, cx| match event {
             ComposerEvent::Changed(query) => {
                 this.overlays.model_query = query.clone();
-                this.overlays.model_selection = this.first_available_model_selection();
+                this.overlays.model_selection = this.initial_model_selection();
                 this.overlays
                     .model_scroll
                     .scroll_to_item(this.overlays.model_selection);
@@ -259,6 +259,7 @@ impl OneChat {
                 model_scroll: ScrollHandle::new(),
             },
             chat: ChatState {
+                draft_model_id: None,
                 selected_request_id: None,
                 expanded_error_ids: HashSet::new(),
                 expanded_thinking_ids: HashSet::new(),
@@ -275,10 +276,12 @@ impl OneChat {
             },
             settings_ui: SettingsState {
                 section: SettingsSection::default(),
+                default_model_menu_open: false,
                 default_system_prompt_editor: None,
                 connection_tests: BTreeMap::new(),
                 provider_editor: None,
                 model_editor: None,
+                model_fetch_revision: 0,
                 form_error: None,
             },
         };

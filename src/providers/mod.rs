@@ -1,3 +1,4 @@
+mod catalog;
 mod common;
 mod error;
 
@@ -10,11 +11,12 @@ use tokio_util::sync::CancellationToken;
 
 use crate::domain::{GenerationError, GenerationEvent, GenerationRequest, Provider, ProviderKind};
 
+pub use catalog::{AvailableModel, list_models};
 pub(crate) use common::{
     emit_usage, insert_optional, reasoning_text, remove_keys, sdk_base_url, sdk_headers,
     sdk_http_client, sdk_request,
 };
-pub(crate) use error::{sdk_completion_error, sdk_verify_error};
+pub(crate) use error::{classify_provider_error, sdk_completion_error, sdk_verify_error};
 
 pub async fn test_connection(provider: &Provider) -> Result<(), GenerationError> {
     match provider.kind {

@@ -186,6 +186,8 @@ pub(crate) enum UiIcon {
     Menu,
     Plus,
     ChevronLeft,
+    ChevronDown,
+    ChevronUp,
 }
 
 #[derive(Clone, Copy)]
@@ -330,6 +332,8 @@ fn svg_icon_at_size(icon: UiIcon, color: &str, scale_factor: f32, size: f32) -> 
         UiIcon::Menu => r#"<path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/>"#,
         UiIcon::Plus => r#"<path d="M12 3v18"/><path d="M3 12h18"/>"#,
         UiIcon::ChevronLeft => r#"<path d="m16 20-8-8 8-8"/>"#,
+        UiIcon::ChevronDown => r#"<path d="m6 9 6 6 6-6"/>"#,
+        UiIcon::ChevronUp => r#"<path d="m18 15-6-6-6 6"/>"#,
     };
     let physical_size = (size * scale_factor.max(1.0)).round() as u32;
     format!(

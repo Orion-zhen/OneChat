@@ -40,6 +40,7 @@ pub(crate) struct OverlayState {
 }
 
 pub(crate) struct ChatState {
+    pub(super) draft_model_id: Option<String>,
     pub(super) selected_request_id: Option<String>,
     pub(super) expanded_error_ids: HashSet<String>,
     pub(super) expanded_thinking_ids: HashSet<String>,
@@ -57,9 +58,11 @@ pub(crate) struct ChatState {
 
 pub(crate) struct SettingsState {
     pub(crate) section: SettingsSection,
+    pub(crate) default_model_menu_open: bool,
     pub(crate) default_system_prompt_editor: Option<Entity<Composer>>,
     pub(crate) connection_tests: BTreeMap<String, ConnectionTestStatus>,
     pub(crate) provider_editor: Option<ProviderEditor>,
     pub(crate) model_editor: Option<ModelEditor>,
+    pub(super) model_fetch_revision: u64,
     pub(crate) form_error: Option<String>,
 }

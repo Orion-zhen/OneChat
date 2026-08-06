@@ -7,6 +7,7 @@ pub(super) fn settings_sidebar(
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let general_selected = app.settings_ui.section == SettingsSection::General;
+    let default_models_selected = app.settings_ui.section == SettingsSection::DefaultModels;
     let prompts_selected = app.settings_ui.section == SettingsSection::SystemPrompts;
     let mut providers = div().flex().flex_col().gap_1();
 
@@ -75,6 +76,20 @@ pub(super) fn settings_sidebar(
                     )
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.select_settings_section(SettingsSection::General, cx)
+                    })),
+                )
+                .child(
+                    settings_nav_row(
+                        "settings-default-models",
+                        SettingsNavIcon::Text("◇"),
+                        "Default Models",
+                        "Models for new conversations",
+                        default_models_selected,
+                        colors,
+                        scale_factor,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.select_settings_section(SettingsSection::DefaultModels, cx)
                     })),
                 )
                 .child(

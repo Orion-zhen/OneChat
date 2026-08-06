@@ -24,6 +24,199 @@ pub(super) fn general_page(app: &OneChat, colors: Colors, cx: &mut Context<OneCh
     )
 }
 
+pub(super) fn default_models_page(
+    app: &OneChat,
+    colors: Colors,
+    scale_factor: f32,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    let content = setting_row(
+        "Primary Model",
+        "Used when creating a new conversation.",
+        primary_model_select(app, colors, scale_factor, cx),
+        colors,
+    );
+
+    detail_page(
+        div()
+            .flex()
+            .flex_col()
+            .gap_6()
+            .child(page_header(
+                "Default Models",
+                "Choose the models OneChat uses for new conversations.",
+                colors,
+            ))
+            .child(section(
+                "Models",
+                Some("Only available models can be selected."),
+                content,
+                colors,
+            )),
+    )
+}
+
+fn primary_model_select(
+    app: &OneChat,
+    colors: Colors,
+    scale_factor: f32,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    let selected_id = app.settings().primary_model_id.as_deref();
+    let selected_model =
+        selected_id.and_then(|id| app.data.snapshot.models.iter().find(|model| model.id == id));
+    let label = selected_model.map_or_else(
+        || "Choose a model".to_string(),
+        |model| {
+            if app.model_availability(model).is_ok() {
+                model.display_name.clone()
+            } else {
+                format!("{} · Unavailable", model.display_name)
+            }
+        },
+    );
+
+    let mut options = div()
+        .id("primary-model-options")
+        .occlude()
+        .absolute()
+        .top(px(40.0))
+        .left_0()
+        .right_0()
+        .max_h(px(320.0))
+        .overflow_y_scroll()
+        .rounded_lg()
+        .border_1()
+        .border_color(colors.border)
+        .bg(colors.panel)
+        .p_1()
+        .flex()
+        .flex_col()
+        .shadow_lg();
+    let available_models = app
+        .data
+        .snapshot
+        .models
+        .iter()
+        .filter(|model| app.model_availability(model).is_ok())
+        .collect::<Vec<_>>();
+    if available_models.is_empty() {
+        options = options.child(
+            div()
+                .px_3()
+                .py_2()
+                .text_sm()
+                .text_color(colors.muted)
+                .child("No available models configured."),
+        );
+    } else {
+        for model in available_models {
+            let model_id = model.id.clone();
+            let selected = selected_id == Some(model.id.as_str());
+            let provider = app
+                .provider_for_model(model)
+                .map(|provider| provider.name.as_str())
+                .unwrap_or("Missing provider");
+            options = options.child(
+                div()
+                    .id(SharedString::from(format!("primary-model-{}", model.id)))
+                    .w_full()
+                    .px_3()
+                    .py_2()
+                    .rounded_md()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap_3()
+                    .bg(if selected {
+                        colors.accent_soft
+                    } else {
+                        colors.panel
+                    })
+                    .cursor_pointer()
+                    .hover(move |style| style.bg(colors.hover))
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.select_primary_model(model_id.clone(), cx)
+                    }))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_ellipsis()
+                                    .text_sm()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(model.display_name.clone()),
+                            )
+                            .child(
+                                div()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_ellipsis()
+                                    .text_size(px(11.0))
+                                    .text_color(colors.muted)
+                                    .child(format!("{} · {provider}", model.remote_id)),
+                            ),
+                    )
+                    .children(
+                        selected.then(|| div().flex_none().text_color(colors.accent).child("✓")),
+                    ),
+            );
+        }
+    }
+
+    let select = div()
+        .id("primary-model-select")
+        .w_full()
+        .h(px(36.0))
+        .px_3()
+        .rounded_lg()
+        .border_1()
+        .border_color(colors.border)
+        .bg(colors.raised)
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap_3()
+        .text_sm()
+        .cursor_pointer()
+        .hover(move |style| style.bg(colors.hover))
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_primary_model_menu(cx)))
+        .child(
+            div()
+                .min_w_0()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .child(label),
+        )
+        .child(svg_icon(
+            if app.settings_ui.default_model_menu_open {
+                UiIcon::ChevronUp
+            } else {
+                UiIcon::ChevronDown
+            },
+            IconTone::Muted,
+            colors,
+            scale_factor,
+            14.0,
+        ));
+
+    div()
+        .relative()
+        .w(px(300.0))
+        .flex_none()
+        .child(select)
+        .children(
+            app.settings_ui
+                .default_model_menu_open
+                .then(|| deferred(options).priority(1)),
+        )
+        .into_any_element()
+}
+
 pub(super) fn system_prompts_page(
     app: &OneChat,
     colors: Colors,

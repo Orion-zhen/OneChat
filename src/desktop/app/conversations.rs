@@ -2,19 +2,39 @@ use super::*;
 
 impl OneChat {
     pub(crate) fn create_conversation(&mut self, cx: &mut Context<Self>) {
-        let Some(model) = self
-            .data
-            .snapshot
-            .models
-            .iter()
-            .find(|model| self.model_availability(model).is_ok())
-            .cloned()
-        else {
+        let model_id = if self.current_conversation().is_none() {
+            self.chat.draft_model_id.as_deref()
+        } else {
+            None
+        }
+        .or(self.data.snapshot.settings.primary_model_id.as_deref());
+        let model = model_id
+            .and_then(|id| {
+                self.data
+                    .snapshot
+                    .models
+                    .iter()
+                    .find(|model| model.id == id)
+            })
+            .cloned();
+        let Some(model) = model else {
             self.navigation.page = Page::Settings;
-            self.data.error = Some("Add a model before creating a conversation.".into());
+            self.settings_ui.section = SettingsSection::DefaultModels;
+            self.settings_ui.default_model_menu_open = true;
+            self.data.error = Some("Choose a model before creating a conversation.".into());
             cx.notify();
             return;
         };
+        if let Err(reason) = self.model_availability(&model) {
+            self.navigation.page = Page::Settings;
+            self.settings_ui.section = SettingsSection::DefaultModels;
+            self.settings_ui.default_model_menu_open = true;
+            self.data.error = Some(format!(
+                "Choose an available model before creating a conversation: {reason}."
+            ));
+            cx.notify();
+            return;
+        }
         let conversation = Conversation::new(
             "New conversation",
             Some(&model),

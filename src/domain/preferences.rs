@@ -31,6 +31,7 @@ impl Theme {
 #[serde(default)]
 pub struct AppSettings {
     pub current_conversation_id: Option<String>,
+    pub primary_model_id: Option<String>,
     pub sidebar_collapsed: bool,
     pub theme: Theme,
     pub default_system_prompt: String,

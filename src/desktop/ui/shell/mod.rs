@@ -234,11 +234,11 @@ fn render_top_bar(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> A
         .current_conversation()
         .map(|conversation| conversation.title.clone())
         .unwrap_or_else(|| "OneChat".into());
-    let model = app
-        .current_model()
+    let selected_model = app.selected_model();
+    let model = selected_model
         .map(|model| model.display_name.clone())
         .unwrap_or_else(|| "Choose Model".into());
-    let provider = app.current_provider();
+    let provider = selected_model.and_then(|model| app.provider_for_model(model));
     let provider_name = provider
         .map(|provider| provider.name.clone())
         .unwrap_or_else(|| "No provider".into());

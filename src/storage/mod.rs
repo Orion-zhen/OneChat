@@ -239,6 +239,7 @@ mod tests {
         storage.insert_conversation(&conversation).unwrap();
         let settings = AppSettings {
             current_conversation_id: Some(conversation.id.clone()),
+            primary_model_id: Some(model.id.clone()),
             sidebar_collapsed: true,
             theme: Theme::Dark,
             default_system_prompt: "Default prompt".into(),
@@ -264,6 +265,7 @@ mod tests {
 
         let snapshot = test.storage.load_snapshot().unwrap();
         assert_eq!(snapshot.settings.theme, Theme::Dark);
+        assert_eq!(snapshot.settings.primary_model_id, None);
         assert_eq!(snapshot.settings.default_system_prompt, "Be concise");
     }
 
@@ -289,6 +291,18 @@ mod tests {
     }
 
     #[test]
+    fn provider_insertion_does_not_create_models() {
+        let test = TestStorage::new();
+        test.storage
+            .insert_provider(&Provider::new("OpenAI", ProviderKind::OpenAi))
+            .unwrap();
+
+        let snapshot = test.storage.load_snapshot().unwrap();
+        assert_eq!(snapshot.providers.len(), 1);
+        assert!(snapshot.models.is_empty());
+    }
+
+    #[test]
     fn provider_deletion_cascades_models_and_clears_conversation_model() {
         let test = TestStorage::new();
         let (provider, _, conversation, _) = configured_conversation(&test.storage);
@@ -298,6 +312,21 @@ mod tests {
         let snapshot = test.storage.load_snapshot().unwrap();
         assert!(snapshot.providers.is_empty());
         assert!(snapshot.models.is_empty());
+        assert_eq!(snapshot.settings.primary_model_id, None);
+        assert_eq!(snapshot.conversations[0].id, conversation.id);
+        assert_eq!(snapshot.conversations[0].model_id, None);
+    }
+
+    #[test]
+    fn model_deletion_clears_primary_and_conversation_models() {
+        let test = TestStorage::new();
+        let (_, model, conversation, _) = configured_conversation(&test.storage);
+
+        test.storage.delete_model(&model.id).unwrap();
+
+        let snapshot = test.storage.load_snapshot().unwrap();
+        assert!(snapshot.models.is_empty());
+        assert_eq!(snapshot.settings.primary_model_id, None);
         assert_eq!(snapshot.conversations[0].id, conversation.id);
         assert_eq!(snapshot.conversations[0].model_id, None);
     }

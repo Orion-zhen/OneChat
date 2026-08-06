@@ -140,9 +140,7 @@ pub(super) fn render_model_picker(
     colors: Colors,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    let current_model_id = app
-        .current_conversation()
-        .and_then(|conversation| conversation.model_id.as_deref());
+    let current_model_id = app.selected_model().map(|model| model.id.as_str());
     let filtered_models = app.filtered_models();
     let mut models = div()
         .id("model-picker-list")
@@ -154,12 +152,7 @@ pub(super) fn render_model_picker(
         .flex_col()
         .gap_1();
 
-    if app.current_conversation().is_none() {
-        models = models.child(notice_row(
-            "Select a conversation before choosing a model.",
-            colors,
-        ));
-    } else if app.data.snapshot.models.is_empty() {
+    if app.data.snapshot.models.is_empty() {
         models = models.child(notice_row("No models configured.", colors));
     } else if filtered_models.is_empty() {
         models = models.child(notice_row("No models match this search.", colors));

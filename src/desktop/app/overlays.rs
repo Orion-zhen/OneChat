@@ -42,6 +42,7 @@ impl OneChat {
         self.navigation.page = page;
         self.overlays.command_palette_open = false;
         self.overlays.model_picker_open = false;
+        self.settings_ui.default_model_menu_open = false;
         cx.notify();
     }
 
@@ -125,7 +126,10 @@ impl OneChat {
     }
 
     pub(crate) fn dismiss_overlay(&mut self, cx: &mut Context<Self>) {
-        if let Some(editor) = &mut self.settings_ui.provider_editor
+        if self.settings_ui.default_model_menu_open {
+            self.settings_ui.default_model_menu_open = false;
+            cx.notify();
+        } else if let Some(editor) = &mut self.settings_ui.provider_editor
             && editor.kind_menu_open
         {
             editor.kind_menu_open = false;
@@ -165,7 +169,7 @@ impl OneChat {
     pub(crate) fn open_model_picker(&mut self, cx: &mut Context<Self>) {
         self.overlays.command_palette_open = false;
         self.overlays.model_picker_open = true;
-        self.overlays.model_selection = self.first_available_model_selection();
+        self.overlays.model_selection = self.initial_model_selection();
         self.overlays
             .model_search_input
             .update(cx, |input, cx| input.set_text("", cx));
@@ -220,13 +224,19 @@ impl OneChat {
             cx.notify();
             return;
         }
-        let Some(mut conversation) = self.current_conversation().cloned() else {
-            self.data.error = Some("Create or select a conversation first.".into());
+        let conversation = self.current_conversation().cloned();
+        self.overlays.model_picker_open = false;
+        self.navigation.pending_focus = Some(if conversation.is_some() {
+            PendingFocus::Composer
+        } else {
+            PendingFocus::Root
+        });
+
+        let Some(mut conversation) = conversation else {
+            self.chat.draft_model_id = Some(model.id);
             cx.notify();
             return;
         };
-        self.overlays.model_picker_open = false;
-        self.navigation.pending_focus = Some(PendingFocus::Composer);
         if conversation.model_id.as_deref() == Some(&model.id) {
             cx.notify();
             return;

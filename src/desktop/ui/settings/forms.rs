@@ -3,11 +3,16 @@ use super::*;
 pub(super) fn provider_kind_select(
     editor: &ProviderEditor,
     colors: Colors,
+    scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let mut options = div()
-        .w_full()
-        .mt_1()
+        .id("provider-kind-options")
+        .occlude()
+        .absolute()
+        .top(px(40.0))
+        .left_0()
+        .right_0()
         .rounded_lg()
         .border_1()
         .border_color(colors.border)
@@ -15,7 +20,7 @@ pub(super) fn provider_kind_select(
         .p_1()
         .flex()
         .flex_col()
-        .shadow_md();
+        .shadow_lg();
     for kind in ProviderKind::ALL {
         let selected = kind == editor.kind;
         options = options.child(
@@ -46,6 +51,35 @@ pub(super) fn provider_kind_select(
         );
     }
 
+    let select = div()
+        .id("provider-kind-select")
+        .w_full()
+        .h(px(36.0))
+        .px_3()
+        .rounded_lg()
+        .border_1()
+        .border_color(colors.border)
+        .bg(colors.raised)
+        .flex()
+        .items_center()
+        .justify_between()
+        .text_sm()
+        .cursor_pointer()
+        .hover(move |style| style.bg(colors.hover))
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_provider_kind_menu(cx)))
+        .child(editor.kind.label())
+        .child(svg_icon(
+            if editor.kind_menu_open {
+                UiIcon::ChevronUp
+            } else {
+                UiIcon::ChevronDown
+            },
+            IconTone::Muted,
+            colors,
+            scale_factor,
+            14.0,
+        ));
+
     div()
         .min_w(px(240.0))
         .flex_1()
@@ -61,35 +95,18 @@ pub(super) fn provider_kind_select(
         )
         .child(
             div()
-                .id("provider-kind-select")
+                .relative()
                 .w_full()
-                .h(px(36.0))
-                .px_3()
-                .rounded_lg()
-                .border_1()
-                .border_color(colors.border)
-                .bg(colors.raised)
-                .flex()
-                .items_center()
-                .justify_between()
-                .text_sm()
-                .cursor_pointer()
-                .hover(move |style| style.bg(colors.hover))
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_provider_kind_menu(cx)))
-                .child(editor.kind.label())
-                .child(
-                    div()
-                        .text_color(colors.muted)
-                        .child(if editor.kind_menu_open { "⌃" } else { "⌄" }),
-                ),
+                .child(select)
+                .children(editor.kind_menu_open.then(|| deferred(options).priority(1))),
         )
-        .children(editor.kind_menu_open.then_some(options))
         .into_any_element()
 }
 
 pub(super) fn provider_form(
     editor: &ProviderEditor,
     colors: Colors,
+    scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let identity = div()
@@ -102,7 +119,7 @@ pub(super) fn provider_form(
                 .flex()
                 .items_start()
                 .gap_2()
-                .child(provider_kind_select(editor, colors, cx))
+                .child(provider_kind_select(editor, colors, scale_factor, cx))
                 .child(
                     div()
                         .flex_none()
@@ -196,6 +213,7 @@ pub(super) fn provider_form(
 pub(super) fn model_form(
     editor: &ModelEditor,
     colors: Colors,
+    scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let title = if editor.is_new() {
@@ -216,18 +234,11 @@ pub(super) fn model_form(
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(title),
         )
-        .child(field("Remote Model ID", editor.remote_id.clone(), colors))
+        .child(model_id_combobox(editor, colors, scale_factor, cx))
         .child(field("Display Name", editor.display_name.clone(), colors))
         .child(capability_group(
             "Core Capabilities",
             &Capability::CORE,
-            editor,
-            colors,
-            cx,
-        ))
-        .child(capability_group(
-            "Supported Parameters",
-            &Capability::PARAMETERS,
             editor,
             colors,
             cx,
@@ -246,6 +257,175 @@ pub(super) fn model_form(
                         .on_click(cx.listener(|this, _, _, cx| this.save_model(cx))),
                 ),
         )
+        .into_any_element()
+}
+
+fn model_id_combobox(
+    editor: &ModelEditor,
+    colors: Colors,
+    scale_factor: f32,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    let control = div()
+        .w_full()
+        .flex()
+        .gap_1()
+        .child(div().min_w_0().flex_1().child(editor.remote_id.clone()))
+        .child(
+            svg_icon_button(
+                "available-model-menu",
+                if editor.model_menu_open {
+                    UiIcon::ChevronUp
+                } else {
+                    UiIcon::ChevronDown
+                },
+                IconTone::Muted,
+                colors,
+                scale_factor,
+            )
+            .size(px(50.0))
+            .rounded_lg()
+            .border_1()
+            .border_color(colors.border)
+            .bg(colors.raised)
+            .on_click(cx.listener(|this, _, _, cx| this.toggle_available_model_menu(cx))),
+        );
+
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(
+            div()
+                .text_size(px(11.0))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(colors.muted)
+                .child("Model ID"),
+        )
+        .child(
+            div().relative().w_full().child(control).children(
+                editor
+                    .model_menu_open
+                    .then(|| deferred(available_model_menu(editor, colors, cx)).priority(1)),
+            ),
+        )
+        .into_any_element()
+}
+
+fn available_model_menu(
+    editor: &ModelEditor,
+    colors: Colors,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    let content = match &editor.fetch_status {
+        ModelFetchStatus::Loading => div()
+            .px_3()
+            .py_2()
+            .text_sm()
+            .text_color(colors.muted)
+            .child("Loading available models…")
+            .into_any_element(),
+        ModelFetchStatus::Failed(error) => div()
+            .px_3()
+            .py_2()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_3()
+            .child(
+                div()
+                    .min_w_0()
+                    .text_sm()
+                    .text_color(colors.danger)
+                    .child(error.clone()),
+            )
+            .child(
+                compact_button("retry-model-list", "Retry", colors)
+                    .on_click(cx.listener(|this, _, _, cx| this.retry_available_models(cx))),
+            )
+            .into_any_element(),
+        ModelFetchStatus::Loaded if editor.available_models.is_empty() => div()
+            .px_3()
+            .py_2()
+            .text_sm()
+            .text_color(colors.muted)
+            .child("No unconfigured models were returned. You can enter an ID manually.")
+            .into_any_element(),
+        ModelFetchStatus::Loaded => {
+            let visible = editor.visible_models(cx);
+            if visible.is_empty() {
+                div()
+                    .px_3()
+                    .py_2()
+                    .text_sm()
+                    .text_color(colors.muted)
+                    .child("No matching models. You can use the entered ID.")
+                    .into_any_element()
+            } else {
+                let mut options = div().flex().flex_col().p_1();
+                for (index, model) in visible.into_iter().enumerate() {
+                    let remote_id = model.id.clone();
+                    let selected = index == editor.model_selection;
+                    options = options.child(
+                        div()
+                            .id(SharedString::from(format!("available-model-{remote_id}")))
+                            .w_full()
+                            .px_3()
+                            .py_2()
+                            .rounded_md()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap_3()
+                            .bg(if selected {
+                                colors.accent_soft
+                            } else {
+                                colors.panel
+                            })
+                            .text_sm()
+                            .text_color(if selected { colors.accent } else { colors.text })
+                            .cursor_pointer()
+                            .hover(move |style| style.bg(colors.hover))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.select_available_model(remote_id.clone(), cx)
+                            }))
+                            .child(
+                                div()
+                                    .min_w_0()
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_ellipsis()
+                                    .child(model.id.clone()),
+                            )
+                            .children(model.vision.then(|| {
+                                div()
+                                    .flex_none()
+                                    .text_size(px(11.0))
+                                    .text_color(colors.muted)
+                                    .child("Vision")
+                            })),
+                    );
+                }
+                options.into_any_element()
+            }
+        }
+    };
+
+    div()
+        .id("available-model-options")
+        .occlude()
+        .absolute()
+        .top(px(54.0))
+        .left_0()
+        .right_0()
+        .max_h(px(260.0))
+        .overflow_y_scroll()
+        .rounded_lg()
+        .border_1()
+        .border_color(colors.border)
+        .bg(colors.panel)
+        .shadow_lg()
+        .child(content)
         .into_any_element()
 }
 

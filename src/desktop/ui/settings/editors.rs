@@ -4,6 +4,7 @@ use super::*;
 pub(crate) enum SettingsSection {
     #[default]
     General,
+    DefaultModels,
     SystemPrompts,
     Provider(String),
     NewProvider,
@@ -89,13 +90,25 @@ impl ProviderEditor {
     }
 }
 
+#[derive(Clone, Debug)]
+pub enum ModelFetchStatus {
+    Loading,
+    Loaded,
+    Failed(String),
+}
+
 pub struct ModelEditor {
     original: Option<Model>,
     provider_kind: ProviderKind,
+    last_remote_id: String,
     pub provider_id: String,
     pub remote_id: Entity<Composer>,
     pub display_name: Entity<Composer>,
     pub capabilities: ModelCapabilities,
+    pub available_models: Vec<AvailableModel>,
+    pub fetch_status: ModelFetchStatus,
+    pub model_menu_open: bool,
+    pub model_selection: usize,
 }
 
 impl ModelEditor {
@@ -105,25 +118,39 @@ impl ModelEditor {
         model: Option<Model>,
         cx: &mut Context<OneChat>,
     ) -> Self {
+        let is_new = model.is_none();
         let value = model
             .clone()
             .unwrap_or_else(|| Model::new_for_provider(&provider_id, "", "", provider_kind));
+        let remote_id = value.remote_id.clone();
         Self {
             original: model,
             provider_kind,
+            last_remote_id: remote_id.clone(),
             provider_id,
-            remote_id: cx.new(|cx| Composer::single_line(value.remote_id, "Remote model ID", cx)),
+            remote_id: cx.new(|cx| Composer::picker("Enter or select a model ID…", cx)),
             display_name: cx
                 .new(|cx| Composer::single_line(value.display_name, "Display name", cx)),
             capabilities: value.capabilities,
+            available_models: Vec::new(),
+            fetch_status: ModelFetchStatus::Loading,
+            model_menu_open: is_new,
+            model_selection: 0,
         }
+        .with_remote_id(remote_id, cx)
+    }
+
+    fn with_remote_id(self, remote_id: String, cx: &mut Context<OneChat>) -> Self {
+        self.remote_id
+            .update(cx, |input, cx| input.set_text(remote_id, cx));
+        self
     }
 
     pub fn is_new(&self) -> bool {
         self.original.is_none()
     }
 
-    pub(super) fn editing_id(&self) -> Option<&str> {
+    pub(crate) fn editing_id(&self) -> Option<&str> {
         self.original.as_ref().map(|model| model.id.as_str())
     }
 
@@ -145,20 +172,109 @@ impl ModelEditor {
         Ok(model)
     }
 
+    pub fn begin_fetch(&mut self) {
+        self.fetch_status = ModelFetchStatus::Loading;
+        self.available_models.clear();
+        self.model_selection = 0;
+        if self.is_new() {
+            self.model_menu_open = true;
+        }
+    }
+
+    pub fn finish_fetch(&mut self, models: Vec<AvailableModel>, cx: &App) {
+        self.available_models = models;
+        self.fetch_status = ModelFetchStatus::Loaded;
+        self.model_selection = 0;
+        if self.is_new() {
+            let remote_id = self.remote_id.read(cx).text().to_string();
+            self.update_vision_for_remote_id(&remote_id);
+        }
+    }
+
+    pub fn fail_fetch(&mut self, message: String) {
+        self.available_models.clear();
+        self.fetch_status = ModelFetchStatus::Failed(message);
+        self.model_selection = 0;
+    }
+
+    pub fn remote_id_changed(&mut self, remote_id: String, cx: &mut Context<OneChat>) {
+        if remote_id == self.last_remote_id {
+            return;
+        }
+        let previous_remote_id = std::mem::replace(&mut self.last_remote_id, remote_id.clone());
+        let display_name = self.display_name.read(cx).text().trim().to_string();
+        if display_name.is_empty() || display_name == previous_remote_id {
+            self.display_name
+                .update(cx, |input, cx| input.set_text(remote_id.clone(), cx));
+        }
+        self.update_vision_for_remote_id(&remote_id);
+        self.model_selection = 0;
+        self.model_menu_open = true;
+    }
+
+    pub fn toggle_model_menu(&mut self) {
+        self.model_menu_open = !self.model_menu_open;
+    }
+
+    pub fn close_model_menu(&mut self) {
+        self.model_menu_open = false;
+    }
+
+    pub fn navigate_models(&mut self, direction: PickerDirection, cx: &App) {
+        let len = self.visible_models(cx).len();
+        if len == 0 {
+            self.model_selection = 0;
+            return;
+        }
+        self.model_menu_open = true;
+        self.model_selection = match direction {
+            PickerDirection::Previous => self.model_selection.checked_sub(1).unwrap_or(len - 1),
+            PickerDirection::Next => (self.model_selection + 1) % len,
+        };
+    }
+
+    pub fn selected_model_id(&self, cx: &App) -> Option<String> {
+        self.visible_models(cx)
+            .get(self.model_selection)
+            .map(|model| model.id.clone())
+    }
+
+    pub fn select_model(&mut self, remote_id: String, cx: &mut Context<OneChat>) {
+        let previous_remote_id = std::mem::replace(&mut self.last_remote_id, remote_id.clone());
+        let display_name = self.display_name.read(cx).text().trim().to_string();
+        if display_name.is_empty() || display_name == previous_remote_id {
+            self.display_name
+                .update(cx, |input, cx| input.set_text(remote_id.clone(), cx));
+        }
+        self.update_vision_for_remote_id(&remote_id);
+        self.remote_id
+            .update(cx, |input, cx| input.set_text(remote_id, cx));
+        self.model_menu_open = false;
+    }
+
+    pub fn visible_models<'a>(&'a self, cx: &App) -> Vec<&'a AvailableModel> {
+        const LIMIT: usize = 100;
+        let query = self.remote_id.read(cx).text().trim().to_ascii_lowercase();
+        self.available_models
+            .iter()
+            .filter(|model| query.is_empty() || model.id.to_ascii_lowercase().contains(&query))
+            .take(LIMIT)
+            .collect()
+    }
+
+    fn update_vision_for_remote_id(&mut self, remote_id: &str) {
+        self.capabilities.vision = self
+            .available_models
+            .iter()
+            .find(|model| model.id == remote_id.trim())
+            .is_some_and(|model| model.vision);
+    }
+
     pub fn toggle_capability(&mut self, capability: Capability) {
         let value = match capability {
             Capability::Streaming => &mut self.capabilities.streaming,
             Capability::Vision => &mut self.capabilities.vision,
             Capability::Thinking => &mut self.capabilities.thinking,
-            Capability::Temperature => &mut self.capabilities.temperature,
-            Capability::TopP => &mut self.capabilities.top_p,
-            Capability::TopK => &mut self.capabilities.top_k,
-            Capability::MaxOutputTokens => &mut self.capabilities.max_output_tokens,
-            Capability::FrequencyPenalty => &mut self.capabilities.frequency_penalty,
-            Capability::PresencePenalty => &mut self.capabilities.presence_penalty,
-            Capability::Seed => &mut self.capabilities.seed,
-            Capability::StopSequences => &mut self.capabilities.stop_sequences,
-            Capability::ThinkingBudget => &mut self.capabilities.thinking_budget,
         };
         *value = !*value;
     }
@@ -168,15 +284,6 @@ impl ModelEditor {
             Capability::Streaming => self.capabilities.streaming,
             Capability::Vision => self.capabilities.vision,
             Capability::Thinking => self.capabilities.thinking,
-            Capability::Temperature => self.capabilities.temperature,
-            Capability::TopP => self.capabilities.top_p,
-            Capability::TopK => self.capabilities.top_k,
-            Capability::MaxOutputTokens => self.capabilities.max_output_tokens,
-            Capability::FrequencyPenalty => self.capabilities.frequency_penalty,
-            Capability::PresencePenalty => self.capabilities.presence_penalty,
-            Capability::Seed => self.capabilities.seed,
-            Capability::StopSequences => self.capabilities.stop_sequences,
-            Capability::ThinkingBudget => self.capabilities.thinking_budget,
         }
     }
 }
@@ -186,46 +293,16 @@ pub enum Capability {
     Streaming,
     Vision,
     Thinking,
-    Temperature,
-    TopP,
-    TopK,
-    MaxOutputTokens,
-    FrequencyPenalty,
-    PresencePenalty,
-    Seed,
-    StopSequences,
-    ThinkingBudget,
 }
 
 impl Capability {
     pub(super) const CORE: [Self; 3] = [Self::Streaming, Self::Vision, Self::Thinking];
-
-    pub(super) const PARAMETERS: [Self; 9] = [
-        Self::Temperature,
-        Self::TopP,
-        Self::TopK,
-        Self::MaxOutputTokens,
-        Self::FrequencyPenalty,
-        Self::PresencePenalty,
-        Self::Seed,
-        Self::StopSequences,
-        Self::ThinkingBudget,
-    ];
 
     pub(super) fn label(self) -> &'static str {
         match self {
             Self::Streaming => "Streaming",
             Self::Vision => "Vision",
             Self::Thinking => "Thinking",
-            Self::Temperature => "Temperature",
-            Self::TopP => "Top P",
-            Self::TopK => "Top K",
-            Self::MaxOutputTokens => "Max Output",
-            Self::FrequencyPenalty => "Frequency Penalty",
-            Self::PresencePenalty => "Presence Penalty",
-            Self::Seed => "Seed",
-            Self::StopSequences => "Stop Sequences",
-            Self::ThinkingBudget => "Thinking Budget",
         }
     }
 }

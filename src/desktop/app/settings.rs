@@ -10,10 +10,42 @@ impl OneChat {
             return;
         }
         self.settings_ui.section = section;
+        self.settings_ui.default_model_menu_open = false;
         self.settings_ui.provider_editor = None;
         self.settings_ui.model_editor = None;
         self.settings_ui.default_system_prompt_editor = None;
         self.settings_ui.form_error = None;
+        cx.notify();
+    }
+
+    pub(crate) fn toggle_primary_model_menu(&mut self, cx: &mut Context<Self>) {
+        self.settings_ui.default_model_menu_open = !self.settings_ui.default_model_menu_open;
+        cx.notify();
+    }
+
+    pub(crate) fn select_primary_model(&mut self, model_id: String, cx: &mut Context<Self>) {
+        let Some(model) = self
+            .data
+            .snapshot
+            .models
+            .iter()
+            .find(|model| model.id == model_id)
+        else {
+            return;
+        };
+        if let Err(reason) = self.model_availability(model) {
+            self.data.error = Some(format!("Model is unavailable: {reason}."));
+            cx.notify();
+            return;
+        }
+
+        self.settings_ui.default_model_menu_open = false;
+        if self.data.snapshot.settings.primary_model_id.as_deref() == Some(&model_id) {
+            cx.notify();
+            return;
+        }
+        self.data.snapshot.settings.primary_model_id = Some(model_id);
+        self.save_settings(cx);
         cx.notify();
     }
 
@@ -144,9 +176,12 @@ impl OneChat {
         };
         self.settings_ui.section = SettingsSection::Provider(provider_id.clone());
         self.settings_ui.provider_editor = None;
-        self.settings_ui.model_editor =
-            Some(ModelEditor::new(provider_id, provider_kind, None, cx));
+        self.install_model_editor(
+            ModelEditor::new(provider_id.clone(), provider_kind, None, cx),
+            cx,
+        );
         self.settings_ui.form_error = None;
+        self.fetch_available_models(provider_id, cx);
         cx.notify();
     }
 
@@ -173,14 +208,147 @@ impl OneChat {
             };
             self.settings_ui.section = SettingsSection::Provider(model.provider_id.clone());
             self.settings_ui.provider_editor = None;
-            self.settings_ui.model_editor = Some(ModelEditor::new(
-                model.provider_id.clone(),
-                provider_kind,
-                Some(model),
+            let provider_id = model.provider_id.clone();
+            self.install_model_editor(
+                ModelEditor::new(provider_id.clone(), provider_kind, Some(model), cx),
                 cx,
-            ));
+            );
             self.settings_ui.form_error = None;
+            self.fetch_available_models(provider_id, cx);
             cx.notify();
+        }
+    }
+
+    fn install_model_editor(&mut self, editor: ModelEditor, cx: &mut Context<Self>) {
+        let remote_id = editor.remote_id.clone();
+        self.settings_ui.model_editor = Some(editor);
+        cx.subscribe(&remote_id, |this, _, event, cx| match event {
+            ComposerEvent::Changed(remote_id) => {
+                if let Some(editor) = &mut this.settings_ui.model_editor {
+                    editor.remote_id_changed(remote_id.clone(), cx);
+                    cx.notify();
+                }
+            }
+            ComposerEvent::Navigate(direction) => {
+                if let Some(editor) = &mut this.settings_ui.model_editor {
+                    editor.navigate_models(*direction, cx);
+                    cx.notify();
+                }
+            }
+            ComposerEvent::Submit(_) => this.confirm_available_model(cx),
+            ComposerEvent::Cancel => {
+                if let Some(editor) = &mut this.settings_ui.model_editor {
+                    editor.close_model_menu();
+                    cx.notify();
+                }
+            }
+        })
+        .detach();
+    }
+
+    fn fetch_available_models(&mut self, provider_id: String, cx: &mut Context<Self>) {
+        let Some(provider) = self
+            .data
+            .snapshot
+            .providers
+            .iter()
+            .find(|provider| provider.id == provider_id)
+            .cloned()
+        else {
+            self.settings_ui.form_error = Some("Provider not found.".into());
+            cx.notify();
+            return;
+        };
+        let Some(editor) = &mut self.settings_ui.model_editor else {
+            return;
+        };
+        editor.begin_fetch();
+        self.settings_ui.model_fetch_revision =
+            self.settings_ui.model_fetch_revision.wrapping_add(1);
+        let revision = self.settings_ui.model_fetch_revision;
+        let (sender, receiver) = async_channel::bounded(1);
+        self.services.runtime.spawn(async move {
+            let result: Result<Vec<AvailableModel>, _> = providers::list_models(&provider).await;
+            let _ = sender.send(result).await;
+        });
+        cx.spawn(async move |this, cx| {
+            let result = receiver.recv().await;
+            let _ = this.update(cx, |this, cx| {
+                if this.settings_ui.model_fetch_revision != revision {
+                    return;
+                }
+                let editing_id = this
+                    .settings_ui
+                    .model_editor
+                    .as_ref()
+                    .and_then(ModelEditor::editing_id)
+                    .map(str::to_string);
+                let configured = this
+                    .data
+                    .snapshot
+                    .models
+                    .iter()
+                    .filter(|model| model.provider_id == provider_id)
+                    .filter(|model| Some(model.id.as_str()) != editing_id.as_deref())
+                    .map(|model| model.remote_id.clone())
+                    .collect::<HashSet<_>>();
+                let Some(editor) = this
+                    .settings_ui
+                    .model_editor
+                    .as_mut()
+                    .filter(|editor| editor.provider_id == provider_id)
+                else {
+                    return;
+                };
+                match result {
+                    Ok(Ok(mut models)) => {
+                        models.retain(|model| !configured.contains(&model.id));
+                        editor.finish_fetch(models, cx);
+                    }
+                    Ok(Err(error)) => editor.fail_fetch(error.message),
+                    Err(_) => editor.fail_fetch("Model discovery task stopped".into()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
+    pub(crate) fn retry_available_models(&mut self, cx: &mut Context<Self>) {
+        if let Some(provider_id) = self
+            .settings_ui
+            .model_editor
+            .as_ref()
+            .map(|editor| editor.provider_id.clone())
+        {
+            self.fetch_available_models(provider_id, cx);
+        }
+    }
+
+    pub(crate) fn toggle_available_model_menu(&mut self, cx: &mut Context<Self>) {
+        if let Some(editor) = &mut self.settings_ui.model_editor {
+            editor.toggle_model_menu();
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn select_available_model(&mut self, remote_id: String, cx: &mut Context<Self>) {
+        if let Some(editor) = &mut self.settings_ui.model_editor {
+            editor.select_model(remote_id, cx);
+            cx.notify();
+        }
+    }
+
+    fn confirm_available_model(&mut self, cx: &mut Context<Self>) {
+        let remote_id = self
+            .settings_ui
+            .model_editor
+            .as_ref()
+            .filter(|editor| editor.model_menu_open)
+            .and_then(|editor| editor.selected_model_id(cx));
+        if let Some(remote_id) = remote_id {
+            self.select_available_model(remote_id, cx);
         }
     }
 

@@ -3,6 +3,7 @@ use super::*;
 pub(super) fn new_provider_page(
     app: &OneChat,
     colors: Colors,
+    scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let content = app.settings_ui.provider_editor.as_ref().map_or_else(
@@ -13,7 +14,7 @@ pub(super) fn new_provider_page(
                 .child("Preparing provider settings…")
                 .into_any_element()
         },
-        |editor| provider_form(editor, colors, cx),
+        |editor| provider_form(editor, colors, scale_factor, cx),
     );
 
     detail_page(
@@ -40,6 +41,7 @@ pub(super) fn provider_page(
     app: &OneChat,
     provider: &Provider,
     colors: Colors,
+    scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let (status, status_color) = provider_status(app, provider, colors);
@@ -110,14 +112,14 @@ pub(super) fn provider_page(
         });
 
     let body = if let Some(editor) = &app.settings_ui.provider_editor {
-        provider_form(editor, colors, cx)
+        provider_form(editor, colors, scale_factor, cx)
     } else {
         div()
             .flex()
             .flex_col()
             .gap_6()
             .child(provider_summary(provider, colors))
-            .child(provider_models(app, provider, colors, cx))
+            .child(provider_models(app, provider, colors, scale_factor, cx))
             .child(provider_danger_zone(provider, colors, cx))
             .into_any_element()
     };
@@ -220,6 +222,7 @@ fn provider_models(
     app: &OneChat,
     provider: &Provider,
     colors: Colors,
+    scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let editor = app
@@ -232,7 +235,7 @@ fn provider_models(
     let mut models = div().flex().flex_col().gap_2();
 
     if let Some(editor) = editor {
-        models = models.child(model_form(editor, colors, cx));
+        models = models.child(model_form(editor, colors, scale_factor, cx));
     }
 
     let configured_models = app

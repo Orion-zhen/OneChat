@@ -6,6 +6,7 @@ impl Storage {
     pub(super) fn load_snapshot_locked(&self) -> Result<StorageSnapshot> {
         let mut settings = self.read_settings()?;
         let files = self.read_conversations()?;
+        let mut settings_changed = false;
         if settings
             .app
             .current_conversation_id
@@ -13,6 +14,18 @@ impl Storage {
             .is_some_and(|id| !files.iter().any(|file| &file.conversation.id == id))
         {
             settings.app.current_conversation_id = None;
+            settings_changed = true;
+        }
+        if settings
+            .app
+            .primary_model_id
+            .as_ref()
+            .is_some_and(|id| !settings.models.iter().any(|model| &model.id == id))
+        {
+            settings.app.primary_model_id = None;
+            settings_changed = true;
+        }
+        if settings_changed {
             self.write_settings(&settings)?;
         }
 

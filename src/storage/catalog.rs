@@ -60,6 +60,14 @@ impl Storage {
             .map(|model| model.id.clone())
             .collect::<Vec<_>>();
         settings.models.retain(|model| model.provider_id != id);
+        if settings
+            .app
+            .primary_model_id
+            .as_ref()
+            .is_some_and(|id| removed_models.contains(id))
+        {
+            settings.app.primary_model_id = None;
+        }
         self.clear_conversation_models(&removed_models)?;
         self.write_settings(&settings)
     }
@@ -95,6 +103,9 @@ impl Storage {
         settings.models.retain(|model| model.id != id);
         if settings.models.len() == previous_len {
             return Err(missing("model", id));
+        }
+        if settings.app.primary_model_id.as_deref() == Some(id) {
+            settings.app.primary_model_id = None;
         }
         self.clear_conversation_models(&[id.to_string()])?;
         self.write_settings(&settings)

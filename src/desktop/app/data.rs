@@ -125,6 +125,7 @@ impl OneChat {
     }
 
     pub(super) fn reset_conversation_ui(&mut self, cx: &mut Context<Self>) {
+        self.chat.draft_model_id = None;
         self.chat.system_prompt_mode = SystemPromptMode::Compact;
         self.chat.system_prompt_editor = None;
         self.overlays.command_palette_open = false;
@@ -194,13 +195,41 @@ impl OneChat {
             .find(|conversation| conversation.id == id)
     }
 
-    pub(crate) fn current_model(&self) -> Option<&Model> {
-        let model_id = self.current_conversation()?.model_id.as_deref()?;
+    pub(crate) fn primary_model(&self) -> Option<&Model> {
+        let model_id = self.data.snapshot.settings.primary_model_id.as_deref()?;
         self.data
             .snapshot
             .models
             .iter()
             .find(|model| model.id == model_id)
+    }
+
+    pub(crate) fn current_model(&self) -> Option<&Model> {
+        let conversation = self.current_conversation()?;
+        conversation
+            .model_id
+            .as_deref()
+            .and_then(|model_id| {
+                self.data
+                    .snapshot
+                    .models
+                    .iter()
+                    .find(|model| model.id == model_id)
+            })
+            .or_else(|| self.primary_model())
+    }
+
+    pub(crate) fn selected_model(&self) -> Option<&Model> {
+        self.current_model()
+            .or_else(|| {
+                let model_id = self.chat.draft_model_id.as_deref()?;
+                self.data
+                    .snapshot
+                    .models
+                    .iter()
+                    .find(|model| model.id == model_id)
+            })
+            .or_else(|| self.primary_model())
     }
 
     pub(crate) fn current_provider(&self) -> Option<&Provider> {
@@ -265,10 +294,19 @@ impl OneChat {
             .collect()
     }
 
-    pub(super) fn first_available_model_selection(&self) -> usize {
-        self.filtered_models()
+    pub(super) fn initial_model_selection(&self) -> usize {
+        let models = self.filtered_models();
+        let selected_id = self.selected_model().map(|model| model.id.as_str());
+        models
             .iter()
-            .position(|model| self.model_availability(model).is_ok())
+            .position(|model| {
+                selected_id == Some(model.id.as_str()) && self.model_availability(model).is_ok()
+            })
+            .or_else(|| {
+                models
+                    .iter()
+                    .position(|model| self.model_availability(model).is_ok())
+            })
             .unwrap_or(0)
     }
 
