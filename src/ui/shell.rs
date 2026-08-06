@@ -157,9 +157,10 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
     let model_picker = app
         .model_picker_open
         .then(|| render_model_picker(app, colors, cx));
-    let destructive_confirmation = app.destructive_action.as_ref().map(|action| {
-        render_destructive_confirmation(action, colors, app.settings().reduce_motion, cx)
-    });
+    let destructive_confirmation = app
+        .destructive_action
+        .as_ref()
+        .map(|action| render_destructive_confirmation(action, colors, cx));
     let error = app.error.clone().map(|message| {
         div()
             .absolute()
@@ -266,21 +267,38 @@ fn render_sidebar(
                     .gap_2()
                     .pt_3()
                     .child(
-                        icon_button("expand-sidebar", "☰", colors)
-                            .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
+                        large_svg_icon_button(
+                            "expand-sidebar",
+                            UiIcon::Menu,
+                            IconTone::Muted,
+                            colors,
+                            scale_factor,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
                     )
                     .child(
-                        primary_icon_button("new-conversation-collapsed", "+", colors)
-                            .on_click(cx.listener(|this, _, _, cx| this.create_conversation(cx))),
+                        primary_svg_icon_button(
+                            "new-conversation-collapsed",
+                            UiIcon::Plus,
+                            colors,
+                            scale_factor,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.create_conversation(cx))),
                     ),
             )
             .child(div().flex_1())
             .child(
-                icon_button("settings-collapsed", "⚙", colors)
-                    .mb_3()
-                    .on_click(cx.listener(|this, _, _, cx| this.set_page(Page::Settings, cx))),
+                large_svg_icon_button(
+                    "settings-collapsed",
+                    UiIcon::Settings,
+                    IconTone::Muted,
+                    colors,
+                    scale_factor,
+                )
+                .mb_3()
+                .on_click(cx.listener(|this, _, _, cx| this.set_page(Page::Settings, cx))),
             );
-        return animate_sidebar(sidebar, true, app.settings().reduce_motion);
+        return animate_sidebar(sidebar, true);
     }
 
     let groups = app.conversation_groups();
@@ -353,29 +371,42 @@ fn render_sidebar(
                 .gap_2()
                 .child(
                     div()
+                        .h(px(32.0))
+                        .px_1()
                         .flex()
                         .items_center()
-                        .gap_2()
+                        .justify_between()
                         .child(
-                            primary_button("new-conversation", "+  New Conversation", colors)
-                                .flex_1()
-                                .on_click(
-                                    cx.listener(|this, _, _, cx| this.create_conversation(cx)),
-                                ),
+                            div()
+                                .text_size(px(12.0))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(colors.muted)
+                                .child("Conversations"),
                         )
                         .child(
-                            icon_button("collapse-sidebar", "‹", colors)
-                                .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
+                            large_svg_icon_button(
+                                "collapse-sidebar",
+                                UiIcon::ChevronLeft,
+                                IconTone::Muted,
+                                colors,
+                                scale_factor,
+                            )
+                            .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
                         ),
+                )
+                .child(
+                    primary_button("new-conversation", "+  New Conversation", colors)
+                        .w_full()
+                        .on_click(cx.listener(|this, _, _, cx| this.create_conversation(cx))),
                 )
                 .child(app.search_input.clone()),
         )
         .child(list)
-        .child(render_connection_footer(app, colors, cx));
-    animate_sidebar(sidebar, false, app.settings().reduce_motion)
+        .child(render_connection_footer(app, colors, scale_factor, cx));
+    animate_sidebar(sidebar, false)
 }
 
-fn animate_sidebar(sidebar: Div, collapsed: bool, reduce_motion: bool) -> AnyElement {
+fn animate_sidebar(sidebar: Div, collapsed: bool) -> AnyElement {
     let id = if collapsed {
         "sidebar-collapsed"
     } else {
@@ -385,20 +416,14 @@ fn animate_sidebar(sidebar: Div, collapsed: bool, reduce_motion: bool) -> AnyEle
         .overflow_hidden()
         .with_animation(
             id,
-            Animation::new(Duration::from_millis(if reduce_motion { 140 } else { 220 }))
-                .with_easing(ease_out_quint()),
+            Animation::new(Duration::from_millis(220)).with_easing(ease_out_quint()),
             move |sidebar, delta| {
-                let sidebar = sidebar.opacity(0.8 + delta * 0.2);
-                if reduce_motion {
-                    sidebar
+                let width = if collapsed {
+                    260.0 - 192.0 * delta
                 } else {
-                    let width = if collapsed {
-                        260.0 - 192.0 * delta
-                    } else {
-                        68.0 + 192.0 * delta
-                    };
-                    sidebar.w(px(width))
-                }
+                    68.0 + 192.0 * delta
+                };
+                sidebar.opacity(0.8 + delta * 0.2).w(px(width))
             },
         )
         .into_any_element()
@@ -526,6 +551,7 @@ fn render_conversation_row(
 fn render_connection_footer(
     app: &OneChat,
     colors: Colors,
+    scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let enabled = app
@@ -559,8 +585,14 @@ fn render_connection_footer(
                 ),
         )
         .child(
-            icon_button("open-settings", "⚙", colors)
-                .on_click(cx.listener(|this, _, _, cx| this.set_page(Page::Settings, cx))),
+            large_svg_icon_button(
+                "open-settings",
+                UiIcon::Settings,
+                IconTone::Muted,
+                colors,
+                scale_factor,
+            )
+            .on_click(cx.listener(|this, _, _, cx| this.set_page(Page::Settings, cx))),
         )
         .into_any_element()
 }
@@ -928,7 +960,6 @@ fn render_command_palette(app: &OneChat, colors: Colors, cx: &mut Context<OneCha
         colors,
         "command-palette-backdrop",
         "command-palette-panel",
-        app.settings().reduce_motion,
     )
 }
 
@@ -1100,13 +1131,7 @@ fn render_model_picker(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>)
                 .text_color(colors.muted)
                 .child("↑↓ Navigate   ↩ Select   Esc Close"),
         );
-    animated_overlay(
-        panel,
-        colors,
-        "model-picker-backdrop",
-        "model-picker-panel",
-        app.settings().reduce_motion,
-    )
+    animated_overlay(panel, colors, "model-picker-backdrop", "model-picker-panel")
 }
 
 fn notice_row(message: &str, colors: Colors) -> AnyElement {
@@ -1123,7 +1148,6 @@ fn notice_row(message: &str, colors: Colors) -> AnyElement {
 fn render_destructive_confirmation(
     action: &DestructiveAction,
     colors: Colors,
-    reduce_motion: bool,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let (title, detail, confirm_label) = match action {
@@ -1217,7 +1241,6 @@ fn render_destructive_confirmation(
         colors,
         "destructive-confirmation-backdrop",
         "destructive-confirmation-panel",
-        reduce_motion,
     )
 }
 
@@ -1226,20 +1249,16 @@ fn animated_overlay(
     colors: Colors,
     backdrop_id: &'static str,
     panel_id: &'static str,
-    reduce_motion: bool,
 ) -> AnyElement {
-    let duration = if reduce_motion { 140 } else { 220 };
+    let duration = 220;
     let panel = panel
         .with_animation(
             panel_id,
             Animation::new(Duration::from_millis(duration)).with_easing(ease_out_quint()),
-            move |panel, delta| {
-                let panel = panel.opacity(0.68 + delta * 0.32);
-                if reduce_motion {
-                    panel
-                } else {
-                    panel.mt(px(14.0 * (1.0 - delta)))
-                }
+            |panel, delta| {
+                panel
+                    .opacity(0.68 + delta * 0.32)
+                    .mt(px(14.0 * (1.0 - delta)))
             },
         )
         .into_any_element();
@@ -1439,6 +1458,10 @@ pub(crate) enum UiIcon {
     Info,
     Pin,
     Close,
+    Settings,
+    Menu,
+    Plus,
+    ChevronLeft,
 }
 
 #[derive(Clone, Copy)]
@@ -1446,6 +1469,7 @@ pub(crate) enum IconTone {
     Muted,
     Accent,
     Danger,
+    OnAccent,
 }
 
 pub(crate) fn svg_icon_button(
@@ -1455,6 +1479,47 @@ pub(crate) fn svg_icon_button(
     colors: Colors,
     scale_factor: f32,
 ) -> Stateful<Div> {
+    svg_icon_button_sized(id, icon, tone, colors, scale_factor, 24.0, 16.0)
+}
+
+fn large_svg_icon_button(
+    id: impl Into<ElementId>,
+    icon: UiIcon,
+    tone: IconTone,
+    colors: Colors,
+    scale_factor: f32,
+) -> Stateful<Div> {
+    svg_icon_button_sized(id, icon, tone, colors, scale_factor, 32.0, 20.0)
+}
+
+fn primary_svg_icon_button(
+    id: impl Into<ElementId>,
+    icon: UiIcon,
+    colors: Colors,
+    scale_factor: f32,
+) -> Stateful<Div> {
+    svg_icon_button_sized(
+        id,
+        icon,
+        IconTone::OnAccent,
+        colors,
+        scale_factor,
+        32.0,
+        20.0,
+    )
+    .rounded_full()
+    .bg(colors.accent)
+}
+
+fn svg_icon_button_sized(
+    id: impl Into<ElementId>,
+    icon: UiIcon,
+    tone: IconTone,
+    colors: Colors,
+    scale_factor: f32,
+    button_size: f32,
+    icon_size: f32,
+) -> Stateful<Div> {
     let (display_color, hover, active) = match (tone, colors.dark) {
         (IconTone::Muted, true) => ("#a1a1aa", colors.hover, colors.accent_soft),
         (IconTone::Muted, false) => ("#6e6e73", colors.hover, colors.accent_soft),
@@ -1462,15 +1527,17 @@ pub(crate) fn svg_icon_button(
         (IconTone::Accent, false) => ("#007aff", colors.hover, colors.accent_soft),
         (IconTone::Danger, true) => ("#ff453a", rgba(0xff453a18), rgba(0xff453a2e)),
         (IconTone::Danger, false) => ("#d70015", rgba(0xd7001512), rgba(0xd7001524)),
+        (IconTone::OnAccent, true) => ("#ffffff", rgb(0x2693ff), rgb(0x0068d6)),
+        (IconTone::OnAccent, false) => ("#ffffff", rgb(0x1683ff), rgb(0x006ee6)),
     };
     let svg_color = gpui_svg_color(display_color);
     let image = Arc::new(Image::from_bytes(
         ImageFormat::Svg,
-        svg_icon(icon, &svg_color, scale_factor).into_bytes(),
+        svg_icon_at_size(icon, &svg_color, scale_factor, icon_size).into_bytes(),
     ));
     div()
         .id(id)
-        .size(px(24.0))
+        .size(px(button_size))
         .flex_none()
         .flex()
         .items_center()
@@ -1479,7 +1546,7 @@ pub(crate) fn svg_icon_button(
         .cursor_pointer()
         .hover(move |style| style.bg(hover))
         .active(move |style| style.bg(active))
-        .child(img(image).size(px(16.0)))
+        .child(img(image).size(px(icon_size)))
 }
 
 fn gpui_svg_color(display_color: &str) -> String {
@@ -1492,7 +1559,7 @@ fn gpui_svg_color(display_color: &str) -> String {
     )
 }
 
-fn svg_icon(icon: UiIcon, color: &str, scale_factor: f32) -> String {
+fn svg_icon_at_size(icon: UiIcon, color: &str, scale_factor: f32, size: f32) -> String {
     let paths = match icon {
         UiIcon::Copy => {
             r#"<rect width="13" height="13" x="9" y="9" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>"#
@@ -1510,8 +1577,14 @@ fn svg_icon(icon: UiIcon, color: &str, scale_factor: f32) -> String {
             r#"<path d="M12 17v5"/><path d="M5 17h14"/><path d="M6 17h12l-1-5 2-2V8H5v2l2 2Z"/><path d="M9 8V2h6v6"/>"#
         }
         UiIcon::Close => r#"<path d="M18 6 6 18"/><path d="m6 6 12 12"/>"#,
+        UiIcon::Settings => {
+            r#"<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/>"#
+        }
+        UiIcon::Menu => r#"<path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/>"#,
+        UiIcon::Plus => r#"<path d="M12 3v18"/><path d="M3 12h18"/>"#,
+        UiIcon::ChevronLeft => r#"<path d="m16 20-8-8 8-8"/>"#,
     };
-    let physical_size = (16.0 * scale_factor.max(1.0)).round() as u32;
+    let physical_size = (size * scale_factor.max(1.0)).round() as u32;
     format!(
         r#"<svg xmlns="http://www.w3.org/2000/svg" width="{physical_size}" height="{physical_size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" shape-rendering="geometricPrecision">{paths}</svg>"#
     )
@@ -1541,7 +1614,7 @@ mod tests {
 
     #[test]
     fn svg_icons_rasterize_at_the_display_scale() {
-        let svg = svg_icon(UiIcon::Pin, "#ffffff", 2.0);
+        let svg = svg_icon_at_size(UiIcon::Pin, "#ffffff", 2.0, 16.0);
 
         assert!(svg.contains(r#"width="32" height="32""#));
         assert!(svg.contains(r#"viewBox="0 0 24 24""#));
@@ -1550,8 +1623,11 @@ mod tests {
         assert_eq!(gpui_svg_color("#ff453a"), "#3a45ff");
         assert_eq!(gpui_svg_color("#0a84ff"), "#ff840a");
 
-        let close = svg_icon(UiIcon::Close, &gpui_svg_color("#d70015"), 2.0);
+        let close = svg_icon_at_size(UiIcon::Close, &gpui_svg_color("#d70015"), 2.0, 16.0);
         assert!(close.contains(r##"stroke="#1500d7""##));
         assert!(close.contains(r#"<path d="M18 6 6 18"/>"#));
+
+        let settings = svg_icon_at_size(UiIcon::Settings, "#ffffff", 2.0, 20.0);
+        assert!(settings.contains(r#"width="40" height="40""#));
     }
 }

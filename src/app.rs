@@ -19,7 +19,7 @@ use crate::{
     },
     model::{
         AppSettings, Conversation, ConversationGroup, Message, MessageRole, Model, Page, Provider,
-        RequestInfo, SystemPromptSource, Theme, now_timestamp,
+        ProviderKind, RequestInfo, SystemPromptSource, Theme, now_timestamp,
     },
     providers,
     ui::{
@@ -1079,15 +1079,23 @@ impl OneChat {
         }
     }
 
-    pub(crate) fn cycle_provider_kind(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn toggle_provider_kind_menu(&mut self, cx: &mut Context<Self>) {
         if let Some(editor) = &mut self.provider_editor {
-            editor.cycle_kind(cx);
+            editor.toggle_kind_menu();
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn select_provider_kind(&mut self, kind: ProviderKind, cx: &mut Context<Self>) {
+        if let Some(editor) = &mut self.provider_editor {
+            editor.select_kind(kind, cx);
             cx.notify();
         }
     }
 
     pub(crate) fn toggle_provider_enabled(&mut self, cx: &mut Context<Self>) {
         if let Some(editor) = &mut self.provider_editor {
+            editor.kind_menu_open = false;
             editor.enabled = !editor.enabled;
             cx.notify();
         }
@@ -1426,7 +1434,12 @@ impl OneChat {
     }
 
     pub(crate) fn dismiss_overlay(&mut self, cx: &mut Context<Self>) {
-        if self.destructive_action.is_some() {
+        if let Some(editor) = &mut self.provider_editor
+            && editor.kind_menu_open
+        {
+            editor.kind_menu_open = false;
+            cx.notify();
+        } else if self.destructive_action.is_some() {
             self.cancel_destructive_action(cx);
         } else if self.command_palette_open {
             self.close_command_palette(cx);
@@ -1535,12 +1548,6 @@ impl OneChat {
 
     pub(crate) fn cycle_theme(&mut self, cx: &mut Context<Self>) {
         self.snapshot.settings.theme = self.snapshot.settings.theme.next();
-        self.save_settings(cx);
-        cx.notify();
-    }
-
-    pub(crate) fn toggle_reduce_motion(&mut self, cx: &mut Context<Self>) {
-        self.snapshot.settings.reduce_motion = !self.snapshot.settings.reduce_motion;
         self.save_settings(cx);
         cx.notify();
     }

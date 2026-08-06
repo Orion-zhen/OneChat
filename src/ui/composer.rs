@@ -624,6 +624,7 @@ impl EntityInputHandler for Composer {
 impl Render for Composer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = InputPalette::for_inherited_text(window.text_style().color);
+        let scroll_handle = self.scroll_handle.clone();
         div()
             .key_context("Composer")
             .track_focus(&self.focus_handle(cx))
@@ -670,6 +671,13 @@ impl Render for Composer {
             .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_up_out(MouseButton::Left, cx.listener(Self::on_mouse_up))
             .on_mouse_move(cx.listener(Self::on_mouse_move))
+            .when(!self.single_line, |element| {
+                element.on_scroll_wheel(move |_, _, cx| {
+                    if scroll_handle.max_offset().height > px(0.0) {
+                        cx.stop_propagation();
+                    }
+                })
+            })
             .child(
                 div()
                     .id("composer-input-scroll")

@@ -7,7 +7,7 @@ use gpui::{
 
 use crate::{
     app::{ConnectionTestStatus, OneChat},
-    model::{GenerationConfig, Model, ModelCapabilities, Provider, ProviderKind, now_timestamp},
+    model::{Model, ModelCapabilities, Provider, ProviderKind, now_timestamp},
     ui::{
         composer::Composer,
         shell::{Colors, button, compact_button, icon_button, primary_button},
@@ -26,6 +26,7 @@ pub(crate) enum SettingsSection {
 pub struct ProviderEditor {
     original: Option<Provider>,
     pub kind: ProviderKind,
+    pub kind_menu_open: bool,
     pub enabled: bool,
     pub name: Entity<Composer>,
     pub endpoint: Entity<Composer>,
@@ -43,6 +44,7 @@ impl ProviderEditor {
         Self {
             original: provider,
             kind: value.kind,
+            kind_menu_open: false,
             enabled: value.enabled,
             name: cx.new(|cx| Composer::single_line(value.name, "Provider name", cx)),
             endpoint: cx.new(|cx| Composer::single_line(value.endpoint, "Endpoint", cx)),
@@ -80,14 +82,23 @@ impl ProviderEditor {
         Ok(provider)
     }
 
-    pub fn cycle_kind(&mut self, cx: &mut Context<OneChat>) {
+    pub fn toggle_kind_menu(&mut self) {
+        self.kind_menu_open = !self.kind_menu_open;
+    }
+
+    pub fn select_kind(&mut self, kind: ProviderKind, cx: &mut Context<OneChat>) {
+        self.kind_menu_open = false;
+        if self.kind == kind {
+            return;
+        }
+
         let previous_default = self.kind.default_endpoint();
-        self.kind = self.kind.next();
+        self.kind = kind;
         let endpoint = self.endpoint.read(cx).text().trim().to_string();
         if endpoint.is_empty() || endpoint == previous_default {
-            let next = self.kind.default_endpoint().to_string();
-            self.endpoint
-                .update(cx, |input, cx| input.set_text(next, cx));
+            self.endpoint.update(cx, |input, cx| {
+                input.set_text(kind.default_endpoint().to_string(), cx)
+            });
         }
     }
 }
@@ -98,7 +109,6 @@ pub struct ModelEditor {
     pub provider_id: String,
     pub remote_id: Entity<Composer>,
     pub display_name: Entity<Composer>,
-    pub default_config: Entity<Composer>,
     pub capabilities: ModelCapabilities,
 }
 
@@ -112,8 +122,6 @@ impl ModelEditor {
         let value = model
             .clone()
             .unwrap_or_else(|| Model::new_for_provider(&provider_id, "", "", provider_kind));
-        let config =
-            serde_json::to_string_pretty(&value.default_config).unwrap_or_else(|_| "{}".into());
         Self {
             original: model,
             provider_kind,
@@ -121,8 +129,6 @@ impl ModelEditor {
             remote_id: cx.new(|cx| Composer::single_line(value.remote_id, "Remote model ID", cx)),
             display_name: cx
                 .new(|cx| Composer::single_line(value.display_name, "Display name", cx)),
-            default_config: cx
-                .new(|cx| Composer::multiline(config, "Default generation parameters JSON", cx)),
             capabilities: value.capabilities,
         }
     }
@@ -148,9 +154,6 @@ impl ModelEditor {
         if model.display_name.is_empty() {
             model.display_name = model.remote_id.clone();
         }
-        model.default_config =
-            serde_json::from_str::<GenerationConfig>(self.default_config.read(cx).text().trim())
-                .map_err(|error| format!("Invalid default parameters JSON: {error}"))?;
         model.capabilities = self.capabilities.clone();
         model.updated_at = now_timestamp();
         Ok(model)
@@ -159,7 +162,6 @@ impl ModelEditor {
     pub fn toggle_capability(&mut self, capability: Capability) {
         let value = match capability {
             Capability::Streaming => &mut self.capabilities.streaming,
-            Capability::SystemPrompt => &mut self.capabilities.system_prompt,
             Capability::Vision => &mut self.capabilities.vision,
             Capability::Thinking => &mut self.capabilities.thinking,
             Capability::Temperature => &mut self.capabilities.temperature,
@@ -178,7 +180,6 @@ impl ModelEditor {
     pub fn capability(&self, capability: Capability) -> bool {
         match capability {
             Capability::Streaming => self.capabilities.streaming,
-            Capability::SystemPrompt => self.capabilities.system_prompt,
             Capability::Vision => self.capabilities.vision,
             Capability::Thinking => self.capabilities.thinking,
             Capability::Temperature => self.capabilities.temperature,
@@ -197,7 +198,6 @@ impl ModelEditor {
 #[derive(Clone, Copy, Debug)]
 pub enum Capability {
     Streaming,
-    SystemPrompt,
     Vision,
     Thinking,
     Temperature,
@@ -212,12 +212,7 @@ pub enum Capability {
 }
 
 impl Capability {
-    const CORE: [Self; 4] = [
-        Self::Streaming,
-        Self::SystemPrompt,
-        Self::Vision,
-        Self::Thinking,
-    ];
+    const CORE: [Self; 3] = [Self::Streaming, Self::Vision, Self::Thinking];
 
     const PARAMETERS: [Self; 9] = [
         Self::Temperature,
@@ -234,7 +229,6 @@ impl Capability {
     fn label(self) -> &'static str {
         match self {
             Self::Streaming => "Streaming",
-            Self::SystemPrompt => "System Prompt",
             Self::Vision => "Vision",
             Self::Thinking => "Thinking",
             Self::Temperature => "Temperature",
@@ -545,32 +539,13 @@ fn provider_nav_row(
 
 fn general_page(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
     let theme = app.settings().theme.label();
-    let reduce_motion = if app.settings().reduce_motion {
-        "On"
-    } else {
-        "Off"
-    };
-    let appearance = div()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .child(setting_row(
-            "Theme",
-            "Match the Mac or choose a fixed appearance.",
-            button("cycle-theme", theme, colors)
-                .on_click(cx.listener(|this, _, _, cx| this.cycle_theme(cx))),
-            colors,
-        ))
-        .child(setting_row(
-            "Reduce Motion",
-            "Prefer cross-fades over spatial transitions.",
-            button("toggle-reduce-motion", reduce_motion, colors)
-                .when(app.settings().reduce_motion, |element| {
-                    element.bg(colors.accent_soft).text_color(colors.accent)
-                })
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_reduce_motion(cx))),
-            colors,
-        ));
+    let appearance = div().flex().flex_col().gap_2().child(setting_row(
+        "Theme",
+        "Match the Mac or choose a fixed appearance.",
+        button("cycle-theme", theme, colors)
+            .on_click(cx.listener(|this, _, _, cx| this.cycle_theme(cx))),
+        colors,
+    ));
 
     detail_page(
         div()
@@ -1055,14 +1030,98 @@ fn model_capability_summary(capabilities: &ModelCapabilities) -> String {
     if capabilities.thinking {
         labels.push("Thinking");
     }
-    if capabilities.system_prompt {
-        labels.push("System Prompt");
-    }
     if labels.is_empty() {
         "No core capabilities".into()
     } else {
         labels.join(", ")
     }
+}
+
+fn provider_kind_select(
+    editor: &ProviderEditor,
+    colors: Colors,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    let mut options = div()
+        .w_full()
+        .mt_1()
+        .rounded_lg()
+        .border_1()
+        .border_color(colors.border)
+        .bg(colors.panel)
+        .p_1()
+        .flex()
+        .flex_col()
+        .shadow_md();
+    for kind in ProviderKind::ALL {
+        let selected = kind == editor.kind;
+        options = options.child(
+            div()
+                .id(SharedString::from(format!(
+                    "provider-kind-option-{}",
+                    kind.as_str()
+                )))
+                .w_full()
+                .px_3()
+                .py_2()
+                .rounded_md()
+                .flex()
+                .items_center()
+                .justify_between()
+                .bg(if selected {
+                    colors.accent_soft
+                } else {
+                    colors.panel
+                })
+                .text_sm()
+                .text_color(if selected { colors.accent } else { colors.text })
+                .cursor_pointer()
+                .hover(move |style| style.bg(colors.hover))
+                .on_click(cx.listener(move |this, _, _, cx| this.select_provider_kind(kind, cx)))
+                .child(kind.label())
+                .children(selected.then(|| div().text_color(colors.accent).child("✓"))),
+        );
+    }
+
+    div()
+        .min_w(px(240.0))
+        .flex_1()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(
+            div()
+                .text_size(px(11.0))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(colors.muted)
+                .child("Type"),
+        )
+        .child(
+            div()
+                .id("provider-kind-select")
+                .w_full()
+                .h(px(36.0))
+                .px_3()
+                .rounded_lg()
+                .border_1()
+                .border_color(colors.border)
+                .bg(colors.raised)
+                .flex()
+                .items_center()
+                .justify_between()
+                .text_sm()
+                .cursor_pointer()
+                .hover(move |style| style.bg(colors.hover))
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_provider_kind_menu(cx)))
+                .child(editor.kind.label())
+                .child(
+                    div()
+                        .text_color(colors.muted)
+                        .child(if editor.kind_menu_open { "⌃" } else { "⌄" }),
+                ),
+        )
+        .children(editor.kind_menu_open.then_some(options))
+        .into_any_element()
 }
 
 fn provider_form(editor: &ProviderEditor, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
@@ -1074,29 +1133,39 @@ fn provider_form(editor: &ProviderEditor, colors: Colors, cx: &mut Context<OneCh
         .child(
             div()
                 .flex()
+                .items_start()
                 .gap_2()
+                .child(provider_kind_select(editor, colors, cx))
                 .child(
-                    button(
-                        "provider-kind",
-                        format!("Type: {}", editor.kind.label()),
-                        colors,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| this.cycle_provider_kind(cx))),
-                )
-                .child(
-                    button(
-                        "provider-enabled",
-                        if editor.enabled {
-                            "Enabled"
-                        } else {
-                            "Disabled"
-                        },
-                        colors,
-                    )
-                    .when(editor.enabled, |element| {
-                        element.bg(colors.accent_soft).text_color(colors.accent)
-                    })
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_provider_enabled(cx))),
+                    div()
+                        .flex_none()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(
+                            div()
+                                .text_size(px(11.0))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_color(colors.muted)
+                                .child("Status"),
+                        )
+                        .child(
+                            button(
+                                "provider-enabled",
+                                if editor.enabled {
+                                    "Enabled"
+                                } else {
+                                    "Disabled"
+                                },
+                                colors,
+                            )
+                            .when(editor.enabled, |element| {
+                                element.bg(colors.accent_soft).text_color(colors.accent)
+                            })
+                            .on_click(
+                                cx.listener(|this, _, _, cx| this.toggle_provider_enabled(cx)),
+                            ),
+                        ),
                 ),
         );
     let connection = div()
@@ -1178,11 +1247,6 @@ fn model_form(editor: &ModelEditor, colors: Colors, cx: &mut Context<OneChat>) -
         )
         .child(field("Remote Model ID", editor.remote_id.clone(), colors))
         .child(field("Display Name", editor.display_name.clone(), colors))
-        .child(field(
-            "Default Generation Parameters · JSON",
-            editor.default_config.clone(),
-            colors,
-        ))
         .child(capability_group(
             "Core Capabilities",
             &Capability::CORE,
@@ -1463,7 +1527,7 @@ mod tests {
         };
         assert_eq!(
             model_capability_summary(&capabilities),
-            "Streaming, Vision, Thinking, System Prompt"
+            "Streaming, Vision, Thinking"
         );
     }
 }

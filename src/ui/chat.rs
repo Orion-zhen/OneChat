@@ -74,8 +74,6 @@ pub(crate) fn render(
             } else {
                 rgba(0x3c3c4324)
             };
-            let reduce_motion = app.settings().reduce_motion;
-
             div()
                 .absolute()
                 .left_0()
@@ -107,19 +105,12 @@ pub(crate) fn render(
                         .on_click(cx.listener(|this, _, _, cx| this.jump_to_latest(cx)))
                         .with_animation(
                             "jump-to-latest-appear",
-                            Animation::new(Duration::from_millis(if reduce_motion {
-                                120
-                            } else {
-                                180
-                            }))
-                            .with_easing(ease_out_quint()),
-                            move |button, delta| {
-                                let button = button.opacity(0.72 + delta * 0.28);
-                                if reduce_motion {
-                                    button
-                                } else {
-                                    button.top(px(6.0 * (1.0 - delta)))
-                                }
+                            Animation::new(Duration::from_millis(180))
+                                .with_easing(ease_out_quint()),
+                            |button, delta| {
+                                button
+                                    .opacity(0.72 + delta * 0.28)
+                                    .top(px(6.0 * (1.0 - delta)))
                             },
                         ),
                 )
@@ -643,7 +634,6 @@ fn render_composer(
             .cursor_default()
     };
 
-    let reduce_motion = app.settings().reduce_motion;
     let (previous_lines, visual_lines, height_revision) = app.composer.read(cx).height_transition();
     let previous_height = 50.0 + (previous_lines.saturating_sub(1) as f32 * 24.0);
     let target_height = 50.0 + (visual_lines.saturating_sub(1) as f32 * 24.0);
@@ -654,17 +644,11 @@ fn render_composer(
         .child(app.composer.clone())
         .with_animation(
             SharedString::from(format!("composer-height-{height_revision}")),
-            Animation::new(Duration::from_millis(if reduce_motion { 140 } else { 200 }))
-                .with_easing(ease_out_quint()),
+            Animation::new(Duration::from_millis(200)).with_easing(ease_out_quint()),
             move |input, delta| {
-                let input = input.opacity(0.86 + delta * 0.14);
-                if reduce_motion {
-                    input
-                } else {
-                    input.max_h(px(
-                        previous_height + (target_height - previous_height) * delta
-                    ))
-                }
+                input.opacity(0.86 + delta * 0.14).max_h(px(
+                    previous_height + (target_height - previous_height) * delta
+                ))
             },
         );
 
@@ -885,18 +869,12 @@ fn render_system_prompt_card(
         SystemPromptMode::Expanded => "system-prompt-expanded",
         SystemPromptMode::Editing => "system-prompt-editing",
     };
-    let reduce_motion = app.settings().reduce_motion;
     card.with_animation(
         animation_id,
-        Animation::new(Duration::from_millis(if reduce_motion { 140 } else { 200 }))
-            .with_easing(ease_out_quint()),
-        move |card, delta| {
-            let card = card.opacity(0.78 + delta * 0.22);
-            if reduce_motion {
-                card
-            } else {
-                card.mt(px(8.0 * (1.0 - delta)))
-            }
+        Animation::new(Duration::from_millis(200)).with_easing(ease_out_quint()),
+        |card, delta| {
+            card.opacity(0.78 + delta * 0.22)
+                .mt(px(8.0 * (1.0 - delta)))
         },
     )
     .into_any_element()

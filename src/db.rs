@@ -39,7 +39,6 @@ const EXPECTED_SCHEMA: &[(&str, &[&str])] = &[
             "remote_id",
             "display_name",
             "capabilities_json",
-            "default_config_json",
             "created_at",
             "updated_at",
         ],
@@ -259,7 +258,6 @@ impl Database {
                 remote_id TEXT NOT NULL,
                 display_name TEXT NOT NULL,
                 capabilities_json TEXT NOT NULL,
-                default_config_json TEXT NOT NULL,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
                 UNIQUE(provider_id, remote_id)
@@ -415,15 +413,14 @@ impl Database {
     pub fn insert_model(&self, model: &Model) -> Result<()> {
         self.connect()?.execute(
             "INSERT INTO models
-             (id, provider_id, remote_id, display_name, capabilities_json, default_config_json,
-              created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+             (id, provider_id, remote_id, display_name, capabilities_json, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
             params![
                 model.id,
                 model.provider_id,
                 model.remote_id,
                 model.display_name,
                 to_json(&model.capabilities)?,
-                to_json(&model.default_config)?,
                 model.created_at,
                 model.updated_at,
             ],
@@ -434,14 +431,12 @@ impl Database {
     pub fn update_model(&self, model: &Model) -> Result<()> {
         self.connect()?.execute(
             "UPDATE models SET provider_id = ?, remote_id = ?, display_name = ?,
-             capabilities_json = ?, default_config_json = ?, created_at = ?, updated_at = ?
-             WHERE id = ?",
+             capabilities_json = ?, created_at = ?, updated_at = ? WHERE id = ?",
             params![
                 model.provider_id,
                 model.remote_id,
                 model.display_name,
                 to_json(&model.capabilities)?,
-                to_json(&model.default_config)?,
                 model.created_at,
                 model.updated_at,
                 model.id,
@@ -455,7 +450,7 @@ impl Database {
         Ok(connection
             .query_row(
                 "SELECT id, provider_id, remote_id, display_name, capabilities_json,
-                 default_config_json, created_at, updated_at FROM models WHERE id = ?",
+                 created_at, updated_at FROM models WHERE id = ?",
                 [id],
                 model_from_row,
             )
@@ -466,8 +461,7 @@ impl Database {
         let connection = self.connect()?;
         let mut statement = connection.prepare(
             "SELECT id, provider_id, remote_id, display_name, capabilities_json,
-             default_config_json, created_at, updated_at FROM models
-             ORDER BY display_name COLLATE NOCASE, id",
+             created_at, updated_at FROM models ORDER BY display_name COLLATE NOCASE, id",
         )?;
         Ok(statement
             .query_map([], model_from_row)?
@@ -946,9 +940,8 @@ fn model_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Model> {
         remote_id: row.get(2)?,
         display_name: row.get(3)?,
         capabilities: json_from_column::<ModelCapabilities>(row, 4)?,
-        default_config: json_from_column::<GenerationConfig>(row, 5)?,
-        created_at: row.get(6)?,
-        updated_at: row.get(7)?,
+        created_at: row.get(5)?,
+        updated_at: row.get(6)?,
     })
 }
 
@@ -1155,7 +1148,6 @@ mod tests {
         assert_eq!(database.list_providers().unwrap(), vec![provider.clone()]);
 
         let mut model = Model::new(&provider.id, "gpt-test", "GPT Test");
-        model.default_config.temperature = Some(0.25);
         database.insert_model(&model).unwrap();
         model.display_name = "GPT Updated".into();
         database.update_model(&model).unwrap();
@@ -1426,7 +1418,6 @@ mod tests {
             current_conversation_id: Some(conversation.id.clone()),
             sidebar_collapsed: true,
             theme: Theme::Dark,
-            reduce_motion: true,
             default_system_prompt: "Always be concise".into(),
         };
         database.save_settings(&settings).unwrap();

@@ -260,6 +260,16 @@ mod tests {
     }
 
     #[test]
+    fn empty_system_prompt_is_not_sent() {
+        let mut request = request();
+        request.system_prompt = "   ".into();
+
+        let sdk_request = sdk_request(&request, additional_parameters(&request)).unwrap();
+
+        assert!(sdk_request.preamble.is_none());
+    }
+
+    #[test]
     fn base_url_accepts_a_complete_custom_path() {
         let mut provider = Provider::new("Local", ProviderKind::OpenAiCompatible);
         provider.endpoint = "http://localhost:8080/v1/chat/completions".into();

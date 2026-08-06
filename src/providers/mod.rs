@@ -244,8 +244,7 @@ pub(crate) fn sdk_request(
 
     Ok(CompletionRequest {
         model: Some(request.model.remote_id.clone()),
-        preamble: (capabilities.system_prompt && !request.system_prompt.trim().is_empty())
-            .then(|| request.system_prompt.clone()),
+        preamble: (!request.system_prompt.trim().is_empty()).then(|| request.system_prompt.clone()),
         chat_history,
         documents: Vec::new(),
         tools: Vec::new(),

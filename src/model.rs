@@ -65,14 +65,12 @@ impl ProviderKind {
         }
     }
 
-    pub fn next(self) -> Self {
-        match self {
-            Self::OpenAi => Self::OpenAiCompatible,
-            Self::OpenAiCompatible => Self::Anthropic,
-            Self::Anthropic => Self::Gemini,
-            Self::Gemini => Self::OpenAi,
-        }
-    }
+    pub const ALL: [Self; 4] = [
+        Self::OpenAi,
+        Self::OpenAiCompatible,
+        Self::Anthropic,
+        Self::Gemini,
+    ];
 
     pub fn default_capabilities(self) -> ModelCapabilities {
         match self {
@@ -98,16 +96,6 @@ impl ProviderKind {
                 thinking_budget: true,
                 ..ModelCapabilities::default()
             },
-        }
-    }
-
-    pub fn default_generation_config(self) -> GenerationConfig {
-        match self {
-            Self::Anthropic => GenerationConfig {
-                max_output_tokens: Some(4096),
-                ..GenerationConfig::default()
-            },
-            _ => GenerationConfig::default(),
         }
     }
 }
@@ -147,7 +135,6 @@ impl Provider {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ModelCapabilities {
     pub streaming: bool,
-    pub system_prompt: bool,
     pub vision: bool,
     pub thinking: bool,
     pub temperature: bool,
@@ -165,7 +152,6 @@ impl Default for ModelCapabilities {
     fn default() -> Self {
         Self {
             streaming: true,
-            system_prompt: true,
             vision: false,
             thinking: false,
             temperature: true,
@@ -233,7 +219,6 @@ pub struct Model {
     pub remote_id: String,
     pub display_name: String,
     pub capabilities: ModelCapabilities,
-    pub default_config: GenerationConfig,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
 }
@@ -260,7 +245,6 @@ impl Model {
             remote_id: remote_id.into(),
             display_name: display_name.into(),
             capabilities: provider_kind.default_capabilities(),
-            default_config: provider_kind.default_generation_config(),
             created_at: now,
             updated_at: now,
         }
@@ -314,9 +298,7 @@ impl Conversation {
                 },
                 content: prompt,
             },
-            generation_config: model
-                .map(|model| model.default_config.clone())
-                .unwrap_or_default(),
+            generation_config: GenerationConfig::default(),
             pinned: false,
             created_at: now,
             updated_at: now,
@@ -511,7 +493,6 @@ pub struct AppSettings {
     pub current_conversation_id: Option<String>,
     pub sidebar_collapsed: bool,
     pub theme: Theme,
-    pub reduce_motion: bool,
     pub default_system_prompt: String,
 }
 
@@ -591,6 +572,14 @@ mod tests {
     }
 
     #[test]
+    fn new_conversations_start_with_session_owned_generation_config() {
+        let model = Model::new("provider", "model", "Model");
+        let conversation = Conversation::new("Conversation", Some(&model), "");
+
+        assert_eq!(conversation.generation_config, GenerationConfig::default());
+    }
+
+    #[test]
     fn capability_filtering_removes_unsupported_values_without_mutating_the_snapshot() {
         let config = GenerationConfig {
             temperature: Some(0.2),
@@ -648,7 +637,7 @@ mod tests {
     }
 
     #[test]
-    fn new_models_use_provider_defaults_that_users_can_override() {
+    fn new_models_use_provider_capabilities_that_users_can_override() {
         let anthropic = Model::new_for_provider(
             "anthropic",
             "claude-test",
@@ -659,7 +648,6 @@ mod tests {
         assert!(anthropic.capabilities.top_k);
         assert!(anthropic.capabilities.thinking_budget);
         assert!(!anthropic.capabilities.frequency_penalty);
-        assert_eq!(anthropic.default_config.max_output_tokens, Some(4096));
 
         let mut gemini =
             Model::new_for_provider("gemini", "gemini-test", "Gemini", ProviderKind::Gemini);

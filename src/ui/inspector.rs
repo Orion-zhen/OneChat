@@ -191,14 +191,9 @@ pub(crate) fn render(
                 } else {
                     FontWeight::NORMAL
                 })
-                .bg(if selected {
-                    colors.panel
-                } else {
-                    colors.raised
-                })
-                .when(selected, |element| element.shadow_sm())
+                .when(selected, |element| element.bg(colors.hover).shadow_sm())
                 .cursor_pointer()
-                .hover(move |style| style.bg(if selected { colors.panel } else { colors.hover }))
+                .hover(move |style| style.bg(colors.hover))
                 .active(move |style| style.bg(colors.accent_soft))
                 .on_click(cx.listener(move |this, _, _, cx| this.set_inspector_tab(tab, cx)))
                 .child(tab.label()),
@@ -250,7 +245,6 @@ pub(crate) fn render(
                 .overflow_y_scroll()
                 .child(content),
         );
-    let reduce_motion = app.settings().reduce_motion;
     inspector
         .with_animation(
             if overlay {
@@ -258,15 +252,11 @@ pub(crate) fn render(
             } else {
                 "inspector-docked-in"
             },
-            Animation::new(Duration::from_millis(if reduce_motion { 160 } else { 200 }))
-                .with_easing(ease_out_quint()),
-            move |inspector, delta| {
-                let inspector = inspector.opacity(0.78 + delta * 0.22);
-                if reduce_motion {
-                    inspector
-                } else {
-                    inspector.w(px(300.0 + 40.0 * delta))
-                }
+            Animation::new(Duration::from_millis(200)).with_easing(ease_out_quint()),
+            |inspector, delta| {
+                inspector
+                    .opacity(0.78 + delta * 0.22)
+                    .w(px(300.0 + 40.0 * delta))
             },
         )
         .into_any_element()
@@ -558,9 +548,6 @@ pub(crate) fn capability_summary(model: &Model) -> String {
     let mut labels = Vec::new();
     if capabilities.streaming {
         labels.push("Streaming");
-    }
-    if capabilities.system_prompt {
-        labels.push("System");
     }
     if capabilities.vision {
         labels.push("Vision");
