@@ -151,6 +151,7 @@ pub struct RequestInfo {
     pub first_token_at: Option<Timestamp>,
     pub finished_at: Option<Timestamp>,
     pub ttft_ms: Option<u64>,
+    pub thinking_duration_ms: Option<u64>,
     pub duration_ms: Option<u64>,
 }
 
@@ -172,6 +173,7 @@ impl RequestInfo {
             first_token_at: None,
             finished_at: None,
             ttft_ms: None,
+            thinking_duration_ms: None,
             duration_ms: None,
         }
     }

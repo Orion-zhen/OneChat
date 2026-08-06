@@ -99,9 +99,8 @@ impl OneChat {
             .and_then(|message| message.request_id.clone());
         if let Some(request_id) = request_id {
             self.chat.selected_request_id = Some(request_id);
-            self.navigation.inspector_open = true;
             self.navigation.inspector_tab = InspectorTab::Info;
-            cx.notify();
+            self.set_inspector_open(true, true, cx);
         }
     }
 
@@ -117,12 +116,35 @@ impl OneChat {
     }
 
     pub(crate) fn thinking_expanded(&self, message_id: &str) -> bool {
-        self.chat.expanded_thinking_ids.contains(message_id)
+        !self.chat.collapsed_thinking_ids.contains(message_id)
     }
 
     pub(crate) fn toggle_thinking(&mut self, message_id: String, cx: &mut Context<Self>) {
-        if !self.chat.expanded_thinking_ids.remove(&message_id) {
-            self.chat.expanded_thinking_ids.insert(message_id);
+        let expanding = self.chat.collapsed_thinking_ids.remove(&message_id);
+        if !expanding {
+            self.chat.collapsed_thinking_ids.insert(message_id.clone());
+        }
+        if let Some(scroll) = self.chat.thinking_scrolls.get(&message_id) {
+            let from_height = f32::from(scroll.bounds().size.height);
+            let measured_height = from_height + f32::from(scroll.max_offset().height);
+            self.chat.thinking_motions.insert(
+                message_id,
+                ThinkingMotion {
+                    from_height: if from_height > 0.0 {
+                        from_height
+                    } else {
+                        COLLAPSED_THINKING_HEIGHT
+                    },
+                    full_height: if measured_height > 0.0 {
+                        measured_height
+                    } else {
+                        COLLAPSED_THINKING_HEIGHT
+                    },
+                },
+            );
+            if !expanding {
+                scroll.scroll_to_bottom();
+            }
         }
         cx.notify();
     }
@@ -151,11 +173,7 @@ impl OneChat {
     }
 
     pub(crate) fn open_inspector(&mut self, tab: InspectorTab, cx: &mut Context<Self>) {
-        self.navigation.inspector_open = true;
         self.navigation.inspector_tab = tab;
-        if tab == InspectorTab::Model {
-            self.sync_generation_config_editor(cx);
-        }
-        cx.notify();
+        self.set_inspector_open(true, true, cx);
     }
 }

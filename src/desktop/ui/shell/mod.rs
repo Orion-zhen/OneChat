@@ -19,6 +19,7 @@ use super::{
         large_svg_icon_button, primary_button, primary_button_base, primary_svg_icon_button,
         svg_icon, svg_icon_button,
     },
+    motion::translated_x,
     theme::Colors,
 };
 
@@ -94,7 +95,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
 
     let colors = Colors::for_theme(app.theme(), window.appearance());
     let scale_factor = window.scale_factor();
-    let narrow = window.viewport_size().width < px(1120.0);
+    let inspector_progress = app.navigation.inspector_motion.progress(window);
     let sidebar =
         (app.navigation.page == Page::Chat).then(|| render_sidebar(app, colors, scale_factor, cx));
     let top_bar = render_top_bar(app, colors, scale_factor, cx);
@@ -102,8 +103,14 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         Page::Chat => render_chat_page(app, colors, scale_factor, cx),
         Page::Settings => settings::render(app, colors, scale_factor, cx),
     };
-    let inspector = (app.navigation.page == Page::Chat && app.navigation.inspector_open)
-        .then(|| inspector::render(app, colors, narrow, cx));
+    let inspector = (app.navigation.page == Page::Chat
+        && (app.navigation.inspector_open || inspector_progress > 0.0))
+        .then(|| {
+            translated_x(
+                inspector::render(app, colors, cx),
+                px(340.0 * (1.0 - inspector_progress)),
+            )
+        });
     let command_palette = app
         .overlays
         .command_palette_open

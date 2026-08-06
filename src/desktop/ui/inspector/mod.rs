@@ -2,12 +2,9 @@ mod editor;
 
 pub use editor::GenerationConfigEditor;
 
-use std::{fmt::Display, str::FromStr, time::Duration};
+use std::{fmt::Display, str::FromStr};
 
-use gpui::{
-    Animation, AnimationExt as _, AnyElement, App, Context, Entity, FontWeight, div,
-    ease_out_quint, prelude::*, px,
-};
+use gpui::{AnyElement, App, Context, Entity, FontWeight, div, prelude::*, px};
 use serde_json::{Map, Value};
 
 use super::{
@@ -38,12 +35,7 @@ impl InspectorTab {
     }
 }
 
-pub(crate) fn render(
-    app: &OneChat,
-    colors: Colors,
-    overlay: bool,
-    cx: &mut Context<OneChat>,
-) -> AnyElement {
+pub(crate) fn render(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
     let mut tabs = div().rounded_lg().bg(colors.raised).p_1().flex().gap_1();
     for tab in [
         InspectorTab::Model,
@@ -85,13 +77,14 @@ pub(crate) fn render(
         InspectorTab::Info => render_info(app, colors),
     };
 
-    let inspector = div()
+    div()
+        .absolute()
+        .occlude()
+        .top_0()
+        .right_0()
+        .bottom_0()
         .w(px(340.0))
-        .h_full()
-        .flex_none()
-        .when(overlay, |element| {
-            element.absolute().top_0().right_0().bottom_0().shadow_lg()
-        })
+        .shadow_lg()
         .border_l_1()
         .border_color(colors.border)
         .bg(colors.toolbar)
@@ -123,20 +116,6 @@ pub(crate) fn render(
                 .flex_1()
                 .overflow_y_scroll()
                 .child(content),
-        );
-    inspector
-        .with_animation(
-            if overlay {
-                "inspector-overlay-in"
-            } else {
-                "inspector-docked-in"
-            },
-            Animation::new(Duration::from_millis(200)).with_easing(ease_out_quint()),
-            |inspector, delta| {
-                inspector
-                    .opacity(0.78 + delta * 0.22)
-                    .w(px(300.0 + 40.0 * delta))
-            },
         )
         .into_any_element()
 }

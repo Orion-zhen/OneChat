@@ -105,7 +105,7 @@ impl OneChat {
             }
             PaletteCommand::ToggleInspector => {
                 self.navigation.pending_focus = Some(PendingFocus::Composer);
-                self.toggle_inspector(cx);
+                self.toggle_inspector_immediate(cx);
             }
             PaletteCommand::EditSystemPrompt => {
                 self.navigation.page = Page::Chat;
@@ -151,8 +151,22 @@ impl OneChat {
     }
 
     pub(crate) fn toggle_inspector(&mut self, cx: &mut Context<Self>) {
-        self.navigation.inspector_open = !self.navigation.inspector_open;
-        if self.navigation.inspector_open {
+        self.set_inspector_open(!self.navigation.inspector_open, true, cx);
+    }
+
+    pub(crate) fn toggle_inspector_immediate(&mut self, cx: &mut Context<Self>) {
+        self.set_inspector_open(!self.navigation.inspector_open, false, cx);
+    }
+
+    pub(super) fn set_inspector_open(
+        &mut self,
+        open: bool,
+        animated: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.navigation.inspector_open = open;
+        self.navigation.inspector_motion.set_open(open, animated);
+        if open {
             self.sync_generation_config_editor(cx);
         }
         cx.notify();

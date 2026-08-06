@@ -34,6 +34,7 @@ impl OneChat {
                 } else {
                     self.sync_generation_config_editor(cx);
                 }
+                self.sync_thinking_scrolls();
                 self.refresh_markdown_documents(cx);
             }
             Err(error) => self.data.error = Some(format!("Storage error: {error}")),
@@ -132,14 +133,39 @@ impl OneChat {
         self.overlays.model_picker_open = false;
         self.chat.selected_request_id = None;
         self.chat.expanded_error_ids.clear();
-        self.chat.expanded_thinking_ids.clear();
+        self.chat.collapsed_thinking_ids.clear();
         self.chat.message_editor = None;
         self.chat.follow_latest = true;
         self.chat.message_scroll = ScrollHandle::new();
         self.chat.message_scroll.scroll_to_bottom();
+        self.chat.thinking_scrolls.clear();
+        self.chat.thinking_motions.clear();
         self.chat.generation_config_editor = None;
         self.chat.parameter_error = None;
         self.sync_generation_config_editor(cx);
+    }
+
+    fn sync_thinking_scrolls(&mut self) {
+        self.chat.thinking_motions.retain(|message_id, _| {
+            self.data
+                .snapshot
+                .current_messages
+                .iter()
+                .any(|message| message.id == *message_id)
+        });
+        self.chat.thinking_scrolls.retain(|message_id, _| {
+            self.data
+                .snapshot
+                .current_messages
+                .iter()
+                .any(|message| message.id == *message_id)
+        });
+        for message in &self.data.snapshot.current_messages {
+            self.chat
+                .thinking_scrolls
+                .entry(message.id.clone())
+                .or_default();
+        }
     }
 
     pub(super) fn mutate_and_reload<F>(&mut self, operation: F, cx: &mut Context<Self>)

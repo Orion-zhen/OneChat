@@ -126,6 +126,13 @@ impl OneChat {
         }
         self.chat.follow_latest = true;
         self.chat.message_editor = None;
+        self.chat
+            .collapsed_thinking_ids
+            .remove(&prepared.assistant.id);
+        self.chat.thinking_motions.remove(&prepared.assistant.id);
+        self.chat
+            .thinking_scrolls
+            .insert(prepared.assistant.id.clone(), ScrollHandle::new());
         self.chat.message_scroll.scroll_to_bottom();
         cx.notify();
 
@@ -177,12 +184,41 @@ impl OneChat {
     ) {
         let conversation_id = prepared.request_info.conversation_id.clone();
         let request_id = prepared.request_info.id.clone();
+        self.chat
+            .thinking_started_at
+            .insert(request_id.clone(), Instant::now());
         let storage = self.services.storage.clone();
         let (sender, receiver) = async_channel::bounded(32);
         self.services
             .runtime
             .spawn(run_generation(prepared, storage, cancellation, sender));
 
+        let timer_request_id = request_id.clone();
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(100))
+                    .await;
+                let ticking = this
+                    .update(cx, |this, cx| {
+                        let ticking = this
+                            .chat
+                            .thinking_started_at
+                            .contains_key(&timer_request_id);
+                        if ticking {
+                            cx.notify();
+                        }
+                        ticking
+                    })
+                    .unwrap_or(false);
+                if !ticking {
+                    break;
+                }
+            }
+        })
+        .detach();
+
+        let cleanup_request_id = request_id.clone();
         cx.spawn(async move |this, cx| {
             let mut last_markdown_source = String::new();
             while let Ok(update) = receiver.recv().await {
@@ -211,6 +247,9 @@ impl OneChat {
                             None
                         };
                         let _ = this.update(cx, |this, cx| {
+                            if request.thinking_duration_ms.is_some() || terminal {
+                                this.chat.thinking_started_at.remove(&request.id);
+                            }
                             this.update_generation_snapshot(&conversation_id, &assistant, &request);
                             if let Some((source, document)) = parsed_markdown
                                 && this.data.snapshot.current_messages.iter().any(|message| {
@@ -233,6 +272,9 @@ impl OneChat {
                     }
                 }
             }
+            let _ = this.update(cx, |this, _| {
+                this.chat.thinking_started_at.remove(&cleanup_request_id);
+            });
         })
         .detach();
     }
@@ -253,6 +295,13 @@ impl OneChat {
         {
             return;
         }
+        let thinking_grew = self
+            .data
+            .snapshot
+            .current_messages
+            .iter()
+            .find(|message| message.id == assistant.id)
+            .is_none_or(|message| message.thinking.len() < assistant.thinking.len());
         if let Some(message) = self
             .data
             .snapshot
@@ -270,6 +319,13 @@ impl OneChat {
             .find(|info| info.id == request.id)
         {
             *info = request.clone();
+        }
+        if thinking_grew {
+            self.chat
+                .thinking_scrolls
+                .entry(assistant.id.clone())
+                .or_default()
+                .scroll_to_bottom();
         }
         if self.chat.follow_latest {
             self.chat.message_scroll.scroll_to_bottom();

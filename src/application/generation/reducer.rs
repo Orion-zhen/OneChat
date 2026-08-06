@@ -18,6 +18,9 @@ pub fn apply_event(
         }
         GenerationEvent::TextDelta(delta) => {
             mark_first_token(request, elapsed);
+            if !delta.is_empty() && assistant.content.is_empty() && !assistant.thinking.is_empty() {
+                request.thinking_duration_ms = Some(elapsed.as_millis() as u64);
+            }
             assistant.content.push_str(&delta);
             assistant.updated_at = now_timestamp();
             false
@@ -33,12 +36,14 @@ pub fn apply_event(
             false
         }
         GenerationEvent::Completed => {
+            finish_thinking(assistant, request, elapsed);
             estimate_output_usage(assistant, request);
             assistant.status = MessageStatus::Completed;
             finish_request(request, RequestStatus::Completed, elapsed);
             true
         }
         GenerationEvent::Failed(error) => {
+            finish_thinking(assistant, request, elapsed);
             estimate_output_usage(assistant, request);
             let cancelled = error.kind == GenerationErrorKind::UserCancelled;
             assistant.status = if cancelled {
@@ -74,6 +79,12 @@ fn mark_first_token(request: &mut RequestInfo, elapsed: Duration) {
         request.ttft_ms = Some(elapsed.as_millis() as u64);
     }
     request.status = RequestStatus::Streaming;
+}
+
+fn finish_thinking(assistant: &Message, request: &mut RequestInfo, elapsed: Duration) {
+    if !assistant.thinking.is_empty() && request.thinking_duration_ms.is_none() {
+        request.thinking_duration_ms = Some(elapsed.as_millis() as u64);
+    }
 }
 
 fn finish_request(request: &mut RequestInfo, status: RequestStatus, elapsed: Duration) {

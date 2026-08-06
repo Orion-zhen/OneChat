@@ -7,7 +7,7 @@ use message::render_message;
 use system_prompt::render_system_prompt_card;
 
 #[cfg(test)]
-use message::format_message_stats;
+use message::{format_message_stats, format_reasoning_duration};
 #[cfg(test)]
 use system_prompt::prompt_preview;
 
@@ -28,7 +28,7 @@ use super::{
     theme::Colors,
 };
 use crate::{
-    desktop::app::{OneChat, SystemPromptMode},
+    desktop::app::{COLLAPSED_THINKING_HEIGHT, OneChat, SystemPromptMode},
     domain::{Message, MessageRole, MessageStatus, RequestInfo, SystemPromptSource},
 };
 
@@ -209,6 +209,13 @@ mod tests {
         assert!(!preview.contains('\n'));
         assert!(preview.ends_with('…'));
         assert!(preview.chars().count() <= 161);
+    }
+
+    #[test]
+    fn reasoning_duration_counts_seconds_to_one_decimal_place() {
+        assert_eq!(format_reasoning_duration(0), "0.0s");
+        assert_eq!(format_reasoning_duration(999), "0.9s");
+        assert_eq!(format_reasoning_duration(65_999), "65.9s");
     }
 
     #[test]

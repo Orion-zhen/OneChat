@@ -14,11 +14,12 @@ use state::*;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
+    time::{Duration, Instant},
 };
 
 use gpui::{
     ClipboardItem, Context, Entity, FocusHandle, Render, ScrollHandle, ScrollWheelEvent, Task,
-    Window, prelude::*,
+    Window, ease_out_quint, prelude::*,
 };
 use tokio::runtime::Runtime;
 use tokio_util::sync::CancellationToken;
@@ -164,6 +165,8 @@ pub(crate) enum PendingFocus {
     Composer,
 }
 
+pub(crate) const COLLAPSED_THINKING_HEIGHT: f32 = 132.0;
+
 pub struct OneChat {
     pub(crate) root_focus: FocusHandle,
     services: Services,
@@ -239,6 +242,7 @@ impl OneChat {
                 inspector_open: false,
                 inspector_tab: InspectorTab::default(),
                 pending_focus: None,
+                inspector_motion: DrawerMotion::new(false),
             },
             sidebar: SidebarState {
                 search_query: String::new(),
@@ -262,9 +266,12 @@ impl OneChat {
                 draft_model_id: None,
                 selected_request_id: None,
                 expanded_error_ids: HashSet::new(),
-                expanded_thinking_ids: HashSet::new(),
+                collapsed_thinking_ids: HashSet::new(),
                 message_editor: None,
                 message_scroll: ScrollHandle::new(),
+                thinking_scrolls: HashMap::new(),
+                thinking_motions: HashMap::new(),
+                thinking_started_at: HashMap::new(),
                 follow_latest: true,
                 system_prompt_mode: SystemPromptMode::default(),
                 system_prompt_editor: None,

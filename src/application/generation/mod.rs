@@ -105,6 +105,34 @@ mod tests {
     }
 
     #[test]
+    fn reasoning_duration_stops_when_answer_text_starts() {
+        let mut message = Message::new("conversation", MessageRole::Assistant, "");
+        message.status = MessageStatus::Streaming;
+        let mut request = RequestInfo::new("conversation", &message.id);
+
+        apply_event(
+            GenerationEvent::ThinkingDelta("Working".into()),
+            &mut message,
+            &mut request,
+            Duration::from_millis(400),
+        );
+        apply_event(
+            GenerationEvent::TextDelta("Done".into()),
+            &mut message,
+            &mut request,
+            Duration::from_millis(1_250),
+        );
+        apply_event(
+            GenerationEvent::TextDelta(".".into()),
+            &mut message,
+            &mut request,
+            Duration::from_millis(1_500),
+        );
+
+        assert_eq!(request.thinking_duration_ms, Some(1_250));
+    }
+
+    #[test]
     fn usage_and_failure_are_recorded() {
         let mut message = Message::new("conversation", MessageRole::Assistant, "");
         let mut request = RequestInfo::new("conversation", &message.id);
