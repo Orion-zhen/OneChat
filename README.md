@@ -13,6 +13,19 @@ xcodebuild -downloadComponent MetalToolchain
 
 GPUI and the provider crates evolve quickly. All direct dependencies intentionally track their latest published versions with `"*"`; `Cargo.lock` is local build output and is not committed. Breaking upstream changes are fixed directly instead of maintaining compatibility code.
 
+## Architecture
+
+The crate keeps reusable code independent from the GPUI desktop shell:
+
+- `domain`: serializable conversations, catalogs, preferences, and generation contracts
+- `application`: UI-independent generation preparation, reduction, cancellation, and streaming runner
+- `providers`: OpenAI, Anthropic, and Gemini adapters
+- `storage`: JSONC/JSON persistence behind the `Storage` facade
+- `markdown`: UI-independent Markdown AST, parsing, and formula rendering
+- `desktop`: GPUI application state and presentation
+
+`src/main.rs` only starts `desktop::run()`. Another UI or CLI can reuse the library modules without depending on desktop internals.
+
 ## Run and verify
 
 ```sh

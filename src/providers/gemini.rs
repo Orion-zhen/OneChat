@@ -3,7 +3,6 @@ use futures_util::StreamExt;
 use rig_core::{
     client::{CompletionClient, VerifyClient},
     completion::{CompletionModel, GetTokenUsage},
-    message::ReasoningContent,
     providers::gemini::{self as rig_gemini, completion::gemini_api_types::FinishReason},
     streaming::StreamedAssistantContent,
 };
@@ -11,15 +10,14 @@ use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    model::Provider,
+    domain::{GenerationError, GenerationErrorKind, GenerationEvent, GenerationRequest, Provider},
     providers::{
-        AppError, AppErrorKind, GenerationEvent, GenerationRequest, emit_usage, remove_keys,
-        sdk_base_url, sdk_completion_error, sdk_headers, sdk_http_client, sdk_request,
-        sdk_verify_error,
+        emit_usage, insert_optional, reasoning_text, remove_keys, sdk_base_url,
+        sdk_completion_error, sdk_headers, sdk_http_client, sdk_request, sdk_verify_error,
     },
 };
 
-pub async fn test_connection(provider: &Provider) -> Result<(), AppError> {
+pub async fn test_connection(provider: &Provider) -> Result<(), GenerationError> {
     build_client(provider)?
         .verify()
         .await
@@ -30,23 +28,23 @@ pub async fn stream(
     request: GenerationRequest,
     events: &Sender<GenerationEvent>,
     cancellation: CancellationToken,
-) -> Result<(), AppError> {
+) -> Result<(), GenerationError> {
     if cancellation.is_cancelled() {
-        return Err(AppError::cancelled());
+        return Err(GenerationError::cancelled());
     }
 
     let client = build_client(&request.provider)?;
     let model = client.completion_model(request.model.remote_id.clone());
     let sdk_request = sdk_request(&request, additional_parameters(&request)?)?;
     let mut response = tokio::select! {
-        _ = cancellation.cancelled() => return Err(AppError::cancelled()),
+        _ = cancellation.cancelled() => return Err(GenerationError::cancelled()),
         response = model.stream(sdk_request) => response.map_err(|error| sdk_completion_error(error, false))?,
     };
 
     events
         .send(GenerationEvent::Started)
         .await
-        .map_err(|_| AppError::cancelled())?;
+        .map_err(|_| GenerationError::cancelled())?;
 
     let mut had_output = false;
     let mut had_reasoning_delta = false;
@@ -55,7 +53,7 @@ pub async fn stream(
     let mut completed = false;
     loop {
         let item = tokio::select! {
-            _ = cancellation.cancelled() => return Err(AppError::cancelled()),
+            _ = cancellation.cancelled() => return Err(GenerationError::cancelled()),
             item = response.next() => item,
         };
         let Some(item) = item else { break };
@@ -65,7 +63,7 @@ pub async fn stream(
                 events
                     .send(GenerationEvent::TextDelta(text.text().to_string()))
                     .await
-                    .map_err(|_| AppError::cancelled())?;
+                    .map_err(|_| GenerationError::cancelled())?;
             }
             StreamedAssistantContent::ReasoningDelta { reasoning, .. } if !reasoning.is_empty() => {
                 had_output = true;
@@ -73,7 +71,7 @@ pub async fn stream(
                 events
                     .send(GenerationEvent::ThinkingDelta(reasoning))
                     .await
-                    .map_err(|_| AppError::cancelled())?;
+                    .map_err(|_| GenerationError::cancelled())?;
             }
             StreamedAssistantContent::Reasoning(reasoning) if !had_reasoning_delta => {
                 let text = reasoning_text(&reasoning.content);
@@ -82,7 +80,7 @@ pub async fn stream(
                     events
                         .send(GenerationEvent::ThinkingDelta(text))
                         .await
-                        .map_err(|_| AppError::cancelled())?;
+                        .map_err(|_| GenerationError::cancelled())?;
                 }
             }
             StreamedAssistantContent::Final(final_response) => {
@@ -91,8 +89,8 @@ pub async fn stream(
                 completed = match final_response.finish_reason {
                     Some(FinishReason::Stop | FinishReason::MaxTokens) => true,
                     Some(reason) => {
-                        return Err(AppError::new(
-                            AppErrorKind::Unknown,
+                        return Err(GenerationError::new(
+                            GenerationErrorKind::Unknown,
                             "Gemini stopped without completing the response",
                         )
                         .with_detail(format!(
@@ -108,19 +106,21 @@ pub async fn stream(
     }
 
     if !saw_final || !completed || !saw_usage {
-        return Err(AppError::new(
-            AppErrorKind::StreamInterrupted,
+        return Err(GenerationError::new(
+            GenerationErrorKind::StreamInterrupted,
             "Provider stream ended before completion",
         ));
     }
     events
         .send(GenerationEvent::Completed)
         .await
-        .map_err(|_| AppError::cancelled())?;
+        .map_err(|_| GenerationError::cancelled())?;
     Ok(())
 }
 
-fn additional_parameters(request: &GenerationRequest) -> Result<Map<String, Value>, AppError> {
+fn additional_parameters(
+    request: &GenerationRequest,
+) -> Result<Map<String, Value>, GenerationError> {
     let capabilities = &request.model.capabilities;
     let config = &request.config;
     let mut parameters = config.extra.clone();
@@ -130,8 +130,8 @@ fn additional_parameters(request: &GenerationRequest) -> Result<Map<String, Valu
     let mut generation_config = match generation_config {
         Some(Value::Object(config)) => config,
         Some(_) => {
-            return Err(AppError::new(
-                AppErrorKind::UnsupportedParameter,
+            return Err(GenerationError::new(
+                GenerationErrorKind::UnsupportedParameter,
                 "Gemini generationConfig must be a JSON object",
             ));
         }
@@ -194,8 +194,8 @@ fn additional_parameters(request: &GenerationRequest) -> Result<Map<String, Valu
         && let Some(budget) = config.thinking_budget
     {
         let budget = u32::try_from(budget).map_err(|error| {
-            AppError::new(
-                AppErrorKind::UnsupportedParameter,
+            GenerationError::new(
+                GenerationErrorKind::UnsupportedParameter,
                 "Thinking Budget must be a non-negative integer",
             )
             .with_detail(error.to_string())
@@ -211,29 +211,7 @@ fn additional_parameters(request: &GenerationRequest) -> Result<Map<String, Valu
     Ok(parameters)
 }
 
-fn insert_optional<T: serde::Serialize>(
-    parameters: &mut Map<String, Value>,
-    key: &str,
-    value: Option<T>,
-) {
-    if let Some(value) = value {
-        parameters.insert(key.into(), json!(value));
-    }
-}
-
-fn reasoning_text(content: &[ReasoningContent]) -> String {
-    content
-        .iter()
-        .filter_map(|content| match content {
-            ReasoningContent::Text { text, .. } | ReasoningContent::Summary(text) => {
-                Some(text.as_str())
-            }
-            _ => None,
-        })
-        .collect()
-}
-
-fn build_client(provider: &Provider) -> Result<rig_gemini::Client, AppError> {
+fn build_client(provider: &Provider) -> Result<rig_gemini::Client, GenerationError> {
     rig_gemini::Client::builder()
         .api_key(provider.api_key.clone())
         .base_url(sdk_base_url(provider)?)
@@ -241,8 +219,8 @@ fn build_client(provider: &Provider) -> Result<rig_gemini::Client, AppError> {
         .http_client(sdk_http_client(provider)?)
         .build()
         .map_err(|error| {
-            AppError::new(
-                AppErrorKind::UnsupportedParameter,
+            GenerationError::new(
+                GenerationErrorKind::UnsupportedParameter,
                 "Invalid provider configuration",
             )
             .with_detail(error.to_string())
@@ -253,8 +231,8 @@ fn build_client(provider: &Provider) -> Result<rig_gemini::Client, AppError> {
 mod tests {
     use super::*;
     use crate::{
-        model::{GenerationConfig, Model, ProviderKind},
-        providers::ChatMessage,
+        domain::ChatMessage,
+        domain::{GenerationConfig, Model, ProviderKind},
     };
 
     fn request() -> GenerationRequest {
@@ -281,7 +259,7 @@ mod tests {
                 )]),
             },
             messages: vec![ChatMessage {
-                role: crate::model::MessageRole::User,
+                role: crate::domain::MessageRole::User,
                 content: "Hello".into(),
             }],
         }
@@ -355,7 +333,7 @@ mod tests {
         assert!(events.contains(&GenerationEvent::ThinkingDelta("Think".into())));
         assert!(events.contains(&GenerationEvent::TextDelta("Hello".into())));
         assert!(
-            events.contains(&GenerationEvent::UsageUpdated(crate::model::TokenUsage {
+            events.contains(&GenerationEvent::UsageUpdated(crate::domain::TokenUsage {
                 input_tokens: Some(4),
                 output_tokens: Some(3),
                 estimated: false,
@@ -384,7 +362,7 @@ mod tests {
                 .await
                 .unwrap_err()
                 .kind,
-            AppErrorKind::RateLimited
+            GenerationErrorKind::RateLimited
         );
 
         let interrupted = include_str!("../../tests/fixtures/gemini_interrupted.sse");
@@ -397,7 +375,7 @@ mod tests {
                 .await
                 .unwrap_err()
                 .kind,
-            AppErrorKind::StreamInterrupted
+            GenerationErrorKind::StreamInterrupted
         );
     }
 

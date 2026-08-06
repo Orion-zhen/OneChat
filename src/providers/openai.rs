@@ -3,7 +3,6 @@ use futures_util::StreamExt;
 use rig_core::{
     client::{CompletionClient, VerifyClient},
     completion::{CompletionModel, GetTokenUsage},
-    message::ReasoningContent,
     providers::openai as rig_openai,
     streaming::StreamedAssistantContent,
 };
@@ -11,17 +10,16 @@ use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    model::Provider,
+    domain::{GenerationError, GenerationErrorKind, GenerationEvent, GenerationRequest, Provider},
     providers::{
-        AppError, AppErrorKind, GenerationEvent, GenerationRequest, emit_usage, remove_keys,
-        sdk_base_url, sdk_completion_error, sdk_headers, sdk_http_client, sdk_request,
-        sdk_verify_error,
+        emit_usage, insert_optional, reasoning_text, remove_keys, sdk_base_url,
+        sdk_completion_error, sdk_headers, sdk_http_client, sdk_request, sdk_verify_error,
     },
 };
 
 type OpenAiClient = rig_openai::CompletionsClient<reqwest::Client>;
 
-pub async fn test_connection(provider: &Provider) -> Result<(), AppError> {
+pub async fn test_connection(provider: &Provider) -> Result<(), GenerationError> {
     build_client(provider)?
         .verify()
         .await
@@ -32,23 +30,23 @@ pub async fn stream(
     request: GenerationRequest,
     events: &Sender<GenerationEvent>,
     cancellation: CancellationToken,
-) -> Result<(), AppError> {
+) -> Result<(), GenerationError> {
     if cancellation.is_cancelled() {
-        return Err(AppError::cancelled());
+        return Err(GenerationError::cancelled());
     }
 
     let client = build_client(&request.provider)?;
     let model = client.completion_model(request.model.remote_id.clone());
     let sdk_request = sdk_request(&request, additional_parameters(&request))?;
     let mut response = tokio::select! {
-        _ = cancellation.cancelled() => return Err(AppError::cancelled()),
+        _ = cancellation.cancelled() => return Err(GenerationError::cancelled()),
         response = model.stream(sdk_request) => response.map_err(|error| sdk_completion_error(error, false))?,
     };
 
     events
         .send(GenerationEvent::Started)
         .await
-        .map_err(|_| AppError::cancelled())?;
+        .map_err(|_| GenerationError::cancelled())?;
 
     let mut had_output = false;
     let mut had_reasoning_delta = false;
@@ -56,7 +54,7 @@ pub async fn stream(
     let mut saw_usage = false;
     loop {
         let item = tokio::select! {
-            _ = cancellation.cancelled() => return Err(AppError::cancelled()),
+            _ = cancellation.cancelled() => return Err(GenerationError::cancelled()),
             item = response.next() => item,
         };
         let Some(item) = item else { break };
@@ -66,7 +64,7 @@ pub async fn stream(
                 events
                     .send(GenerationEvent::TextDelta(text.text().to_string()))
                     .await
-                    .map_err(|_| AppError::cancelled())?;
+                    .map_err(|_| GenerationError::cancelled())?;
             }
             StreamedAssistantContent::ReasoningDelta { reasoning, .. } if !reasoning.is_empty() => {
                 had_output = true;
@@ -74,7 +72,7 @@ pub async fn stream(
                 events
                     .send(GenerationEvent::ThinkingDelta(reasoning))
                     .await
-                    .map_err(|_| AppError::cancelled())?;
+                    .map_err(|_| GenerationError::cancelled())?;
             }
             StreamedAssistantContent::Reasoning(reasoning) if !had_reasoning_delta => {
                 let text = reasoning_text(&reasoning.content);
@@ -83,7 +81,7 @@ pub async fn stream(
                     events
                         .send(GenerationEvent::ThinkingDelta(text))
                         .await
-                        .map_err(|_| AppError::cancelled())?;
+                        .map_err(|_| GenerationError::cancelled())?;
                 }
             }
             StreamedAssistantContent::Final(final_response) => {
@@ -95,15 +93,15 @@ pub async fn stream(
     }
 
     if !saw_final || (had_output && !saw_usage) {
-        return Err(AppError::new(
-            AppErrorKind::StreamInterrupted,
+        return Err(GenerationError::new(
+            GenerationErrorKind::StreamInterrupted,
             "Provider stream ended before completion",
         ));
     }
     events
         .send(GenerationEvent::Completed)
         .await
-        .map_err(|_| AppError::cancelled())?;
+        .map_err(|_| GenerationError::cancelled())?;
     Ok(())
 }
 
@@ -174,29 +172,7 @@ fn additional_parameters(request: &GenerationRequest) -> Map<String, Value> {
     parameters
 }
 
-fn insert_optional<T: serde::Serialize>(
-    parameters: &mut Map<String, Value>,
-    key: &str,
-    value: Option<T>,
-) {
-    if let Some(value) = value {
-        parameters.insert(key.into(), json!(value));
-    }
-}
-
-fn reasoning_text(content: &[ReasoningContent]) -> String {
-    content
-        .iter()
-        .filter_map(|content| match content {
-            ReasoningContent::Text { text, .. } | ReasoningContent::Summary(text) => {
-                Some(text.as_str())
-            }
-            _ => None,
-        })
-        .collect()
-}
-
-fn build_client(provider: &Provider) -> Result<OpenAiClient, AppError> {
+fn build_client(provider: &Provider) -> Result<OpenAiClient, GenerationError> {
     rig_openai::Client::builder()
         .api_key(provider.api_key.clone())
         .base_url(sdk_base_url(provider)?)
@@ -205,8 +181,8 @@ fn build_client(provider: &Provider) -> Result<OpenAiClient, AppError> {
         .build()
         .map(|client| client.completions_api())
         .map_err(|error| {
-            AppError::new(
-                AppErrorKind::UnsupportedParameter,
+            GenerationError::new(
+                GenerationErrorKind::UnsupportedParameter,
                 "Invalid provider configuration",
             )
             .with_detail(error.to_string())
@@ -217,8 +193,8 @@ fn build_client(provider: &Provider) -> Result<OpenAiClient, AppError> {
 mod tests {
     use super::*;
     use crate::{
-        model::{GenerationConfig, Model, ProviderKind},
-        providers::ChatMessage,
+        domain::ChatMessage,
+        domain::{GenerationConfig, Model, ProviderKind},
     };
 
     fn request() -> GenerationRequest {
@@ -240,7 +216,7 @@ mod tests {
                 ..GenerationConfig::default()
             },
             messages: vec![ChatMessage {
-                role: crate::model::MessageRole::User,
+                role: crate::domain::MessageRole::User,
                 content: "Hello".into(),
             }],
         }
@@ -309,7 +285,7 @@ mod tests {
         assert!(events.contains(&GenerationEvent::ThinkingDelta("Think".into())));
         assert!(events.contains(&GenerationEvent::TextDelta("Hi".into())));
         assert!(
-            events.contains(&GenerationEvent::UsageUpdated(crate::model::TokenUsage {
+            events.contains(&GenerationEvent::UsageUpdated(crate::domain::TokenUsage {
                 input_tokens: Some(3),
                 output_tokens: Some(2),
                 estimated: false,
@@ -333,7 +309,7 @@ mod tests {
                 .await
                 .unwrap_err()
                 .kind,
-            AppErrorKind::UnsupportedParameter
+            GenerationErrorKind::UnsupportedParameter
         );
 
         let (endpoint, _) = server(
@@ -353,7 +329,7 @@ mod tests {
                 .await
                 .unwrap_err()
                 .kind,
-            AppErrorKind::Authentication
+            GenerationErrorKind::Authentication
         );
 
         let fixture = include_str!("../../tests/fixtures/openai_interrupted.sse");
@@ -366,7 +342,7 @@ mod tests {
                 .await
                 .unwrap_err()
                 .kind,
-            AppErrorKind::StreamInterrupted
+            GenerationErrorKind::StreamInterrupted
         );
     }
 

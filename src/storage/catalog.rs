@@ -1,0 +1,138 @@
+use serde::{Deserialize, Serialize};
+
+use crate::domain::{AppSettings, Model, Provider};
+
+use super::codec::{read_jsonc, write_json};
+use super::{Result, Storage, StorageError, conflict, missing};
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+#[serde(default)]
+pub(super) struct SettingsFile {
+    #[serde(flatten)]
+    pub(super) app: AppSettings,
+    pub(super) providers: Vec<Provider>,
+    pub(super) models: Vec<Model>,
+}
+
+impl Storage {
+    pub fn save_settings(&self, app: &AppSettings) -> Result<()> {
+        let _guard = self.lock()?;
+        let mut settings = self.read_settings()?;
+        settings.app = app.clone();
+        self.write_settings(&settings)
+    }
+
+    pub fn insert_provider(&self, provider: &Provider) -> Result<()> {
+        let _guard = self.lock()?;
+        let mut settings = self.read_settings()?;
+        if settings.providers.iter().any(|item| item.id == provider.id) {
+            return Err(conflict("provider", &provider.id));
+        }
+        settings.providers.push(provider.clone());
+        self.write_settings(&settings)
+    }
+
+    pub fn update_provider(&self, provider: &Provider) -> Result<()> {
+        let _guard = self.lock()?;
+        let mut settings = self.read_settings()?;
+        let stored = settings
+            .providers
+            .iter_mut()
+            .find(|item| item.id == provider.id)
+            .ok_or_else(|| missing("provider", &provider.id))?;
+        *stored = provider.clone();
+        self.write_settings(&settings)
+    }
+
+    pub fn delete_provider(&self, id: &str) -> Result<()> {
+        let _guard = self.lock()?;
+        let mut settings = self.read_settings()?;
+        let previous_len = settings.providers.len();
+        settings.providers.retain(|provider| provider.id != id);
+        if settings.providers.len() == previous_len {
+            return Err(missing("provider", id));
+        }
+
+        let removed_models = settings
+            .models
+            .iter()
+            .filter(|model| model.provider_id == id)
+            .map(|model| model.id.clone())
+            .collect::<Vec<_>>();
+        settings.models.retain(|model| model.provider_id != id);
+        self.clear_conversation_models(&removed_models)?;
+        self.write_settings(&settings)
+    }
+
+    pub fn insert_model(&self, model: &Model) -> Result<()> {
+        let _guard = self.lock()?;
+        let mut settings = self.read_settings()?;
+        validate_model(&settings, model, None)?;
+        settings.models.push(model.clone());
+        self.write_settings(&settings)
+    }
+
+    pub fn update_model(&self, model: &Model) -> Result<()> {
+        let _guard = self.lock()?;
+        let mut settings = self.read_settings()?;
+        if !settings.models.iter().any(|item| item.id == model.id) {
+            return Err(missing("model", &model.id));
+        }
+        validate_model(&settings, model, Some(&model.id))?;
+        let stored = settings
+            .models
+            .iter_mut()
+            .find(|item| item.id == model.id)
+            .expect("model existence was checked");
+        *stored = model.clone();
+        self.write_settings(&settings)
+    }
+
+    pub fn delete_model(&self, id: &str) -> Result<()> {
+        let _guard = self.lock()?;
+        let mut settings = self.read_settings()?;
+        let previous_len = settings.models.len();
+        settings.models.retain(|model| model.id != id);
+        if settings.models.len() == previous_len {
+            return Err(missing("model", id));
+        }
+        self.clear_conversation_models(&[id.to_string()])?;
+        self.write_settings(&settings)
+    }
+
+    pub(super) fn read_settings(&self) -> Result<SettingsFile> {
+        read_jsonc(&self.settings_path)
+    }
+
+    pub(super) fn write_settings(&self, settings: &SettingsFile) -> Result<()> {
+        write_json(&self.settings_path, settings)
+    }
+}
+
+fn validate_model(settings: &SettingsFile, model: &Model, current_id: Option<&str>) -> Result<()> {
+    if !settings
+        .providers
+        .iter()
+        .any(|provider| provider.id == model.provider_id)
+    {
+        return Err(missing("provider", &model.provider_id));
+    }
+    if settings
+        .models
+        .iter()
+        .any(|stored| stored.id == model.id && Some(stored.id.as_str()) != current_id)
+    {
+        return Err(conflict("model", &model.id));
+    }
+    if settings.models.iter().any(|stored| {
+        Some(stored.id.as_str()) != current_id
+            && stored.provider_id == model.provider_id
+            && stored.remote_id == model.remote_id
+    }) {
+        return Err(StorageError::InvalidData(format!(
+            "model {} already exists for provider {}",
+            model.remote_id, model.provider_id
+        )));
+    }
+    Ok(())
+}
