@@ -222,17 +222,74 @@ fn render_conversation_row(
     }
 
     let selected = current_id == Some(conversation.id.as_str());
+    let hovered = app.sidebar.hovered_conversation_id.as_deref() == Some(&conversation.id);
     let select_id = conversation.id.clone();
+    let hover_id = conversation.id.clone();
     let pin_id = conversation.id.clone();
     let rename_id = conversation.id.clone();
     let delete_id = conversation.id.clone();
     let row_id: SharedString = format!("conversation-{}", conversation.id).into();
-    let group_id: SharedString = format!("conversation-actions-{}", conversation.id).into();
     let pinned = conversation.pinned;
+
+    let mut actions = div()
+        .w(px(if hovered {
+            80.0
+        } else if pinned {
+            24.0
+        } else {
+            0.0
+        }))
+        .flex_none()
+        .overflow_hidden()
+        .flex()
+        .items_center()
+        .gap_1();
+    if pinned || hovered {
+        actions = actions.child(
+            svg_icon_button(
+                SharedString::from(format!("pin-{}", pin_id)),
+                UiIcon::Pin,
+                if pinned {
+                    IconTone::Accent
+                } else {
+                    IconTone::Muted
+                },
+                colors,
+                scale_factor,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.toggle_pin(pin_id.clone(), cx))),
+        );
+    }
+    if hovered {
+        actions = actions
+            .child(
+                svg_icon_button(
+                    SharedString::from(format!("rename-{}", rename_id)),
+                    UiIcon::Pencil,
+                    IconTone::Muted,
+                    colors,
+                    scale_factor,
+                )
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.start_rename(rename_id.clone(), window, cx)
+                })),
+            )
+            .child(
+                svg_icon_button(
+                    SharedString::from(format!("delete-{}", delete_id)),
+                    UiIcon::Close,
+                    IconTone::Danger,
+                    colors,
+                    scale_factor,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.request_delete_conversation(delete_id.clone(), cx)
+                })),
+            );
+    }
 
     div()
         .id(row_id)
-        .group(group_id.clone())
         .mb_1()
         .h(px(38.0))
         .rounded_lg()
@@ -248,9 +305,26 @@ fn render_conversation_row(
                 colors.hover
             })
         })
+        .on_hover(cx.listener(move |this, hovering, _, cx| {
+            let changed = if *hovering {
+                if this.sidebar.hovered_conversation_id.as_deref() == Some(hover_id.as_str()) {
+                    false
+                } else {
+                    this.sidebar.hovered_conversation_id = Some(hover_id.clone());
+                    true
+                }
+            } else if this.sidebar.hovered_conversation_id.as_deref() == Some(hover_id.as_str()) {
+                this.sidebar.hovered_conversation_id = None;
+                true
+            } else {
+                false
+            };
+            if changed {
+                cx.notify();
+            }
+        }))
         .flex()
         .items_center()
-        .gap_1()
         .px_2()
         .child(
             div()
@@ -275,50 +349,7 @@ fn render_conversation_row(
                 }))
                 .child(conversation.title),
         )
-        .child(
-            svg_icon_button(
-                SharedString::from(format!("pin-{}", pin_id)),
-                UiIcon::Pin,
-                if pinned {
-                    IconTone::Accent
-                } else {
-                    IconTone::Muted
-                },
-                colors,
-                scale_factor,
-            )
-            .opacity(if pinned { 1.0 } else { 0.0 })
-            .group_hover(group_id.clone(), |style| style.opacity(1.0))
-            .on_click(cx.listener(move |this, _, _, cx| this.toggle_pin(pin_id.clone(), cx))),
-        )
-        .child(
-            svg_icon_button(
-                SharedString::from(format!("rename-{}", rename_id)),
-                UiIcon::Pencil,
-                IconTone::Muted,
-                colors,
-                scale_factor,
-            )
-            .opacity(0.0)
-            .group_hover(group_id.clone(), |style| style.opacity(1.0))
-            .on_click(cx.listener(move |this, _, window, cx| {
-                this.start_rename(rename_id.clone(), window, cx)
-            })),
-        )
-        .child(
-            svg_icon_button(
-                SharedString::from(format!("delete-{}", delete_id)),
-                UiIcon::Close,
-                IconTone::Danger,
-                colors,
-                scale_factor,
-            )
-            .opacity(0.0)
-            .group_hover(group_id, |style| style.opacity(1.0))
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.request_delete_conversation(delete_id.clone(), cx)
-            })),
-        )
+        .child(actions)
         .into_any_element()
 }
 

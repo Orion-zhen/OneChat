@@ -465,6 +465,69 @@ mod tests {
     }
 
     #[test]
+    fn earlier_turn_response_selection_switches_and_restores_its_suffix() {
+        let test = TestStorage::new();
+        let (provider, model, conversation, _) = configured_conversation(&test.storage);
+        let (mut root, mut primary, mut primary_request) =
+            generation_records(&conversation, &provider, &model, "Root");
+        primary.content = "Primary".into();
+        primary.status = MessageStatus::Completed;
+        primary_request.status = RequestStatus::Completed;
+        root.responses[0] = primary.clone();
+        test.storage.begin_turn(&root, &primary_request).unwrap();
+
+        let other_model = Model::new(&provider.id, "other", "Other");
+        let mut alternative = AssistantResponse::new(&other_model, &provider);
+        alternative.content = "Alternative".into();
+        alternative.status = MessageStatus::Completed;
+        let mut alternative_request = RequestInfo::new(&conversation.id, &root.id, &alternative.id);
+        alternative.request_id = Some(alternative_request.id.clone());
+        alternative_request.status = RequestStatus::Completed;
+        test.storage
+            .begin_response(
+                &conversation.id,
+                &root.id,
+                &alternative,
+                &alternative_request,
+            )
+            .unwrap();
+
+        let (child, _, child_request) = generation_records_after(
+            &conversation,
+            &provider,
+            &model,
+            Some(primary.id.clone()),
+            "Child",
+        );
+        test.storage.begin_turn(&child, &child_request).unwrap();
+
+        test.storage
+            .set_continuation_response(&conversation.id, &root.id, &alternative.id)
+            .unwrap();
+        let snapshot = test.storage.load_snapshot().unwrap();
+        assert_eq!(snapshot.current_turns.len(), 2);
+        assert_eq!(
+            active_turns(&snapshot.current_turns)
+                .iter()
+                .map(|turn| turn.user.content.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Root"]
+        );
+
+        test.storage
+            .set_continuation_response(&conversation.id, &root.id, &primary.id)
+            .unwrap();
+        let snapshot = test.storage.load_snapshot().unwrap();
+        assert_eq!(
+            active_turns(&snapshot.current_turns)
+                .iter()
+                .map(|turn| turn.user.content.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Root", "Child"]
+        );
+    }
+
+    #[test]
     fn root_user_messages_can_branch() {
         let test = TestStorage::new();
         let (provider, model, conversation, _) = configured_conversation(&test.storage);
@@ -486,6 +549,175 @@ mod tests {
             .unwrap();
         let snapshot = test.storage.load_snapshot().unwrap();
         assert_eq!(active_turns(&snapshot.current_turns)[0].id, previous_id);
+    }
+
+    #[test]
+    fn forking_copies_only_the_path_through_the_selected_response() {
+        let test = TestStorage::new();
+        let (provider, model, conversation, mut settings) = configured_conversation(&test.storage);
+
+        let (mut root, _, mut root_request) =
+            generation_records(&conversation, &provider, &model, "Root");
+        root.responses[0].content = "Root answer".into();
+        root.responses[0].status = MessageStatus::Completed;
+        root_request.status = RequestStatus::Completed;
+        let root_turn_id = root.id.clone();
+        let root_user_id = root.user.id.clone();
+        let root_response_id = root.responses[0].id.clone();
+        let root_request_id = root_request.id.clone();
+        test.storage.begin_turn(&root, &root_request).unwrap();
+
+        let (mut branch, _, mut branch_request) = generation_records_after(
+            &conversation,
+            &provider,
+            &model,
+            Some(root_response_id.clone()),
+            "Branch",
+        );
+        branch.responses[0].content = "First answer".into();
+        branch.responses[0].status = MessageStatus::Completed;
+        branch_request.status = RequestStatus::Completed;
+        let branch_turn_id = branch.id.clone();
+        let branch_user_id = branch.user.id.clone();
+        test.storage.begin_turn(&branch, &branch_request).unwrap();
+
+        let other_model = Model::new(&provider.id, "other", "Other");
+        test.storage.insert_model(&other_model).unwrap();
+        let mut selected_response = AssistantResponse::new(&other_model, &provider);
+        selected_response.content = "Selected answer".into();
+        selected_response.status = MessageStatus::Completed;
+        let mut selected_request =
+            RequestInfo::new(&conversation.id, &branch.id, &selected_response.id);
+        selected_request.status = RequestStatus::Completed;
+        selected_response.request_id = Some(selected_request.id.clone());
+        let selected_response_id = selected_response.id.clone();
+        let selected_request_id = selected_request.id.clone();
+        test.storage
+            .begin_response(
+                &conversation.id,
+                &branch.id,
+                &selected_response,
+                &selected_request,
+            )
+            .unwrap();
+
+        let (mut suffix, _, suffix_request) = generation_records_after(
+            &conversation,
+            &provider,
+            &model,
+            Some(selected_response_id.clone()),
+            "Suffix",
+        );
+        suffix.responses[0].content = "Later answer".into();
+        suffix.responses[0].status = MessageStatus::Completed;
+        test.storage.begin_turn(&suffix, &suffix_request).unwrap();
+
+        let (mut sibling, _, sibling_request) = generation_records_after(
+            &conversation,
+            &provider,
+            &model,
+            Some(root_response_id.clone()),
+            "Sibling branch",
+        );
+        sibling.responses[0].content = "Sibling answer".into();
+        sibling.responses[0].status = MessageStatus::Completed;
+        test.storage.begin_turn(&sibling, &sibling_request).unwrap();
+
+        let now = now_timestamp();
+        let mut fork = conversation.clone();
+        fork.id = crate::domain::new_id("conversation");
+        fork.title = "Conversation (fork)".into();
+        fork.pinned = false;
+        fork.created_at = now;
+        fork.updated_at = now;
+        test.storage
+            .fork_conversation(&conversation.id, &selected_response_id, &fork)
+            .unwrap();
+        settings.current_conversation_id = Some(fork.id.clone());
+        test.storage.save_settings(&settings).unwrap();
+
+        let snapshot = test.storage.load_snapshot().unwrap();
+        assert_eq!(snapshot.current_turns.len(), 2);
+        assert_eq!(snapshot.current_requests.len(), 2);
+        assert_eq!(snapshot.current_turns[0].user.content, "Root");
+        assert_eq!(
+            snapshot.current_turns[0].responses[0].content,
+            "Root answer"
+        );
+        assert_eq!(snapshot.current_turns[1].user.content, "Branch");
+        assert_eq!(
+            snapshot.current_turns[1].responses[0].content,
+            "Selected answer"
+        );
+        assert_eq!(snapshot.current_turns[0].responses.len(), 1);
+        assert_eq!(snapshot.current_turns[1].responses.len(), 1);
+
+        let copied_root = &snapshot.current_turns[0];
+        let copied_branch = &snapshot.current_turns[1];
+        assert_ne!(copied_root.id, root_turn_id);
+        assert_ne!(copied_root.user.id, root_user_id);
+        assert_ne!(copied_root.responses[0].id, root_response_id);
+        assert_ne!(copied_branch.id, branch_turn_id);
+        assert_ne!(copied_branch.user.id, branch_user_id);
+        assert_ne!(copied_branch.responses[0].id, selected_response_id);
+        assert_eq!(
+            copied_branch.parent_response_id.as_deref(),
+            Some(copied_root.responses[0].id.as_str())
+        );
+        assert_eq!(
+            copied_root.continuation_response_id.as_deref(),
+            Some(copied_root.responses[0].id.as_str())
+        );
+        assert_eq!(
+            copied_branch.continuation_response_id.as_deref(),
+            Some(copied_branch.responses[0].id.as_str())
+        );
+
+        for (turn, request) in snapshot
+            .current_turns
+            .iter()
+            .zip(snapshot.current_requests.iter().rev())
+        {
+            let response = &turn.responses[0];
+            assert_eq!(response.request_id.as_deref(), Some(request.id.as_str()));
+            assert_eq!(request.conversation_id, fork.id);
+            assert_eq!(request.turn_id, turn.id);
+            assert_eq!(request.response_id, response.id);
+            assert_ne!(request.id, root_request_id);
+            assert_ne!(request.id, selected_request_id);
+        }
+
+        settings.current_conversation_id = Some(conversation.id.clone());
+        test.storage.save_settings(&settings).unwrap();
+        let source = test.storage.load_snapshot().unwrap();
+        assert_eq!(source.current_turns.len(), 4);
+        assert_eq!(source.current_turns[1].responses.len(), 2);
+    }
+
+    #[test]
+    fn forking_rejects_an_incomplete_response_without_creating_a_conversation() {
+        let test = TestStorage::new();
+        let (provider, model, conversation, _) = configured_conversation(&test.storage);
+        let (turn, _, request) = generation_records(&conversation, &provider, &model, "Question");
+        let response_id = turn.responses[0].id.clone();
+        test.storage.begin_turn(&turn, &request).unwrap();
+
+        let mut fork = conversation.clone();
+        fork.id = crate::domain::new_id("conversation");
+        let error = test
+            .storage
+            .fork_conversation(&conversation.id, &response_id, &fork)
+            .unwrap_err();
+
+        assert_eq!(error.to_string(), "only a completed response can be forked");
+        assert_eq!(test.storage.load_snapshot().unwrap().conversations.len(), 1);
+        assert!(
+            !test
+                .storage
+                .conversations_dir()
+                .join(format!("{}.json", fork.id))
+                .exists()
+        );
     }
 
     #[test]

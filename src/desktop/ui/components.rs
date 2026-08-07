@@ -83,6 +83,7 @@ pub(crate) fn compact_button(
 #[derive(Clone, Copy)]
 pub(crate) enum UiIcon {
     Copy,
+    Fork,
     Pencil,
     Regenerate,
     Info,
@@ -100,7 +101,8 @@ pub(crate) enum UiIcon {
     Menu,
     Plus,
     At,
-    Context,
+    ContextSelect,
+    ContextSelected,
     ChevronLeft,
     ChevronRight,
     ChevronDown,
@@ -232,6 +234,9 @@ fn svg_icon_at_size(icon: UiIcon, color: &str, scale_factor: f32, size: f32) -> 
         UiIcon::Copy => {
             r#"<rect width="13" height="13" x="9" y="9" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>"#
         }
+        UiIcon::Fork => {
+            r#"<circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M6 9a6 6 0 0 0 6 6"/><path d="M18 9a6 6 0 0 1-6 6"/>"#
+        }
         UiIcon::Pencil => {
             r#"<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z"/><path d="m15 5 3 3"/>"#
         }
@@ -275,8 +280,11 @@ fn svg_icon_at_size(icon: UiIcon, color: &str, scale_factor: f32, size: f32) -> 
         UiIcon::At => {
             r#"<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>"#
         }
-        UiIcon::Context => {
-            r#"<circle cx="11" cy="12.25" r="8"/><path d="m7 12.25 3.5 3.5L20.5 3.75"/>"#
+        UiIcon::ContextSelect => {
+            r#"<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/><path d="m8.5 11 2.25 2.25 4.75-5" stroke-width="2"/>"#
+        }
+        UiIcon::ContextSelected => {
+            r##"<circle cx="12" cy="12" r="9" fill="currentColor"/><path d="m8 12 2.75 2.75L16.5 9" stroke="#ffffff" stroke-width="2.2"/>"##
         }
         UiIcon::ChevronLeft => r#"<path d="m16 20-8-8 8-8"/>"#,
         UiIcon::ChevronRight => r#"<path d="m8 4 8 8-8 8"/>"#,

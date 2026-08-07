@@ -354,65 +354,131 @@ fn render_assistant_message(
 
     let latest = app.is_latest_turn(&turn.id);
     let generating = app.is_current_generating();
-    let copy_id = message.id.clone();
-    let edit_id = message.id.clone();
-    let regenerate_id = message.id.clone();
-    let info_id = message.id.clone();
-    let mut actions = div().flex().items_center().gap_1();
-    if !message.content.is_empty() {
-        actions = actions.child(
-            svg_icon_button(
-                SharedString::from(format!("copy-message-{}", message.id)),
-                UiIcon::Copy,
-                IconTone::Muted,
-                colors,
-                scale_factor,
-            )
-            .on_click(cx.listener(move |this, _, _, cx| this.copy_assistant(copy_id.clone(), cx))),
-        );
-    }
-    if latest && !generating && (!editing_any || editing) {
-        actions = actions.child(
-            svg_icon_button(
-                SharedString::from(format!("edit-message-{}", message.id)),
-                UiIcon::Pencil,
-                if editing {
-                    IconTone::Accent
-                } else {
-                    IconTone::Muted
-                },
-                colors,
-                scale_factor,
-            )
-            .on_click(
-                cx.listener(move |this, _, _, cx| this.begin_edit_assistant(edit_id.clone(), cx)),
-            ),
-        );
-    }
-    if latest
+    let has_content = !message.content.is_empty();
+    let can_copy = has_content;
+    let can_edit = latest && !generating && (!editing_any || editing);
+    let can_regenerate = latest
         && !generating
         && !editing
         && !matches!(
             message.status,
             MessageStatus::Failed | MessageStatus::Interrupted
-        )
-    {
-        actions = actions.child(
-            svg_icon_button(
-                SharedString::from(format!("regenerate-message-{}", message.id)),
-                UiIcon::Regenerate,
-                IconTone::Muted,
-                colors,
-                scale_factor,
-            )
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.regenerate_assistant(regenerate_id.clone(), cx)
-            })),
         );
-    }
-    if request.is_some() {
-        actions =
-            actions.child(
+    let can_use_context = !generating
+        && message.status == MessageStatus::Completed
+        && has_content
+        && turn.continuation_response_id.as_deref() != Some(&message.id);
+    let can_fork = !editing_any && message.status == MessageStatus::Completed && has_content;
+    let has_info = request.is_some();
+
+    let content_actions = if can_copy || can_edit {
+        let mut group = div().flex().items_center().gap_1();
+        if can_copy {
+            let copy_id = message.id.clone();
+            group = group.child(
+                svg_icon_button(
+                    SharedString::from(format!("copy-message-{}", message.id)),
+                    UiIcon::Copy,
+                    IconTone::Muted,
+                    colors,
+                    scale_factor,
+                )
+                .on_click(
+                    cx.listener(move |this, _, _, cx| this.copy_assistant(copy_id.clone(), cx)),
+                ),
+            );
+        }
+        if can_edit {
+            let edit_id = message.id.clone();
+            group =
+                group.child(
+                    svg_icon_button(
+                        SharedString::from(format!("edit-message-{}", message.id)),
+                        UiIcon::Pencil,
+                        if editing {
+                            IconTone::Accent
+                        } else {
+                            IconTone::Muted
+                        },
+                        colors,
+                        scale_factor,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.begin_edit_assistant(edit_id.clone(), cx)
+                    })),
+                );
+        }
+        Some(group)
+    } else {
+        None
+    };
+
+    let response_actions = if can_regenerate || can_use_context {
+        let mut group = div().flex().items_center().gap_1();
+        if can_regenerate {
+            let regenerate_id = message.id.clone();
+            group = group.child(
+                svg_icon_button(
+                    SharedString::from(format!("regenerate-message-{}", message.id)),
+                    UiIcon::Regenerate,
+                    IconTone::Muted,
+                    colors,
+                    scale_factor,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.regenerate_assistant(regenerate_id.clone(), cx)
+                })),
+            );
+        }
+        if can_use_context {
+            let context_turn_id = turn.id.clone();
+            let context_response_id = message.id.clone();
+            group = group.child(
+                svg_icon_button(
+                    SharedString::from(format!("use-response-context-{}", message.id)),
+                    UiIcon::ContextSelect,
+                    IconTone::Muted,
+                    colors,
+                    scale_factor,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.use_response_for_context(
+                        context_turn_id.clone(),
+                        context_response_id.clone(),
+                        cx,
+                    )
+                })),
+            );
+        }
+        Some(group)
+    } else {
+        None
+    };
+
+    let conversation_actions = if can_fork {
+        let fork_id = message.id.clone();
+        Some(
+            div().flex().items_center().gap_1().child(
+                svg_icon_button(
+                    SharedString::from(format!("fork-message-{}", message.id)),
+                    UiIcon::Fork,
+                    IconTone::Muted,
+                    colors,
+                    scale_factor,
+                )
+                .on_click(
+                    cx.listener(move |this, _, _, cx| this.fork_from_response(fork_id.clone(), cx)),
+                ),
+            ),
+        )
+    } else {
+        None
+    };
+
+    let info_actions = if has_info {
+        let info_id = message.id.clone();
+        Some(
+            div().flex().items_center().gap_1().child(
                 svg_icon_button(
                     SharedString::from(format!("info-message-{}", message.id)),
                     UiIcon::Info,
@@ -423,33 +489,20 @@ fn render_assistant_message(
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.inspect_message_request(info_id.clone(), cx)
                 })),
-            );
-    }
-    if latest
-        && !generating
-        && message.status == MessageStatus::Completed
-        && !message.content.is_empty()
-        && turn.continuation_response_id.as_deref() != Some(&message.id)
-    {
-        let context_turn_id = turn.id.clone();
-        let context_response_id = message.id.clone();
-        actions = actions.child(
-            svg_icon_button(
-                SharedString::from(format!("use-response-context-{}", message.id)),
-                UiIcon::Context,
-                IconTone::Muted,
-                colors,
-                scale_factor,
-            )
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.use_response_for_context(
-                    context_turn_id.clone(),
-                    context_response_id.clone(),
-                    cx,
-                )
-            })),
-        );
-    }
+            ),
+        )
+    } else {
+        None
+    };
+
+    let actions = div()
+        .flex()
+        .items_center()
+        .gap_2()
+        .children(content_actions)
+        .children(response_actions)
+        .children(conversation_actions)
+        .children(info_actions);
 
     let header = if turn.responses.len() > 1 {
         let mut tabs = div().mb_3().flex().flex_wrap().items_center().gap_1();
@@ -476,7 +529,7 @@ fn render_assistant_message(
                 .gap_1()
                 .children(context.then(|| {
                     svg_icon(
-                        UiIcon::Context,
+                        UiIcon::ContextSelected,
                         IconTone::Accent,
                         colors,
                         scale_factor,

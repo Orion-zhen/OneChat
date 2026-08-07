@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     fs,
     path::{Path, PathBuf},
 };
@@ -6,7 +7,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::domain::{
-    AssistantResponse, Conversation, MessageStatus, RequestInfo, Turn, active_turns,
+    AssistantResponse, Conversation, MessageStatus, RequestInfo, Turn, active_turns, new_id,
 };
 
 use super::codec::{read_jsonc, write_json};
@@ -40,6 +41,27 @@ impl Storage {
         let mut file = self.read_conversation(&conversation.id)?;
         file.conversation = conversation.clone();
         self.write_conversation(&file)
+    }
+
+    pub fn fork_conversation(
+        &self,
+        source_conversation_id: &str,
+        response_id: &str,
+        conversation: &Conversation,
+    ) -> Result<()> {
+        let _guard = self.lock()?;
+        let path = self.conversation_path(&conversation.id)?;
+        if path.exists() {
+            return Err(conflict("conversation", &conversation.id));
+        }
+
+        let source = self.read_conversation(source_conversation_id)?;
+        let (turns, requests) = fork_path(&source, response_id, &conversation.id)?;
+        self.write_conversation(&ConversationFile {
+            conversation: conversation.clone(),
+            turns,
+            requests,
+        })
     }
 
     pub fn delete_conversation(&self, id: &str) -> Result<()> {
@@ -83,15 +105,20 @@ impl Storage {
     ) -> Result<()> {
         let _guard = self.lock()?;
         let mut file = self.read_conversation(conversation_id)?;
-        let active_leaf_id = active_turns(&file.turns).last().map(|turn| turn.id.clone());
-        let latest = file
+        if !active_turns(&file.turns)
+            .iter()
+            .any(|turn| turn.id == turn_id)
+        {
+            return Err(StorageError::InvalidData(
+                "only an active turn can change context".into(),
+            ));
+        }
+        let turn = file
             .turns
             .iter_mut()
-            .find(|turn| Some(&turn.id) == active_leaf_id.as_ref() && turn.id == turn_id)
-            .ok_or_else(|| {
-                StorageError::InvalidData("only the active leaf turn can change context".into())
-            })?;
-        let response = latest
+            .find(|turn| turn.id == turn_id)
+            .ok_or_else(|| missing("turn", turn_id))?;
+        let response = turn
             .response(response_id)
             .ok_or_else(|| missing("response", response_id))?;
         if response.status != MessageStatus::Completed || response.content.is_empty() {
@@ -99,7 +126,7 @@ impl Storage {
                 "only a completed response can be used as context".into(),
             ));
         }
-        latest.continuation_response_id = Some(response_id.to_string());
+        turn.continuation_response_id = Some(response_id.to_string());
         self.write_conversation(&file)
     }
 
@@ -343,6 +370,90 @@ impl Storage {
         }
         Ok(self.conversations_dir.join(format!("{id}.json")))
     }
+}
+
+fn fork_path(
+    source: &ConversationFile,
+    response_id: &str,
+    conversation_id: &str,
+) -> Result<(Vec<Turn>, Vec<RequestInfo>)> {
+    let mut source_path = Vec::new();
+    let mut visited = HashSet::new();
+    let mut current_response_id = response_id.to_string();
+
+    loop {
+        if !visited.insert(current_response_id.clone()) {
+            return Err(StorageError::InvalidData(
+                "conversation history contains a response cycle".into(),
+            ));
+        }
+        let (turn, response) = source
+            .turns
+            .iter()
+            .find_map(|turn| {
+                turn.response(&current_response_id)
+                    .map(|response| (turn, response))
+            })
+            .ok_or_else(|| missing("response", &current_response_id))?;
+        source_path.push((turn, response));
+        let Some(parent_response_id) = turn.parent_response_id.as_ref() else {
+            break;
+        };
+        current_response_id.clone_from(parent_response_id);
+    }
+
+    let Some((_, terminal_response)) = source_path.first() else {
+        return Err(missing("response", response_id));
+    };
+    if terminal_response.status != MessageStatus::Completed || terminal_response.content.is_empty()
+    {
+        return Err(StorageError::InvalidData(
+            "only a completed response can be forked".into(),
+        ));
+    }
+
+    source_path.reverse();
+    let mut turns = Vec::with_capacity(source_path.len());
+    let mut requests = Vec::with_capacity(source_path.len());
+    let mut parent_response_id = None;
+
+    for (source_turn, source_response) in source_path {
+        let turn_id = new_id("turn");
+        let response_id = new_id("response");
+        let mut response = source_response.clone();
+        response.id.clone_from(&response_id);
+        response.request_id = source_response
+            .request_id
+            .as_deref()
+            .and_then(|request_id| {
+                source
+                    .requests
+                    .iter()
+                    .find(|request| request.id == request_id)
+            })
+            .map(|source_request| {
+                let mut request = source_request.clone();
+                request.id = new_id("request");
+                request.conversation_id = conversation_id.to_string();
+                request.turn_id.clone_from(&turn_id);
+                request.response_id.clone_from(&response_id);
+                let request_id = request.id.clone();
+                requests.push(request);
+                request_id
+            });
+
+        let mut turn = source_turn.clone();
+        turn.id.clone_from(&turn_id);
+        turn.parent_response_id = parent_response_id;
+        turn.selected = true;
+        turn.user.id = new_id("message");
+        turn.responses = vec![response];
+        turn.continuation_response_id = Some(response_id.clone());
+        parent_response_id = Some(response_id);
+        turns.push(turn);
+    }
+
+    Ok((turns, requests))
 }
 
 fn response_mut<'a>(

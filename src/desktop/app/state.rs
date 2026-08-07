@@ -95,6 +95,7 @@ impl DrawerMotion {
 pub(crate) struct SidebarState {
     pub(crate) search_query: String,
     pub(crate) search_input: Entity<Composer>,
+    pub(crate) hovered_conversation_id: Option<String>,
     pub(super) rename_editor: Option<RenameEditor>,
 }
 

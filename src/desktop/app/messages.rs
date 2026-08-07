@@ -38,6 +38,54 @@ impl OneChat {
         );
     }
 
+    pub(crate) fn fork_from_response(&mut self, response_id: String, cx: &mut Context<Self>) {
+        if self.chat.message_editor.is_some() {
+            return;
+        }
+        let Some(response) = self
+            .response(&response_id)
+            .map(|(_, response)| response.clone())
+        else {
+            return;
+        };
+        if response.status != MessageStatus::Completed || response.content.is_empty() {
+            return;
+        }
+        let Some(source) = self.current_conversation().cloned() else {
+            return;
+        };
+
+        let now = now_timestamp();
+        let mut conversation = source.clone();
+        conversation.id = new_id("conversation");
+        conversation.title = format!("{} (fork)", source.title);
+        if self
+            .data
+            .snapshot
+            .models
+            .iter()
+            .any(|model| model.id == response.model_id)
+        {
+            conversation.model_id = Some(response.model_id);
+        }
+        conversation.pinned = false;
+        conversation.created_at = now;
+        conversation.updated_at = now;
+
+        let source_id = source.id;
+        let fork_id = conversation.id.clone();
+        let mut settings = self.data.snapshot.settings.clone();
+        settings.current_conversation_id = Some(fork_id);
+        self.navigation.pending_focus = Some(PendingFocus::Composer);
+        self.mutate_and_reload(
+            move |storage| {
+                storage.fork_conversation(&source_id, &response_id, &conversation)?;
+                storage.save_settings(&settings)
+            },
+            cx,
+        );
+    }
+
     pub(crate) fn copy_user(&mut self, turn_id: String, cx: &mut Context<Self>) {
         let Some(content) = self
             .data

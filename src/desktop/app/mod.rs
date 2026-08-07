@@ -38,8 +38,8 @@ use crate::{
     },
     domain::{
         AppSettings, AssistantResponse, ChatMessage, Conversation, MessageStatus, Model, Provider,
-        ProviderKind, RequestInfo, SystemPromptSource, Theme, Turn, active_turns, now_timestamp,
-        user_branches,
+        ProviderKind, RequestInfo, SystemPromptSource, Theme, Turn, active_turns, new_id,
+        now_timestamp, user_branches,
     },
     markdown::MarkdownDocument,
     providers::{self, AvailableModel},
@@ -255,6 +255,7 @@ impl OneChat {
             sidebar: SidebarState {
                 search_query: String::new(),
                 search_input,
+                hovered_conversation_id: None,
                 rename_editor: None,
             },
             overlays: OverlayState {
