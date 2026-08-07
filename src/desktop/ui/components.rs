@@ -127,6 +127,7 @@ pub(crate) enum UiIcon {
     At,
     Context,
     ChevronLeft,
+    ChevronRight,
     ChevronDown,
     ChevronUp,
     ArrowUp,
@@ -284,6 +285,7 @@ fn svg_icon_at_size(icon: UiIcon, color: &str, scale_factor: f32, size: f32) -> 
             r#"<circle cx="11" cy="12.25" r="8"/><path d="m7 12.25 3.5 3.5L20.5 3.75"/>"#
         }
         UiIcon::ChevronLeft => r#"<path d="m16 20-8-8 8-8"/>"#,
+        UiIcon::ChevronRight => r#"<path d="m8 4 8 8-8 8"/>"#,
         UiIcon::ChevronDown => r#"<path d="m6 9 6 6 6-6"/>"#,
         UiIcon::ChevronUp => r#"<path d="m18 15-6-6-6 6"/>"#,
         UiIcon::ArrowUp => r#"<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>"#,

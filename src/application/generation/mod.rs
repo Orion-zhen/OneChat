@@ -36,7 +36,7 @@ mod tests {
         conversation.generation_config.top_k = Some(20);
 
         let prepared =
-            PreparedGeneration::new(&conversation, &provider, &model, &[], "Next".into());
+            PreparedGeneration::new(&conversation, &provider, &model, &[], None, "Next".into());
         let GenerationStart::NewTurn(turn) = &prepared.start else {
             panic!("expected a new turn");
         };
@@ -61,8 +61,14 @@ mod tests {
         let other = Model::new(&provider.id, "other", "Other");
         let conversation = Conversation::new("Test", Some(&model), "");
 
-        let first =
-            PreparedGeneration::new(&conversation, &provider, &model, &[], "Question one".into());
+        let first = PreparedGeneration::new(
+            &conversation,
+            &provider,
+            &model,
+            &[],
+            None,
+            "Question one".into(),
+        );
         let GenerationStart::NewTurn(turn_one) = first.start else {
             panic!("expected a new turn");
         };
@@ -75,6 +81,7 @@ mod tests {
             &provider,
             &model,
             std::slice::from_ref(&turn_one),
+            turn_one.continuation_response_id.clone(),
             "Question two".into(),
         );
         let GenerationStart::NewTurn(turn_two) = second.start else {
@@ -96,6 +103,60 @@ mod tests {
                 (MessageRole::User, "Question one"),
                 (MessageRole::Assistant, "Chosen answer"),
                 (MessageRole::User, "Question two"),
+            ]
+        );
+    }
+
+    #[test]
+    fn edited_user_messages_exclude_the_previous_branch_suffix() {
+        let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+        let model = Model::new(&provider.id, "gpt-test", "GPT Test");
+        let conversation = Conversation::new("Test", Some(&model), "");
+
+        let mut root = Turn::new(
+            &conversation,
+            None,
+            "Question one",
+            response(&provider, &model),
+        );
+        root.responses[0].content = "Answer one".into();
+        let root_response_id = root.responses[0].id.clone();
+        let mut previous = Turn::new(
+            &conversation,
+            Some(root_response_id.clone()),
+            "Old question",
+            response(&provider, &model),
+        );
+        previous.responses[0].content = "Old answer".into();
+        let previous_response_id = previous.responses[0].id.clone();
+        let suffix = Turn::new(
+            &conversation,
+            Some(previous_response_id),
+            "Old suffix",
+            response(&provider, &model),
+        );
+        let turns = vec![root, previous, suffix];
+
+        let edited = PreparedGeneration::new(
+            &conversation,
+            &provider,
+            &model,
+            &turns,
+            Some(root_response_id),
+            "Edited question".into(),
+        );
+
+        assert_eq!(
+            edited
+                .provider_request
+                .messages
+                .iter()
+                .map(|message| (message.role, message.content.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (MessageRole::User, "Question one"),
+                (MessageRole::Assistant, "Answer one"),
+                (MessageRole::User, "Edited question"),
             ]
         );
     }

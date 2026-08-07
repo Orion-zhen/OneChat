@@ -5,6 +5,8 @@ impl Render for Composer {
         let palette = InputPalette::for_inherited_text(window.text_style().color);
         let scroll_handle = self.scroll_handle.clone();
         div()
+            .w_full()
+            .min_w_0()
             .key_context("Composer")
             .track_focus(&self.focus_handle(cx))
             .cursor(CursorStyle::IBeam)

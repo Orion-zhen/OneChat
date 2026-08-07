@@ -1,5 +1,22 @@
 use super::*;
 use crate::desktop::ui::stream::should_capture_nested_scroll;
+use unicode_segmentation::UnicodeSegmentation;
+
+const MESSAGE_MAX_WIDTH: f32 = 780.0;
+const USER_MESSAGE_MAX_WIDTH: f32 = MESSAGE_MAX_WIDTH * 0.75;
+const USER_EDITOR_MIN_WIDTH: f32 = 160.0;
+
+fn user_editor_width(content: &str) -> f32 {
+    let text_width = content
+        .lines()
+        .map(|line| {
+            line.graphemes(true)
+                .map(|grapheme| if grapheme.is_ascii() { 8.0 } else { 15.0 })
+                .sum::<f32>()
+        })
+        .fold(0.0, f32::max);
+    (text_width + 48.0).clamp(USER_EDITOR_MIN_WIDTH, USER_MESSAGE_MAX_WIDTH)
+}
 
 pub(super) fn render_turn(
     app: &OneChat,
@@ -25,7 +42,12 @@ fn render_user_message(
     scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    let can_add_response = !app.is_current_generating()
+    let generating = app.is_current_generating();
+    let editor = app.user_message_editor(turn);
+    let editing = editor.is_some();
+    let editing_any = app.active_message_editor().is_some();
+    let can_add_response = !generating
+        && !editing_any
         && turn.responses.len() < 4
         && app.data.snapshot.models.iter().any(|model| {
             app.model_availability(model).is_ok()
@@ -34,33 +56,151 @@ fn render_user_message(
                     .iter()
                     .any(|response| response.model_id == model.id)
         });
-    let turn_id = turn.id.clone();
-    div()
-        .mx_auto()
-        .mb_7()
-        .w_full()
-        .max_w(px(780.0))
-        .flex()
-        .flex_col()
-        .items_end()
-        .child(
-            div()
-                .max_w(px(590.0))
-                .rounded_xl()
-                .bg(colors.accent)
-                .px_4()
-                .py_3()
-                .text_color(colors.on_accent)
-                .whitespace_normal()
-                .line_height(px(23.0))
-                .child(SelectableText::new(
-                    SharedString::from(format!("user-message-content-{}", turn.user.id)),
-                    turn.user.content.clone(),
-                    app.chat.text_selection.clone(),
-                    rgba(0x00000038),
-                )),
-        )
-        .children(can_add_response.then(|| {
+    let content = if let Some(editor) = editor {
+        let save_id = turn.id.clone();
+        let width = user_editor_width(editor.read(cx).text());
+        div()
+            .w(px(width))
+            .rounded_xl()
+            .border_1()
+            .border_color(colors.border)
+            .bg(colors.panel)
+            .p_3()
+            .child(div().w_full().min_w_0().overflow_hidden().child(editor))
+            .child(
+                div()
+                    .pt_3()
+                    .flex()
+                    .items_center()
+                    .justify_end()
+                    .gap_2()
+                    .child(
+                        large_svg_icon_button(
+                            SharedString::from(format!("cancel-edit-user-{}", turn.id)),
+                            UiIcon::Close,
+                            IconTone::Muted,
+                            colors,
+                            scale_factor,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.cancel_message_edit(cx))),
+                    )
+                    .child(
+                        primary_svg_icon_button(
+                            SharedString::from(format!("save-edit-user-{}", turn.id)),
+                            UiIcon::Save,
+                            colors,
+                            scale_factor,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.save_user_edit(save_id.clone(), cx)
+                        })),
+                    ),
+            )
+            .into_any_element()
+    } else {
+        div()
+            .max_w(px(USER_MESSAGE_MAX_WIDTH))
+            .rounded_xl()
+            .bg(colors.accent)
+            .px_4()
+            .py_3()
+            .text_color(colors.on_accent)
+            .whitespace_normal()
+            .line_height(px(23.0))
+            .child(SelectableText::new(
+                SharedString::from(format!("user-message-content-{}", turn.user.id)),
+                turn.user.content.clone(),
+                app.chat.text_selection.clone(),
+                rgba(0x00000038),
+            ))
+            .into_any_element()
+    };
+
+    let branches = app.user_branches(turn);
+    let branch_index = branches
+        .iter()
+        .position(|branch| branch.id == turn.id)
+        .unwrap_or_default();
+    let previous_branch = branch_index
+        .checked_sub(1)
+        .and_then(|index| branches.get(index))
+        .map(|turn| turn.id.clone());
+    let next_branch = branches.get(branch_index + 1).map(|turn| turn.id.clone());
+    let mut branch_actions = div().flex().items_center().gap_1();
+    if branches.len() > 1 {
+        branch_actions = branch_actions
+            .children(
+                (!generating && !editing_any)
+                    .then_some(previous_branch)
+                    .flatten()
+                    .map(|branch_id| {
+                        svg_icon_button(
+                            SharedString::from(format!("previous-user-branch-{}", turn.id)),
+                            UiIcon::ChevronLeft,
+                            IconTone::Muted,
+                            colors,
+                            scale_factor,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.select_user_branch(branch_id.clone(), cx)
+                        }))
+                    }),
+            )
+            .child(
+                div()
+                    .px_1()
+                    .text_size(px(11.0))
+                    .text_color(colors.muted)
+                    .child(format!("{}/{}", branch_index + 1, branches.len())),
+            )
+            .children(
+                (!generating && !editing_any)
+                    .then_some(next_branch)
+                    .flatten()
+                    .map(|branch_id| {
+                        svg_icon_button(
+                            SharedString::from(format!("next-user-branch-{}", turn.id)),
+                            UiIcon::ChevronRight,
+                            IconTone::Muted,
+                            colors,
+                            scale_factor,
+                        )
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.select_user_branch(branch_id.clone(), cx)
+                        }))
+                    }),
+            );
+    }
+    let mut actions = div().flex().items_center().gap_1();
+    if !editing {
+        let copy_id = turn.id.clone();
+        actions = actions.child(
+            svg_icon_button(
+                SharedString::from(format!("copy-user-message-{}", turn.id)),
+                UiIcon::Copy,
+                IconTone::Muted,
+                colors,
+                scale_factor,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.copy_user(copy_id.clone(), cx))),
+        );
+    }
+    if !generating && !editing_any {
+        let edit_id = turn.id.clone();
+        actions = actions.child(
+            svg_icon_button(
+                SharedString::from(format!("edit-user-message-{}", turn.id)),
+                UiIcon::Pencil,
+                IconTone::Muted,
+                colors,
+                scale_factor,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.begin_edit_user(edit_id.clone(), cx))),
+        );
+    }
+    if can_add_response {
+        let turn_id = turn.id.clone();
+        actions = actions.child(
             svg_icon_button(
                 SharedString::from(format!("add-response-{}", turn.id)),
                 UiIcon::At,
@@ -68,11 +208,39 @@ fn render_user_message(
                 colors,
                 scale_factor,
             )
-            .mt_1()
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.open_response_model_picker(turn_id.clone(), cx)
-            }))
-        }))
+            })),
+        );
+    }
+
+    let action_bar = div()
+        .mt_1()
+        .min_h(px(24.0))
+        .w_full()
+        .flex()
+        .items_center()
+        .justify_between()
+        .child(branch_actions)
+        .child(actions);
+
+    div()
+        .mx_auto()
+        .mb_7()
+        .w_full()
+        .max_w(px(MESSAGE_MAX_WIDTH))
+        .flex()
+        .justify_end()
+        .child(
+            div()
+                .max_w(px(USER_MESSAGE_MAX_WIDTH))
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .items_end()
+                .child(content)
+                .child(action_bar),
+        )
         .into_any_element()
 }
 
@@ -118,7 +286,7 @@ fn render_assistant_message(
                             colors,
                             scale_factor,
                         )
-                        .on_click(cx.listener(|this, _, _, cx| this.cancel_assistant_edit(cx))),
+                        .on_click(cx.listener(|this, _, _, cx| this.cancel_message_edit(cx))),
                     )
                     .child(
                         primary_svg_icon_button(
@@ -350,7 +518,7 @@ fn render_assistant_message(
         .mx_auto()
         .mb_8()
         .w_full()
-        .max_w(px(780.0))
+        .max_w(px(MESSAGE_MAX_WIDTH))
         .child(header)
         .children(render_reasoning(
             app,

@@ -372,8 +372,16 @@ impl OneChat {
             .unwrap_or(0)
     }
 
-    pub(crate) fn current_turns(&self) -> &[Turn] {
-        &self.data.snapshot.current_turns
+    pub(crate) fn current_turns(&self) -> Vec<&Turn> {
+        active_turns(&self.data.snapshot.current_turns)
+    }
+
+    pub(crate) fn active_leaf_turn(&self) -> Option<&Turn> {
+        self.current_turns().last().copied()
+    }
+
+    pub(crate) fn user_branches(&self, turn: &Turn) -> Vec<&Turn> {
+        user_branches(&self.data.snapshot.current_turns, turn)
     }
 
     pub(crate) fn current_request(&self) -> Option<&RequestInfo> {
@@ -386,7 +394,14 @@ impl OneChat {
                 .iter()
                 .find(|request| request.id == active.request_id);
         }
-        self.data.snapshot.current_requests.first()
+        self.active_leaf_turn()
+            .and_then(|turn| {
+                turn.continuation_response_id
+                    .as_deref()
+                    .and_then(|id| turn.response(id))
+                    .or_else(|| turn.responses.first())
+            })
+            .and_then(|response| self.request_for_response(response))
     }
 
     pub(crate) fn request_for_response(
@@ -437,10 +452,7 @@ impl OneChat {
     }
 
     pub(crate) fn is_latest_turn(&self, turn_id: &str) -> bool {
-        self.data
-            .snapshot
-            .current_turns
-            .last()
+        self.active_leaf_turn()
             .is_some_and(|turn| turn.id == turn_id)
     }
 

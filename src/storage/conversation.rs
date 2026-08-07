@@ -5,7 +5,9 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::{AssistantResponse, Conversation, MessageStatus, RequestInfo, Turn};
+use crate::domain::{
+    AssistantResponse, Conversation, MessageStatus, RequestInfo, Turn, active_turns,
+};
 
 use super::codec::{read_jsonc, write_json};
 use super::{Result, Storage, StorageError, conflict, missing};
@@ -81,12 +83,13 @@ impl Storage {
     ) -> Result<()> {
         let _guard = self.lock()?;
         let mut file = self.read_conversation(conversation_id)?;
+        let active_leaf_id = active_turns(&file.turns).last().map(|turn| turn.id.clone());
         let latest = file
             .turns
-            .last_mut()
-            .filter(|turn| turn.id == turn_id)
+            .iter_mut()
+            .find(|turn| Some(&turn.id) == active_leaf_id.as_ref() && turn.id == turn_id)
             .ok_or_else(|| {
-                StorageError::InvalidData("only the latest turn can change context".into())
+                StorageError::InvalidData("only the active leaf turn can change context".into())
             })?;
         let response = latest
             .response(response_id)
@@ -113,9 +116,42 @@ impl Storage {
         if file.requests.iter().any(|stored| stored.id == request.id) {
             return Err(conflict("request", &request.id));
         }
-        file.turns.push(turn.clone());
-        file.requests.push(request.clone());
+        if let Some(parent_response_id) = turn.parent_response_id.as_deref()
+            && !file
+                .turns
+                .iter()
+                .any(|stored| stored.response(parent_response_id).is_some())
+        {
+            return Err(missing("parent response", parent_response_id));
+        }
+        for sibling in &mut file.turns {
+            if sibling.parent_response_id == turn.parent_response_id {
+                sibling.selected = false;
+            }
+        }
+        let mut turn = turn.clone();
+        turn.selected = true;
         file.conversation.updated_at = turn.user.created_at;
+        file.turns.push(turn);
+        file.requests.push(request.clone());
+        self.write_conversation(&file)
+    }
+
+    pub fn select_user_branch(&self, conversation_id: &str, turn_id: &str) -> Result<()> {
+        let _guard = self.lock()?;
+        let mut file = self.read_conversation(conversation_id)?;
+        let parent_response_id = file
+            .turns
+            .iter()
+            .find(|turn| turn.id == turn_id)
+            .ok_or_else(|| missing("turn", turn_id))?
+            .parent_response_id
+            .clone();
+        for turn in &mut file.turns {
+            if turn.parent_response_id == parent_response_id {
+                turn.selected = turn.id == turn_id;
+            }
+        }
         self.write_conversation(&file)
     }
 

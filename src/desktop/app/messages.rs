@@ -38,6 +38,20 @@ impl OneChat {
         );
     }
 
+    pub(crate) fn copy_user(&mut self, turn_id: String, cx: &mut Context<Self>) {
+        let Some(content) = self
+            .data
+            .snapshot
+            .current_turns
+            .iter()
+            .find(|turn| turn.id == turn_id)
+            .map(|turn| turn.user.content.clone())
+        else {
+            return;
+        };
+        cx.write_to_clipboard(ClipboardItem::new_string(content));
+    }
+
     pub(crate) fn copy_assistant(&mut self, response_id: String, cx: &mut Context<Self>) {
         let Some(content) = self
             .response(&response_id)
@@ -48,6 +62,16 @@ impl OneChat {
         cx.write_to_clipboard(ClipboardItem::new_string(content));
     }
 
+    pub(crate) fn user_message_editor(&self, turn: &Turn) -> Option<Entity<Composer>> {
+        self.chat
+            .message_editor
+            .as_ref()
+            .filter(
+                |editor| matches!(&editor.target, MessageEditorTarget::User(id) if id == &turn.id),
+            )
+            .map(|editor| editor.input.clone())
+    }
+
     pub(crate) fn assistant_message_editor(
         &self,
         response: &AssistantResponse,
@@ -55,7 +79,9 @@ impl OneChat {
         self.chat
             .message_editor
             .as_ref()
-            .filter(|editor| editor.message_id == response.id)
+            .filter(|editor| {
+                matches!(&editor.target, MessageEditorTarget::Assistant(id) if id == &response.id)
+            })
             .map(|editor| editor.input.clone())
     }
 
@@ -64,6 +90,35 @@ impl OneChat {
             .message_editor
             .as_ref()
             .map(|editor| editor.input.clone())
+    }
+
+    pub(crate) fn begin_edit_user(&mut self, turn_id: String, cx: &mut Context<Self>) {
+        if self.is_current_generating() || self.chat.message_editor.is_some() {
+            return;
+        }
+        let Some(content) = self
+            .data
+            .snapshot
+            .current_turns
+            .iter()
+            .find(|turn| turn.id == turn_id)
+            .map(|turn| turn.user.content.clone())
+        else {
+            return;
+        };
+        let input = cx.new(|cx| Composer::multiline(content, "Edit user message", cx));
+        cx.subscribe(&input, |this, _, event, cx| match event {
+            ComposerEvent::Changed(_) => cx.notify(),
+            ComposerEvent::Cancel => this.cancel_message_edit(cx),
+            _ => {}
+        })
+        .detach();
+        self.chat.message_editor = Some(MessageEditor {
+            target: MessageEditorTarget::User(turn_id),
+            input,
+        });
+        self.navigation.pending_focus = Some(PendingFocus::MessageEditor);
+        cx.notify();
     }
 
     pub(crate) fn begin_edit_assistant(&mut self, response_id: String, cx: &mut Context<Self>) {
@@ -82,31 +137,91 @@ impl OneChat {
         let input = cx.new(|cx| Composer::multiline(content, "Edit assistant response", cx));
         cx.subscribe(&input, |this, _, event, cx| {
             if matches!(event, ComposerEvent::Cancel) {
-                this.cancel_assistant_edit(cx);
+                this.cancel_message_edit(cx);
             }
         })
         .detach();
         self.chat.message_editor = Some(MessageEditor {
-            message_id: response_id,
+            target: MessageEditorTarget::Assistant(response_id),
             input,
         });
         self.navigation.pending_focus = Some(PendingFocus::MessageEditor);
         cx.notify();
     }
 
-    pub(crate) fn cancel_assistant_edit(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn cancel_message_edit(&mut self, cx: &mut Context<Self>) {
         self.chat.message_editor = None;
         self.navigation.pending_focus = Some(PendingFocus::Composer);
         cx.notify();
     }
 
-    pub(crate) fn save_assistant_edit(&mut self, response_id: String, cx: &mut Context<Self>) {
-        let Some(editor) = self
-            .chat
-            .message_editor
-            .as_ref()
-            .filter(|editor| editor.message_id == response_id)
+    pub(crate) fn save_user_edit(&mut self, turn_id: String, cx: &mut Context<Self>) {
+        let Some(editor) = self.chat.message_editor.as_ref().filter(
+            |editor| matches!(&editor.target, MessageEditorTarget::User(id) if id == &turn_id),
+        ) else {
+            return;
+        };
+        let content = editor.input.read(cx).text().trim().to_string();
+        if content.is_empty() {
+            self.data.error = Some("User messages cannot be empty.".into());
+            cx.notify();
+            return;
+        }
+        let Some(turn) = self
+            .data
+            .snapshot
+            .current_turns
+            .iter()
+            .find(|turn| turn.id == turn_id)
+            .cloned()
         else {
+            return;
+        };
+        if content == turn.user.content {
+            self.cancel_message_edit(cx);
+            return;
+        }
+        let (conversation, provider, model) = match self.generation_target(None) {
+            Ok(target) => target,
+            Err(error) => {
+                self.data.error = Some(error);
+                cx.notify();
+                return;
+            }
+        };
+        let prepared = PreparedGeneration::new(
+            &conversation,
+            &provider,
+            &model,
+            &self.data.snapshot.current_turns,
+            turn.parent_response_id,
+            content,
+        );
+        self.chat.message_editor = None;
+        self.navigation.pending_focus = Some(PendingFocus::Composer);
+        self.begin_prepared_generation(prepared, cx);
+    }
+
+    pub(crate) fn select_user_branch(&mut self, turn_id: String, cx: &mut Context<Self>) {
+        if self.is_current_generating() || self.chat.message_editor.is_some() {
+            return;
+        }
+        let Some(conversation_id) = self.current_conversation().map(|value| value.id.clone())
+        else {
+            return;
+        };
+        self.chat.selected_request_id = None;
+        self.chat.visible_response_ids.clear();
+        self.mutate_and_reload(
+            move |storage| storage.select_user_branch(&conversation_id, &turn_id),
+            cx,
+        );
+    }
+
+    pub(crate) fn save_assistant_edit(&mut self, response_id: String, cx: &mut Context<Self>) {
+        let Some(editor) = self.chat.message_editor.as_ref().filter(|editor| {
+            matches!(&editor.target, MessageEditorTarget::Assistant(id) if id == &response_id)
+        }) else {
             return;
         };
         let content = editor.input.read(cx).text().to_string();

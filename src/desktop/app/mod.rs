@@ -38,7 +38,8 @@ use crate::{
     },
     domain::{
         AppSettings, AssistantResponse, ChatMessage, Conversation, MessageStatus, Model, Provider,
-        ProviderKind, RequestInfo, SystemPromptSource, Theme, Turn, now_timestamp,
+        ProviderKind, RequestInfo, SystemPromptSource, Theme, Turn, active_turns, now_timestamp,
+        user_branches,
     },
     markdown::MarkdownDocument,
     providers::{self, AvailableModel},
@@ -65,8 +66,13 @@ struct RenameEditor {
     input: Entity<Composer>,
 }
 
+enum MessageEditorTarget {
+    User(String),
+    Assistant(String),
+}
+
 struct MessageEditor {
-    message_id: String,
+    target: MessageEditorTarget,
     input: Entity<Composer>,
 }
 

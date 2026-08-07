@@ -199,7 +199,9 @@ fn default_state_dir(home: &Path) -> Result<PathBuf> {
 mod tests {
     use std::collections::BTreeMap;
 
-    use crate::domain::{AssistantResponse, Model, ProviderKind, Theme, Turn, now_timestamp};
+    use crate::domain::{
+        AssistantResponse, Model, ProviderKind, Theme, Turn, active_turns, now_timestamp,
+    };
 
     use super::*;
 
@@ -254,8 +256,18 @@ mod tests {
         model: &Model,
         prompt: &str,
     ) -> (Turn, AssistantResponse, RequestInfo) {
+        generation_records_after(conversation, provider, model, None, prompt)
+    }
+
+    fn generation_records_after(
+        conversation: &Conversation,
+        provider: &Provider,
+        model: &Model,
+        parent_response_id: Option<String>,
+        prompt: &str,
+    ) -> (Turn, AssistantResponse, RequestInfo) {
         let response = AssistantResponse::new(model, provider);
-        let mut turn = Turn::new(conversation, None, prompt, response);
+        let mut turn = Turn::new(conversation, parent_response_id, prompt, response);
         turn.responses[0].status = MessageStatus::Streaming;
         let request = RequestInfo::new(&conversation.id, &turn.id, &turn.responses[0].id);
         turn.responses[0].request_id = Some(request.id.clone());
@@ -382,6 +394,93 @@ mod tests {
         assert_eq!(snapshot.current_turns[0].user.content, "Hello");
         assert_eq!(snapshot.current_turns[0].responses, vec![response]);
         assert_eq!(snapshot.current_requests, vec![request]);
+    }
+
+    #[test]
+    fn user_branches_preserve_and_restore_their_suffixes() {
+        let test = TestStorage::new();
+        let (provider, model, conversation, _) = configured_conversation(&test.storage);
+        let (root, _, root_request) = generation_records(&conversation, &provider, &model, "Root");
+        let root_response_id = root.responses[0].id.clone();
+        test.storage.begin_turn(&root, &root_request).unwrap();
+
+        let (previous, _, previous_request) = generation_records_after(
+            &conversation,
+            &provider,
+            &model,
+            Some(root_response_id.clone()),
+            "Previous",
+        );
+        let previous_id = previous.id.clone();
+        let previous_response_id = previous.responses[0].id.clone();
+        test.storage
+            .begin_turn(&previous, &previous_request)
+            .unwrap();
+        let (suffix, _, suffix_request) = generation_records_after(
+            &conversation,
+            &provider,
+            &model,
+            Some(previous_response_id),
+            "Previous suffix",
+        );
+        test.storage.begin_turn(&suffix, &suffix_request).unwrap();
+
+        let (edited, _, edited_request) = generation_records_after(
+            &conversation,
+            &provider,
+            &model,
+            Some(root_response_id),
+            "Edited",
+        );
+        test.storage.begin_turn(&edited, &edited_request).unwrap();
+
+        let snapshot = test.storage.load_snapshot().unwrap();
+        assert_eq!(snapshot.current_turns.len(), 4);
+        assert_eq!(snapshot.current_requests.len(), 4);
+        assert_eq!(
+            active_turns(&snapshot.current_turns)
+                .iter()
+                .map(|turn| turn.user.content.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Root", "Edited"]
+        );
+
+        test.storage
+            .select_user_branch(&conversation.id, &previous_id)
+            .unwrap();
+        let snapshot = test.storage.load_snapshot().unwrap();
+        assert_eq!(
+            active_turns(&snapshot.current_turns)
+                .iter()
+                .map(|turn| turn.user.content.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Root", "Previous", "Previous suffix"]
+        );
+        assert_eq!(snapshot.current_requests.len(), 4);
+    }
+
+    #[test]
+    fn root_user_messages_can_branch() {
+        let test = TestStorage::new();
+        let (provider, model, conversation, _) = configured_conversation(&test.storage);
+        let (previous, _, previous_request) =
+            generation_records(&conversation, &provider, &model, "Previous root");
+        let previous_id = previous.id.clone();
+        test.storage
+            .begin_turn(&previous, &previous_request)
+            .unwrap();
+        let (edited, _, edited_request) =
+            generation_records(&conversation, &provider, &model, "Edited root");
+        test.storage.begin_turn(&edited, &edited_request).unwrap();
+
+        let snapshot = test.storage.load_snapshot().unwrap();
+        assert_eq!(active_turns(&snapshot.current_turns)[0].id, edited.id);
+
+        test.storage
+            .select_user_branch(&conversation.id, &previous_id)
+            .unwrap();
+        let snapshot = test.storage.load_snapshot().unwrap();
+        assert_eq!(active_turns(&snapshot.current_turns)[0].id, previous_id);
     }
 
     #[test]

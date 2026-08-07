@@ -162,6 +162,7 @@ pub struct TurnGenerationSettings {
 pub struct Turn {
     pub id: String,
     pub parent_response_id: Option<String>,
+    pub selected: bool,
     pub user: UserMessage,
     pub responses: Vec<AssistantResponse>,
     pub continuation_response_id: Option<String>,
@@ -178,6 +179,7 @@ impl Turn {
         Self {
             id: new_id("turn"),
             parent_response_id,
+            selected: true,
             user: UserMessage::new(prompt),
             continuation_response_id: Some(response.id.clone()),
             responses: vec![response],
@@ -193,4 +195,32 @@ impl Turn {
             .iter()
             .find(|response| response.id == response_id)
     }
+}
+
+pub fn active_turns(turns: &[Turn]) -> Vec<&Turn> {
+    let mut path = Vec::new();
+    let mut parent_response_id = None;
+
+    while let Some(turn) = turns
+        .iter()
+        .find(|turn| turn.selected && turn.parent_response_id.as_deref() == parent_response_id)
+    {
+        if path.iter().any(|visited: &&Turn| visited.id == turn.id) {
+            break;
+        }
+        path.push(turn);
+        let Some(response_id) = turn.continuation_response_id.as_deref() else {
+            break;
+        };
+        parent_response_id = Some(response_id);
+    }
+
+    path
+}
+
+pub fn user_branches<'a>(turns: &'a [Turn], turn: &Turn) -> Vec<&'a Turn> {
+    turns
+        .iter()
+        .filter(|candidate| candidate.parent_response_id == turn.parent_response_id)
+        .collect()
 }

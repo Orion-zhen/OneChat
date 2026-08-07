@@ -32,8 +32,11 @@ impl OneChat {
                 return;
             }
         };
-        if self.data.snapshot.current_turns.last().is_some_and(|turn| {
-            turn.continuation_response_id
+        let parent_response_id = self
+            .active_leaf_turn()
+            .and_then(|turn| turn.continuation_response_id.clone());
+        if self.active_leaf_turn().is_some_and(|turn| {
+            parent_response_id
                 .as_deref()
                 .and_then(|id| turn.response(id))
                 .is_none_or(|response| {
@@ -49,6 +52,7 @@ impl OneChat {
             &provider,
             &model,
             &self.data.snapshot.current_turns,
+            parent_response_id,
             prompt,
         );
         self.begin_prepared_generation(prepared, cx);
@@ -97,7 +101,7 @@ impl OneChat {
         self.begin_prepared_generation(prepared, cx);
     }
 
-    fn generation_target(
+    pub(super) fn generation_target(
         &self,
         model_id: Option<&str>,
     ) -> Result<(Conversation, Provider, Model), String> {
@@ -161,7 +165,11 @@ impl OneChat {
         self.begin_prepared_generation(prepared, cx);
     }
 
-    fn begin_prepared_generation(&mut self, prepared: PreparedGeneration, cx: &mut Context<Self>) {
+    pub(super) fn begin_prepared_generation(
+        &mut self,
+        prepared: PreparedGeneration,
+        cx: &mut Context<Self>,
+    ) {
         let conversation_id = prepared.request_info.conversation_id.clone();
         if self.chat.generations.is_active(&conversation_id) {
             self.data.error = Some("This conversation already has an active generation.".into());

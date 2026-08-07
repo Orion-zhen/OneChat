@@ -42,6 +42,64 @@ mod tests {
     }
 
     #[test]
+    fn selected_user_branches_define_the_active_path() {
+        let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+        let model = Model::new(&provider.id, "model", "Model");
+        let conversation = Conversation::new("Conversation", Some(&model), "");
+
+        let mut root = Turn::new(
+            &conversation,
+            None,
+            "Root",
+            AssistantResponse::new(&model, &provider),
+        );
+        root.responses[0].content = "Root answer".into();
+        let root_response_id = root.responses[0].id.clone();
+
+        let mut previous = Turn::new(
+            &conversation,
+            Some(root_response_id.clone()),
+            "Previous",
+            AssistantResponse::new(&model, &provider),
+        );
+        previous.selected = false;
+        previous.responses[0].content = "Previous answer".into();
+        let previous_response_id = previous.responses[0].id.clone();
+        let previous_tail = Turn::new(
+            &conversation,
+            Some(previous_response_id),
+            "Previous tail",
+            AssistantResponse::new(&model, &provider),
+        );
+        let edited = Turn::new(
+            &conversation,
+            Some(root_response_id),
+            "Edited",
+            AssistantResponse::new(&model, &provider),
+        );
+        let mut turns = vec![root, previous, previous_tail, edited];
+
+        assert_eq!(
+            active_turns(&turns)
+                .iter()
+                .map(|turn| turn.user.content.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Root", "Edited"]
+        );
+        assert_eq!(user_branches(&turns, &turns[3]).len(), 2);
+
+        turns[1].selected = true;
+        turns[3].selected = false;
+        assert_eq!(
+            active_turns(&turns)
+                .iter()
+                .map(|turn| turn.user.content.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Root", "Previous", "Previous tail"]
+        );
+    }
+
+    #[test]
     fn capability_filtering_removes_unsupported_values_without_mutating_the_snapshot() {
         let config = GenerationConfig {
             temperature: Some(0.2),

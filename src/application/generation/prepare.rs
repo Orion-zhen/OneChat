@@ -4,7 +4,7 @@ use super::reducer::estimate_tokens;
 
 use crate::domain::{
     AssistantResponse, ChatMessage, Conversation, GenerationConfig, GenerationRequest, MessageRole,
-    MessageStatus, Model, Provider, RequestInfo, Turn, now_timestamp,
+    MessageStatus, Model, Provider, RequestInfo, Turn, active_turns, now_timestamp,
 };
 
 #[derive(Clone)]
@@ -28,11 +28,9 @@ impl PreparedGeneration {
         provider: &Provider,
         model: &Model,
         turns: &[Turn],
+        parent_response_id: Option<String>,
         prompt: String,
     ) -> Self {
-        let parent_response_id = turns
-            .last()
-            .and_then(|turn| turn.continuation_response_id.clone());
         let mut messages = parent_response_id
             .as_deref()
             .map(|response_id| history_through_response(turns, response_id))
@@ -156,7 +154,7 @@ pub fn history_for_turn(turns: &[Turn], turn: &Turn) -> Vec<ChatMessage> {
 }
 
 pub fn history_for_new_turn(turns: &[Turn]) -> Vec<ChatMessage> {
-    turns
+    active_turns(turns)
         .last()
         .and_then(|turn| turn.continuation_response_id.as_deref())
         .map(|response_id| history_through_response(turns, response_id))
