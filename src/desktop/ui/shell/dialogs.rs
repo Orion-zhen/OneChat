@@ -39,9 +39,13 @@ pub(super) fn render_destructive_confirmation(
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_xl()
-                .text_color(colors.danger)
-                .child("!"),
+                .child(render_icon(
+                    Icon::AlertTriangle,
+                    IconTone::Danger,
+                    colors,
+                    scale_factor,
+                    24.0,
+                )),
         )
         .child(
             div()
@@ -59,9 +63,9 @@ pub(super) fn render_destructive_confirmation(
                 .justify_end()
                 .gap_2()
                 .child(
-                    large_svg_icon_button(
+                    large_icon_button(
                         "cancel-destructive-action",
-                        UiIcon::Close,
+                        Icon::Close,
                         IconTone::Muted,
                         colors,
                         scale_factor,
@@ -69,9 +73,9 @@ pub(super) fn render_destructive_confirmation(
                     .on_click(cx.listener(|this, _, _, cx| this.cancel_destructive_action(cx))),
                 )
                 .child(
-                    large_svg_icon_button(
+                    large_icon_button(
                         "confirm-destructive-action",
-                        UiIcon::Trash,
+                        Icon::Trash,
                         IconTone::Danger,
                         colors,
                         scale_factor,

@@ -95,9 +95,9 @@ fn render_user_message(
                     .justify_end()
                     .gap_2()
                     .child(
-                        large_svg_icon_button(
+                        large_icon_button(
                             SharedString::from(format!("cancel-edit-user-{}", turn.id)),
-                            UiIcon::Close,
+                            Icon::Close,
                             IconTone::Muted,
                             colors,
                             scale_factor,
@@ -105,9 +105,9 @@ fn render_user_message(
                         .on_click(cx.listener(|this, _, _, cx| this.cancel_message_edit(cx))),
                     )
                     .child(
-                        primary_svg_icon_button(
+                        primary_icon_button(
                             SharedString::from(format!("save-edit-user-{}", turn.id)),
-                            UiIcon::Save,
+                            Icon::Save,
                             colors,
                             scale_factor,
                         )
@@ -154,9 +154,9 @@ fn render_user_message(
                     .then_some(previous_branch)
                     .flatten()
                     .map(|branch_id| {
-                        svg_icon_button(
+                        icon_button(
                             SharedString::from(format!("previous-user-branch-{}", turn.id)),
-                            UiIcon::ChevronLeft,
+                            Icon::ChevronLeft,
                             IconTone::Muted,
                             colors,
                             scale_factor,
@@ -178,9 +178,9 @@ fn render_user_message(
                     .then_some(next_branch)
                     .flatten()
                     .map(|branch_id| {
-                        svg_icon_button(
+                        icon_button(
                             SharedString::from(format!("next-user-branch-{}", turn.id)),
-                            UiIcon::ChevronRight,
+                            Icon::ChevronRight,
                             IconTone::Muted,
                             colors,
                             scale_factor,
@@ -195,9 +195,9 @@ fn render_user_message(
     if !editing {
         let copy_id = turn.id.clone();
         actions = actions.child(
-            svg_icon_button(
+            icon_button(
                 SharedString::from(format!("copy-user-message-{}", turn.id)),
-                UiIcon::Copy,
+                Icon::Copy,
                 IconTone::Muted,
                 colors,
                 scale_factor,
@@ -208,9 +208,9 @@ fn render_user_message(
     if !generating && !editing_any {
         let edit_id = turn.id.clone();
         actions = actions.child(
-            svg_icon_button(
+            icon_button(
                 SharedString::from(format!("edit-user-message-{}", turn.id)),
-                UiIcon::Pencil,
+                Icon::Pencil,
                 IconTone::Muted,
                 colors,
                 scale_factor,
@@ -221,9 +221,9 @@ fn render_user_message(
     if can_add_response {
         let turn_id = turn.id.clone();
         actions = actions.child(
-            svg_icon_button(
+            icon_button(
                 SharedString::from(format!("add-response-{}", turn.id)),
-                UiIcon::At,
+                Icon::At,
                 IconTone::Muted,
                 colors,
                 scale_factor,
@@ -300,9 +300,9 @@ fn render_assistant_message(
                     .justify_end()
                     .gap_2()
                     .child(
-                        large_svg_icon_button(
+                        large_icon_button(
                             SharedString::from(format!("cancel-edit-message-{}", message.id)),
-                            UiIcon::Close,
+                            Icon::Close,
                             IconTone::Muted,
                             colors,
                             scale_factor,
@@ -310,9 +310,9 @@ fn render_assistant_message(
                         .on_click(cx.listener(|this, _, _, cx| this.cancel_message_edit(cx))),
                     )
                     .child(
-                        primary_svg_icon_button(
+                        primary_icon_button(
                             SharedString::from(format!("save-edit-message-{}", message.id)),
-                            UiIcon::Save,
+                            Icon::Save,
                             colors,
                             scale_factor,
                         )
@@ -376,9 +376,9 @@ fn render_assistant_message(
         if can_copy {
             let copy_id = message.id.clone();
             group = group.child(
-                svg_icon_button(
+                icon_button(
                     SharedString::from(format!("copy-message-{}", message.id)),
-                    UiIcon::Copy,
+                    Icon::Copy,
                     IconTone::Muted,
                     colors,
                     scale_factor,
@@ -392,9 +392,9 @@ fn render_assistant_message(
             let edit_id = message.id.clone();
             group =
                 group.child(
-                    svg_icon_button(
+                    icon_button(
                         SharedString::from(format!("edit-message-{}", message.id)),
-                        UiIcon::Pencil,
+                        Icon::Pencil,
                         if editing {
                             IconTone::Accent
                         } else {
@@ -418,9 +418,9 @@ fn render_assistant_message(
         if can_regenerate {
             let regenerate_id = message.id.clone();
             group = group.child(
-                svg_icon_button(
+                icon_button(
                     SharedString::from(format!("regenerate-message-{}", message.id)),
-                    UiIcon::Regenerate,
+                    Icon::Regenerate,
                     IconTone::Muted,
                     colors,
                     scale_factor,
@@ -434,9 +434,9 @@ fn render_assistant_message(
             let context_turn_id = turn.id.clone();
             let context_response_id = message.id.clone();
             group = group.child(
-                svg_icon_button(
+                icon_button(
                     SharedString::from(format!("use-response-context-{}", message.id)),
-                    UiIcon::ContextSelect,
+                    Icon::ContextSelect,
                     IconTone::Muted,
                     colors,
                     scale_factor,
@@ -459,9 +459,9 @@ fn render_assistant_message(
         let fork_id = message.id.clone();
         Some(
             div().flex().items_center().gap_1().child(
-                svg_icon_button(
+                icon_button(
                     SharedString::from(format!("fork-message-{}", message.id)),
-                    UiIcon::Fork,
+                    Icon::Fork,
                     IconTone::Muted,
                     colors,
                     scale_factor,
@@ -479,9 +479,9 @@ fn render_assistant_message(
         let info_id = message.id.clone();
         Some(
             div().flex().items_center().gap_1().child(
-                svg_icon_button(
+                icon_button(
                     SharedString::from(format!("info-message-{}", message.id)),
-                    UiIcon::Info,
+                    Icon::Info,
                     IconTone::Muted,
                     colors,
                     scale_factor,
@@ -528,8 +528,8 @@ fn render_assistant_message(
                 .items_center()
                 .gap_1()
                 .children(context.then(|| {
-                    svg_icon(
-                        UiIcon::ContextSelected,
+                    render_icon(
+                        Icon::ContextSelected,
                         IconTone::Accent,
                         colors,
                         scale_factor,
@@ -669,12 +669,12 @@ fn render_reasoning(
     }
     let thinking_id = message.id.clone();
     controls = controls.child(
-        svg_icon_button(
+        icon_button(
             SharedString::from(format!("thinking-{}", message.id)),
             if expanded {
-                UiIcon::ChevronUp
+                Icon::ChevronUp
             } else {
-                UiIcon::ChevronDown
+                Icon::ChevronDown
             },
             IconTone::Accent,
             colors,

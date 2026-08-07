@@ -47,7 +47,9 @@ pub(super) fn provider_kind_select(
                 .hover(move |style| style.bg(colors.hover))
                 .on_click(cx.listener(move |this, _, _, cx| this.select_provider_kind(kind, cx)))
                 .child(kind.label())
-                .children(selected.then(|| div().text_color(colors.accent).child("✓"))),
+                .children(selected.then(|| {
+                    render_icon(Icon::Check, IconTone::Accent, colors, scale_factor, 14.0)
+                })),
         );
     }
 
@@ -68,11 +70,11 @@ pub(super) fn provider_kind_select(
         .hover(move |style| style.bg(colors.hover))
         .on_click(cx.listener(|this, _, _, cx| this.toggle_provider_kind_menu(cx)))
         .child(editor.kind.label())
-        .child(svg_icon(
+        .child(render_icon(
             if editor.kind_menu_open {
-                UiIcon::ChevronUp
+                Icon::ChevronUp
             } else {
-                UiIcon::ChevronDown
+                Icon::ChevronDown
             },
             IconTone::Muted,
             colors,
@@ -159,9 +161,9 @@ pub(super) fn provider_form(
                 .justify_end()
                 .gap_2()
                 .child(
-                    large_svg_icon_button(
+                    large_icon_button(
                         "cancel-provider",
-                        UiIcon::Close,
+                        Icon::Close,
                         IconTone::Muted,
                         colors,
                         scale_factor,
@@ -169,7 +171,7 @@ pub(super) fn provider_form(
                     .on_click(cx.listener(|this, _, _, cx| this.cancel_provider_editor(cx))),
                 )
                 .child(
-                    primary_svg_icon_button("save-provider", UiIcon::Save, colors, scale_factor)
+                    primary_icon_button("save-provider", Icon::Save, colors, scale_factor)
                         .on_click(cx.listener(|this, _, _, cx| this.save_provider(cx))),
                 ),
         )
@@ -215,9 +217,9 @@ pub(super) fn model_form(
                 .justify_end()
                 .gap_2()
                 .child(
-                    large_svg_icon_button(
+                    large_icon_button(
                         "cancel-model",
-                        UiIcon::Close,
+                        Icon::Close,
                         IconTone::Muted,
                         colors,
                         scale_factor,
@@ -225,7 +227,7 @@ pub(super) fn model_form(
                     .on_click(cx.listener(|this, _, _, cx| this.cancel_model_editor(cx))),
                 )
                 .child(
-                    primary_svg_icon_button("save-model", UiIcon::Save, colors, scale_factor)
+                    primary_icon_button("save-model", Icon::Save, colors, scale_factor)
                         .on_click(cx.listener(|this, _, _, cx| this.save_model(cx))),
                 ),
         )
@@ -244,12 +246,12 @@ fn model_id_combobox(
         .gap_1()
         .child(div().min_w_0().flex_1().child(editor.remote_id.clone()))
         .child(
-            svg_icon_button(
+            icon_button(
                 "available-model-menu",
                 if editor.model_menu_open {
-                    UiIcon::ChevronUp
+                    Icon::ChevronUp
                 } else {
-                    UiIcon::ChevronDown
+                    Icon::ChevronDown
                 },
                 IconTone::Muted,
                 colors,

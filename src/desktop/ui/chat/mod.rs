@@ -20,9 +20,9 @@ use gpui::{
 
 use super::{
     components::{
-        IconTone, UiIcon, button, compact_button, large_svg_icon_button, primary_button,
-        primary_svg_icon_button, svg_icon, svg_icon_button,
+        button, compact_button, icon_button, large_icon_button, primary_button, primary_icon_button,
     },
+    icons::{Icon, IconTone, render_icon},
     markdown,
     selectable_text::{SelectableText, selection_color},
     theme::Colors,

@@ -138,6 +138,7 @@ fn command_shortcut(command: PaletteCommand) -> Option<String> {
 pub(super) fn render_model_picker(
     app: &OneChat,
     colors: Colors,
+    scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let adding_response = app.overlays.response_model_turn_id.is_some();
@@ -249,7 +250,16 @@ pub(super) fn render_model_picker(
                                     } else {
                                         colors.danger
                                     })
-                                    .child(if current { "✓" } else { status }),
+                                    .when(current, |element| {
+                                        element.child(render_icon(
+                                            Icon::Check,
+                                            IconTone::Accent,
+                                            colors,
+                                            scale_factor,
+                                            14.0,
+                                        ))
+                                    })
+                                    .when(!current, |element| element.child(status)),
                             ),
                     ),
             );
@@ -284,8 +294,14 @@ pub(super) fn render_model_picker(
                     },
                 ))
                 .child(
-                    icon_button("close-model-picker", "×", colors)
-                        .on_click(cx.listener(|this, _, _, cx| this.close_model_picker(cx))),
+                    large_icon_button(
+                        "close-model-picker",
+                        Icon::Close,
+                        IconTone::Muted,
+                        colors,
+                        scale_factor,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.close_model_picker(cx))),
                 ),
         )
         .child(app.overlays.model_search_input.clone())
@@ -303,6 +319,7 @@ pub(super) fn render_model_picker(
 pub(super) fn render_prompt_picker(
     app: &OneChat,
     colors: Colors,
+    scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let current_prompt = app
@@ -341,7 +358,9 @@ pub(super) fn render_prompt_picker(
                         .font_weight(FontWeight::SEMIBOLD)
                         .child("No System Prompt"),
                 )
-                .children(none_selected.then(|| div().text_color(colors.accent).child("✓"))),
+                .children(none_selected.then(|| {
+                    render_icon(Icon::Check, IconTone::Accent, colors, scale_factor, 14.0)
+                })),
         );
 
     for preset in &app.data.snapshot.prompt_presets {
@@ -407,7 +426,9 @@ pub(super) fn render_prompt_picker(
                                 .child(prompt_excerpt(&preset.content)),
                         ),
                 )
-                .children(selected.then(|| div().flex_none().text_color(colors.accent).child("✓"))),
+                .children(selected.then(|| {
+                    render_icon(Icon::Check, IconTone::Accent, colors, scale_factor, 14.0)
+                })),
         );
     }
 
@@ -438,8 +459,14 @@ pub(super) fn render_prompt_picker(
                         .child("Choose System Prompt"),
                 )
                 .child(
-                    icon_button("close-prompt-picker", "×", colors)
-                        .on_click(cx.listener(|this, _, _, cx| this.close_prompt_picker(cx))),
+                    large_icon_button(
+                        "close-prompt-picker",
+                        Icon::Close,
+                        IconTone::Muted,
+                        colors,
+                        scale_factor,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.close_prompt_picker(cx))),
                 ),
         )
         .child(prompts)

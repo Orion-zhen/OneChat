@@ -95,9 +95,9 @@ fn theme_selector(
         .p(px(2.0));
 
     for (id, theme, icon) in [
-        ("theme-system", Theme::System, UiIcon::Monitor),
-        ("theme-light", Theme::Light, UiIcon::Sun),
-        ("theme-dark", Theme::Dark, UiIcon::Moon),
+        ("theme-system", Theme::System, Icon::Monitor),
+        ("theme-light", Theme::Light, Icon::Sun),
+        ("theme-dark", Theme::Dark, Icon::Moon),
     ] {
         let selected = app.settings().theme == theme;
         segments = segments.child(
@@ -123,7 +123,7 @@ fn theme_selector(
                     })
                 })
                 .active(move |style| style.bg(colors.accent_soft))
-                .child(svg_icon(
+                .child(render_icon(
                     icon,
                     if selected {
                         IconTone::Accent
@@ -379,7 +379,9 @@ fn default_model_select(
                         .font_weight(FontWeight::SEMIBOLD)
                         .child("Use Primary Model"),
                 )
-                .children(selected.then(|| div().flex_none().text_color(colors.accent).child("✓"))),
+                .children(selected.then(|| {
+                    render_icon(Icon::Check, IconTone::Accent, colors, scale_factor, 14.0)
+                })),
         );
     }
     let available_models = app
@@ -449,9 +451,9 @@ fn default_model_select(
                                     .child(format!("{} · {provider}", model.remote_id)),
                             ),
                     )
-                    .children(
-                        selected.then(|| div().flex_none().text_color(colors.accent).child("✓")),
-                    ),
+                    .children(selected.then(|| {
+                        render_icon(Icon::Check, IconTone::Accent, colors, scale_factor, 14.0)
+                    })),
             );
         }
     }
@@ -481,11 +483,11 @@ fn default_model_select(
                 .text_ellipsis()
                 .child(label),
         )
-        .child(svg_icon(
+        .child(render_icon(
             if app.settings_ui.default_model_menu == Some(role) {
-                UiIcon::ChevronUp
+                Icon::ChevronUp
             } else {
-                UiIcon::ChevronDown
+                Icon::ChevronDown
             },
             IconTone::Muted,
             colors,
@@ -607,9 +609,9 @@ pub(super) fn system_prompts_page(
                 .items_center()
                 .gap_2()
                 .child(
-                    large_svg_icon_button(
+                    large_icon_button(
                         "reload-prompt-presets",
-                        UiIcon::Regenerate,
+                        Icon::Regenerate,
                         IconTone::Muted,
                         colors,
                         scale_factor,
@@ -617,13 +619,8 @@ pub(super) fn system_prompts_page(
                     .on_click(cx.listener(|this, _, _, cx| this.reload_prompt_presets(cx))),
                 )
                 .child(
-                    primary_svg_icon_button(
-                        "add-prompt-preset",
-                        UiIcon::Plus,
-                        colors,
-                        scale_factor,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| this.begin_add_prompt_preset(cx))),
+                    primary_icon_button("add-prompt-preset", Icon::Plus, colors, scale_factor)
+                        .on_click(cx.listener(|this, _, _, cx| this.begin_add_prompt_preset(cx))),
                 ),
         );
 
@@ -736,7 +733,9 @@ fn default_prompt_select(
                         .font_weight(FontWeight::SEMIBOLD)
                         .child("No System Prompt"),
                 )
-                .children(none_selected.then(|| div().text_color(colors.accent).child("✓"))),
+                .children(none_selected.then(|| {
+                    render_icon(Icon::Check, IconTone::Accent, colors, scale_factor, 14.0)
+                })),
         );
 
     for preset in &app.data.snapshot.prompt_presets {
@@ -776,7 +775,9 @@ fn default_prompt_select(
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(preset.name.clone()),
                 )
-                .children(selected.then(|| div().text_color(colors.accent).child("✓"))),
+                .children(selected.then(|| {
+                    render_icon(Icon::Check, IconTone::Accent, colors, scale_factor, 14.0)
+                })),
         );
     }
 
@@ -805,11 +806,11 @@ fn default_prompt_select(
                 .text_ellipsis()
                 .child(label),
         )
-        .child(svg_icon(
+        .child(render_icon(
             if app.settings_ui.default_prompt_menu_open {
-                UiIcon::ChevronUp
+                Icon::ChevronUp
             } else {
-                UiIcon::ChevronDown
+                Icon::ChevronDown
             },
             IconTone::Muted,
             colors,
@@ -918,9 +919,9 @@ fn prompt_presets_content(
                                 .items_center()
                                 .gap_1()
                                 .child(
-                                    svg_icon_button(
+                                    icon_button(
                                         SharedString::from(format!("view-prompt-{}", preset.name)),
-                                        UiIcon::Eye,
+                                        Icon::Eye,
                                         IconTone::Muted,
                                         colors,
                                         scale_factor,
@@ -932,9 +933,9 @@ fn prompt_presets_content(
                                     )),
                                 )
                                 .child(
-                                    svg_icon_button(
+                                    icon_button(
                                         SharedString::from(format!("edit-prompt-{}", preset.name)),
-                                        UiIcon::Pencil,
+                                        Icon::Pencil,
                                         IconTone::Muted,
                                         colors,
                                         scale_factor,
@@ -946,12 +947,12 @@ fn prompt_presets_content(
                                     )),
                                 )
                                 .child(
-                                    svg_icon_button(
+                                    icon_button(
                                         SharedString::from(format!(
                                             "delete-prompt-{}",
                                             preset.name
                                         )),
-                                        UiIcon::Trash,
+                                        Icon::Trash,
                                         IconTone::Danger,
                                         colors,
                                         scale_factor,
@@ -1000,9 +1001,9 @@ pub(crate) fn prompt_preset_panel(
             .items_center()
             .gap_2()
             .child(
-                large_svg_icon_button(
+                large_icon_button(
                     "cancel-prompt-preset",
-                    UiIcon::Close,
+                    Icon::Close,
                     IconTone::Muted,
                     colors,
                     scale_factor,
@@ -1010,7 +1011,7 @@ pub(crate) fn prompt_preset_panel(
                 .on_click(cx.listener(|this, _, _, cx| this.cancel_prompt_preset_edit(cx))),
             )
             .child(
-                primary_svg_icon_button("save-prompt-preset", UiIcon::Save, colors, scale_factor)
+                primary_icon_button("save-prompt-preset", Icon::Save, colors, scale_factor)
                     .on_click(cx.listener(|this, _, _, cx| this.save_prompt_preset(cx))),
             );
         let body = stretching_column()
@@ -1033,9 +1034,9 @@ pub(crate) fn prompt_preset_panel(
         .and_then(|name| app.prompt_preset(name))
         .expect("prompt preset panel requires a viewed preset or editor");
     let actions = div().flex_none().child(
-        large_svg_icon_button(
+        large_icon_button(
             "close-prompt-preset-view",
-            UiIcon::Close,
+            Icon::Close,
             IconTone::Muted,
             colors,
             scale_factor,
@@ -1189,9 +1190,9 @@ fn title_prompt_content(
                     .child(
                         actions
                             .child(
-                                large_svg_icon_button(
+                                large_icon_button(
                                     "cancel-title-generation-system-prompt",
-                                    UiIcon::Close,
+                                    Icon::Close,
                                     IconTone::Muted,
                                     colors,
                                     scale_factor,
@@ -1201,9 +1202,9 @@ fn title_prompt_content(
                                 ),
                             )
                             .child(
-                                primary_svg_icon_button(
+                                primary_icon_button(
                                     "save-title-generation-system-prompt",
-                                    UiIcon::Save,
+                                    Icon::Save,
                                     colors,
                                     scale_factor,
                                 )
@@ -1222,9 +1223,9 @@ fn title_prompt_content(
         );
     }
     actions = actions.child(
-        svg_icon_button(
+        icon_button(
             "edit-title-generation-system-prompt",
-            UiIcon::Pencil,
+            Icon::Pencil,
             IconTone::Muted,
             colors,
             scale_factor,

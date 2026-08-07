@@ -50,13 +50,13 @@ pub(super) fn render_system_prompt_card(
             .flex()
             .gap_2()
             .child(
-                primary_svg_icon_button("save-system-prompt", UiIcon::Save, colors, scale_factor)
+                primary_icon_button("save-system-prompt", Icon::Save, colors, scale_factor)
                     .on_click(cx.listener(|this, _, _, cx| this.save_system_prompt(cx))),
             )
             .child(
-                large_svg_icon_button(
+                large_icon_button(
                     "cancel-system-prompt",
-                    UiIcon::Close,
+                    Icon::Close,
                     IconTone::Muted,
                     colors,
                     scale_factor,

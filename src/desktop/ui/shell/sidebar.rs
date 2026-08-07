@@ -29,9 +29,9 @@ pub(super) fn render_sidebar(
                     .gap_2()
                     .pt_3()
                     .child(
-                        large_svg_icon_button(
+                        large_icon_button(
                             "expand-sidebar",
-                            UiIcon::Menu,
+                            Icon::Menu,
                             IconTone::Muted,
                             colors,
                             scale_factor,
@@ -39,9 +39,9 @@ pub(super) fn render_sidebar(
                         .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
                     )
                     .child(
-                        primary_svg_icon_button(
+                        primary_icon_button(
                             "new-conversation-collapsed",
-                            UiIcon::Plus,
+                            Icon::Plus,
                             colors,
                             scale_factor,
                         )
@@ -50,9 +50,9 @@ pub(super) fn render_sidebar(
             )
             .child(div().flex_1())
             .child(
-                large_svg_icon_button(
+                large_icon_button(
                     "settings-collapsed",
-                    UiIcon::Settings,
+                    Icon::Settings,
                     IconTone::Muted,
                     colors,
                     scale_factor,
@@ -147,9 +147,9 @@ pub(super) fn render_sidebar(
                                 .child("Conversations"),
                         )
                         .child(
-                            large_svg_icon_button(
+                            large_icon_button(
                                 "collapse-sidebar",
-                                UiIcon::ChevronLeft,
+                                Icon::ChevronLeft,
                                 IconTone::Muted,
                                 colors,
                                 scale_factor,
@@ -163,8 +163,8 @@ pub(super) fn render_sidebar(
                         .flex()
                         .items_center()
                         .gap_2()
-                        .child(svg_icon(
-                            UiIcon::Plus,
+                        .child(render_icon(
+                            Icon::Plus,
                             IconTone::OnAccent,
                             colors,
                             scale_factor,
@@ -252,9 +252,9 @@ fn render_conversation_row(
         .gap_1();
     if pinned || hovered {
         actions = actions.child(
-            svg_icon_button(
+            icon_button(
                 SharedString::from(format!("pin-{}", pin_id)),
-                UiIcon::Pin,
+                Icon::Pin,
                 if pinned {
                     IconTone::Accent
                 } else {
@@ -269,9 +269,9 @@ fn render_conversation_row(
     if hovered {
         actions = actions
             .child(
-                svg_icon_button(
+                icon_button(
                     SharedString::from(format!("rename-{}", rename_id)),
-                    UiIcon::Pencil,
+                    Icon::Pencil,
                     IconTone::Muted,
                     colors,
                     scale_factor,
@@ -281,9 +281,9 @@ fn render_conversation_row(
                 })),
             )
             .child(
-                svg_icon_button(
+                icon_button(
                     SharedString::from(format!("delete-{}", delete_id)),
-                    UiIcon::Close,
+                    Icon::Close,
                     IconTone::Danger,
                     colors,
                     scale_factor,
@@ -406,9 +406,9 @@ fn render_connection_footer(
                 ),
         )
         .child(
-            large_svg_icon_button(
+            large_icon_button(
                 "open-settings",
-                UiIcon::Settings,
+                Icon::Settings,
                 IconTone::Muted,
                 colors,
                 scale_factor,

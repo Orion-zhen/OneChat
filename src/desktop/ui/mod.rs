@@ -1,6 +1,7 @@
 pub mod chat;
 pub mod components;
 pub mod composer;
+pub(crate) mod icons;
 pub mod inspector;
 pub mod markdown;
 pub(crate) mod motion;

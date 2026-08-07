@@ -25,8 +25,8 @@ pub(super) fn render_composer(
             .cursor_pointer()
             .hover(|style| style.opacity(0.88))
             .active(|style| style.opacity(0.72))
-            .child(svg_icon(
-                UiIcon::Stop,
+            .child(render_icon(
+                Icon::Stop,
                 IconTone::OnAccent,
                 colors,
                 scale_factor,
@@ -35,7 +35,7 @@ pub(super) fn render_composer(
             .on_click(cx.listener(|this, _, _, cx| this.stop_current_generation(cx)))
             .into_any_element()
     } else if can_send {
-        primary_svg_icon_button("composer-send", UiIcon::ArrowUp, colors, scale_factor)
+        primary_icon_button("composer-send", Icon::ArrowUp, colors, scale_factor)
             .absolute()
             .right(px(9.0))
             .bottom(px(9.0))
@@ -54,8 +54,8 @@ pub(super) fn render_composer(
             .rounded_full()
             .bg(colors.raised)
             .cursor_default()
-            .child(svg_icon(
-                UiIcon::ArrowUp,
+            .child(render_icon(
+                Icon::ArrowUp,
                 IconTone::Muted,
                 colors,
                 scale_factor,

@@ -10,10 +10,9 @@ use gpui::{
 use serde_json::{Map, Value};
 
 use super::{
-    components::{
-        IconTone, UiIcon, button, icon_button, primary_button, svg_icon, svg_icon_button,
-    },
+    components::{button, icon_button, large_icon_button, primary_button},
     composer::Composer,
+    icons::{Icon, IconTone, render_icon},
     theme::Colors,
 };
 use crate::{
@@ -113,8 +112,14 @@ pub(crate) fn render(
                         .child("Details"),
                 )
                 .child(
-                    icon_button("close-inspector", "×", colors)
-                        .on_click(cx.listener(|this, _, _, cx| this.toggle_inspector(cx))),
+                    large_icon_button(
+                        "close-inspector",
+                        Icon::Close,
+                        IconTone::Muted,
+                        colors,
+                        scale_factor,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_inspector(cx))),
                 ),
         )
         .child(tabs)
@@ -429,9 +434,9 @@ fn parameter_field(
                         .child(parameter.label()),
                 )
                 .child(
-                    svg_icon_button(
+                    icon_button(
                         SharedString::from(format!("remove-parameter-{}", parameter.id())),
-                        UiIcon::Close,
+                        Icon::Close,
                         IconTone::Muted,
                         colors,
                         scale_factor,
@@ -517,11 +522,11 @@ fn add_parameter_select(
         } else {
             "Add parameter"
         })
-        .child(svg_icon(
+        .child(render_icon(
             if editor.parameter_menu_open {
-                UiIcon::ChevronUp
+                Icon::ChevronUp
             } else {
-                UiIcon::ChevronDown
+                Icon::ChevronDown
             },
             IconTone::Muted,
             colors,

@@ -15,9 +15,10 @@ use gpui::{
 
 use super::{
     components::{
-        IconTone, UiIcon, button_base, compact_button, icon_button, large_svg_icon_button,
-        primary_button, primary_button_base, primary_svg_icon_button, svg_icon, svg_icon_button,
+        button_base, compact_button, icon_button, large_icon_button, primary_button,
+        primary_button_base, primary_icon_button,
     },
+    icons::{Icon, IconTone, render_icon},
     motion::{translated_x, waiting_title},
     theme::Colors,
 };
@@ -133,11 +134,11 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
     let model_picker = app
         .overlays
         .model_picker_open
-        .then(|| render_model_picker(app, colors, cx));
+        .then(|| render_model_picker(app, colors, scale_factor, cx));
     let prompt_picker = app
         .overlays
         .prompt_picker_open
-        .then(|| render_prompt_picker(app, colors, cx));
+        .then(|| render_prompt_picker(app, colors, scale_factor, cx));
     let prompt_preset_panel = (app.settings_ui.prompt_preset_editor.is_some()
         || app.settings_ui.viewed_prompt_preset.is_some())
     .then(|| {
@@ -267,9 +268,9 @@ fn render_top_bar(
                     .child("Settings"),
             )
             .child(
-                large_svg_icon_button(
+                large_icon_button(
                     "chat-page",
-                    UiIcon::Close,
+                    Icon::Close,
                     IconTone::Muted,
                     colors,
                     scale_factor,
@@ -376,8 +377,8 @@ fn render_top_bar(
                                 .text_ellipsis()
                                 .child(model_label),
                         )
-                        .child(svg_icon(
-                            UiIcon::ChevronDown,
+                        .child(render_icon(
+                            Icon::ChevronDown,
                             IconTone::Muted,
                             colors,
                             scale_factor,
@@ -407,8 +408,8 @@ fn render_top_bar(
                                 .text_ellipsis()
                                 .child(format!("Prompt · {prompt_label}")),
                         )
-                        .child(svg_icon(
-                            UiIcon::ChevronDown,
+                        .child(render_icon(
+                            Icon::ChevronDown,
                             IconTone::Muted,
                             colors,
                             scale_factor,
@@ -421,11 +422,21 @@ fn render_top_bar(
                         .on_click(cx.listener(|this, _, _, cx| this.open_command_palette(cx))),
                 )
                 .child(
-                    icon_button("toggle-inspector", "ⓘ", colors)
-                        .when(app.navigation.inspector_open, |element| {
-                            element.bg(colors.accent_soft).text_color(colors.accent)
-                        })
-                        .on_click(cx.listener(|this, _, _, cx| this.toggle_inspector(cx))),
+                    large_icon_button(
+                        "toggle-inspector",
+                        Icon::Info,
+                        if app.navigation.inspector_open {
+                            IconTone::Accent
+                        } else {
+                            IconTone::Muted
+                        },
+                        colors,
+                        scale_factor,
+                    )
+                    .when(app.navigation.inspector_open, |element| {
+                        element.bg(colors.accent_soft)
+                    })
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_inspector(cx))),
                 ),
         )
         .into_any_element()

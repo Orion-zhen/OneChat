@@ -59,7 +59,7 @@ pub(super) fn settings_sidebar(
                 .child(
                     settings_nav_row(
                         "settings-general",
-                        UiIcon::Sliders,
+                        Icon::Sliders,
                         "General",
                         "Appearance and behavior",
                         general_selected,
@@ -73,7 +73,7 @@ pub(super) fn settings_sidebar(
                 .child(
                     settings_nav_row(
                         "settings-default-models",
-                        UiIcon::Layers,
+                        Icon::Layers,
                         "Default Models",
                         "Models for new conversations",
                         default_models_selected,
@@ -87,7 +87,7 @@ pub(super) fn settings_sidebar(
                 .child(
                     settings_nav_row(
                         "settings-system-prompts",
-                        UiIcon::MessageText,
+                        Icon::MessageText,
                         "System Prompts",
                         "Default instructions",
                         prompts_selected,
@@ -115,9 +115,9 @@ pub(super) fn settings_sidebar(
                         .child("PROVIDERS"),
                 )
                 .child(
-                    svg_icon_button(
+                    icon_button(
                         "add-provider-sidebar",
-                        UiIcon::Plus,
+                        Icon::Plus,
                         IconTone::Muted,
                         colors,
                         scale_factor,
@@ -139,7 +139,7 @@ pub(super) fn settings_sidebar(
             div().border_t_1().border_color(colors.border).p_3().child(
                 settings_nav_row(
                     "settings-add-provider",
-                    UiIcon::Plus,
+                    Icon::Plus,
                     "Add Provider",
                     "Connect another service",
                     app.settings_ui.section == SettingsSection::NewProvider,
@@ -154,14 +154,14 @@ pub(super) fn settings_sidebar(
 
 fn settings_nav_row(
     id: impl Into<ElementId>,
-    icon: UiIcon,
+    icon: Icon,
     title: &'static str,
     detail: &'static str,
     selected: bool,
     colors: Colors,
     scale_factor: f32,
 ) -> Stateful<Div> {
-    let icon = svg_icon(
+    let icon = render_icon(
         icon,
         if selected {
             IconTone::Accent
