@@ -9,24 +9,6 @@ pub enum Theme {
     Dark,
 }
 
-impl Theme {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::System => "System",
-            Self::Light => "Light",
-            Self::Dark => "Dark",
-        }
-    }
-
-    pub fn next(self) -> Self {
-        match self {
-            Self::System => Self::Light,
-            Self::Light => Self::Dark,
-            Self::Dark => Self::System,
-        }
-    }
-}
-
 pub const DEFAULT_MESSAGE_WIDTH_RATIO: f32 = 0.7;
 pub const MIN_MESSAGE_WIDTH_RATIO: f32 = 0.5;
 pub const MAX_MESSAGE_WIDTH_RATIO: f32 = 1.0;

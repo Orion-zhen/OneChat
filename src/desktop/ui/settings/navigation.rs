@@ -59,7 +59,7 @@ pub(super) fn settings_sidebar(
                 .child(
                     settings_nav_row(
                         "settings-general",
-                        SettingsNavIcon::Text("⚙"),
+                        UiIcon::Sliders,
                         "General",
                         "Appearance and behavior",
                         general_selected,
@@ -73,7 +73,7 @@ pub(super) fn settings_sidebar(
                 .child(
                     settings_nav_row(
                         "settings-default-models",
-                        SettingsNavIcon::Text("◇"),
+                        UiIcon::Layers,
                         "Default Models",
                         "Models for new conversations",
                         default_models_selected,
@@ -87,7 +87,7 @@ pub(super) fn settings_sidebar(
                 .child(
                     settings_nav_row(
                         "settings-system-prompts",
-                        SettingsNavIcon::Text("✦"),
+                        UiIcon::MessageText,
                         "System Prompts",
                         "Default instructions",
                         prompts_selected,
@@ -139,7 +139,7 @@ pub(super) fn settings_sidebar(
             div().border_t_1().border_color(colors.border).p_3().child(
                 settings_nav_row(
                     "settings-add-provider",
-                    SettingsNavIcon::Svg(UiIcon::Plus),
+                    UiIcon::Plus,
                     "Add Provider",
                     "Connect another service",
                     app.settings_ui.section == SettingsSection::NewProvider,
@@ -152,34 +152,26 @@ pub(super) fn settings_sidebar(
         .into_any_element()
 }
 
-enum SettingsNavIcon {
-    Text(&'static str),
-    Svg(UiIcon),
-}
-
 fn settings_nav_row(
     id: impl Into<ElementId>,
-    icon: SettingsNavIcon,
+    icon: UiIcon,
     title: &'static str,
     detail: &'static str,
     selected: bool,
     colors: Colors,
     scale_factor: f32,
 ) -> Stateful<Div> {
-    let icon = match icon {
-        SettingsNavIcon::Text(icon) => div().child(icon).into_any_element(),
-        SettingsNavIcon::Svg(icon) => svg_icon(
-            icon,
-            if selected {
-                IconTone::Accent
-            } else {
-                IconTone::Muted
-            },
-            colors,
-            scale_factor,
-            16.0,
-        ),
-    };
+    let icon = svg_icon(
+        icon,
+        if selected {
+            IconTone::Accent
+        } else {
+            IconTone::Muted
+        },
+        colors,
+        scale_factor,
+        18.0,
+    );
 
     div()
         .id(id)
@@ -207,13 +199,9 @@ fn settings_nav_row(
             div()
                 .w(px(22.0))
                 .flex_none()
-                .text_center()
-                .text_size(px(15.0))
-                .text_color(if selected {
-                    colors.accent
-                } else {
-                    colors.muted
-                })
+                .flex()
+                .items_center()
+                .justify_center()
                 .child(icon),
         )
         .child(
@@ -324,32 +312,40 @@ fn provider_nav_row(
                 }))
                 .child(
                     div()
-                        .overflow_hidden()
-                        .whitespace_nowrap()
-                        .text_ellipsis()
-                        .text_sm()
-                        .font_weight(if selected {
-                            FontWeight::SEMIBOLD
-                        } else {
-                            FontWeight::NORMAL
-                        })
-                        .child(provider.name.clone()),
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .min_w_0()
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .text_ellipsis()
+                                .text_sm()
+                                .font_weight(if selected {
+                                    FontWeight::SEMIBOLD
+                                } else {
+                                    FontWeight::NORMAL
+                                })
+                                .child(provider.name.clone()),
+                        )
+                        .child(
+                            div()
+                                .flex_none()
+                                .text_size(px(11.0))
+                                .text_color(colors.muted)
+                                .child(format!(
+                                    "{} {}",
+                                    model_count,
+                                    if model_count == 1 { "model" } else { "models" }
+                                )),
+                        ),
                 )
                 .child(
                     div()
                         .text_size(px(11.0))
                         .text_color(colors.muted)
                         .child(provider.kind.label()),
-                )
-                .child(
-                    div()
-                        .text_size(px(11.0))
-                        .text_color(colors.muted)
-                        .child(format!(
-                            "{} {}",
-                            model_count,
-                            if model_count == 1 { "model" } else { "models" }
-                        )),
                 ),
         )
 }

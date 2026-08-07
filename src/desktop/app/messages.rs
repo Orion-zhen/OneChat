@@ -324,6 +324,7 @@ impl OneChat {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.chat.message_scroll_motion.cancel();
         let delta = event.delta.pixel_delta(window.line_height()).y;
         let distance =
             self.chat.message_scroll.max_offset().height + self.chat.message_scroll.offset().y;
@@ -336,8 +337,30 @@ impl OneChat {
     }
 
     pub(crate) fn jump_to_latest(&mut self, cx: &mut Context<Self>) {
-        self.chat.follow_latest = true;
-        self.chat.message_scroll.scroll_to_bottom();
+        let from = f32::from(self.chat.message_scroll.offset().y);
+        let target = -f32::from(self.chat.message_scroll.max_offset().height);
+        if (target - from).abs() < 1.0 {
+            self.chat.follow_latest = true;
+            self.chat.message_scroll.scroll_to_bottom();
+        } else {
+            self.chat.message_scroll_motion.start(from);
+        }
         cx.notify();
+    }
+
+    pub(crate) fn advance_message_scroll(&mut self, window: &mut Window) {
+        let target = -f32::from(self.chat.message_scroll.max_offset().height);
+        let Some((offset_y, finished)) = self.chat.message_scroll_motion.offset(target, window)
+        else {
+            return;
+        };
+
+        let mut offset = self.chat.message_scroll.offset();
+        offset.y = gpui::px(offset_y);
+        self.chat.message_scroll.set_offset(offset);
+        if finished {
+            self.chat.follow_latest = true;
+            self.chat.message_scroll.scroll_to_bottom();
+        }
     }
 }

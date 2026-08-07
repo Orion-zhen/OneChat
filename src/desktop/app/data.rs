@@ -138,6 +138,7 @@ impl OneChat {
         self.chat.thinking_expansion_overrides.clear();
         self.chat.message_editor = None;
         self.chat.follow_latest = true;
+        self.chat.message_scroll_motion.cancel();
         self.chat.message_scroll = ScrollHandle::new();
         self.chat.message_scroll.scroll_to_bottom();
         self.chat.thinking_scrolls.clear();

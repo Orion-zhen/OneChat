@@ -34,7 +34,7 @@ use crate::{
     desktop::app::{ConnectionTestStatus, OneChat},
     domain::{
         MAX_MESSAGE_WIDTH_RATIO, MIN_MESSAGE_WIDTH_RATIO, Model, ModelCapabilities, Provider,
-        ProviderKind, now_timestamp,
+        ProviderKind, Theme, now_timestamp,
     },
     providers::AvailableModel,
 };
@@ -46,7 +46,7 @@ pub(crate) fn render(
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let detail = match &app.settings_ui.section {
-        SettingsSection::General => general_page(app, colors, cx),
+        SettingsSection::General => general_page(app, colors, scale_factor, cx),
         SettingsSection::DefaultModels => default_models_page(app, colors, scale_factor, cx),
         SettingsSection::SystemPrompts => system_prompts_page(app, colors, scale_factor, cx),
         SettingsSection::Provider(provider_id) => app
@@ -56,7 +56,7 @@ pub(crate) fn render(
             .iter()
             .find(|provider| provider.id == *provider_id)
             .map(|provider| provider_page(app, provider, colors, scale_factor, cx))
-            .unwrap_or_else(|| general_page(app, colors, cx)),
+            .unwrap_or_else(|| general_page(app, colors, scale_factor, cx)),
         SettingsSection::NewProvider => new_provider_page(app, colors, scale_factor, cx),
     };
 

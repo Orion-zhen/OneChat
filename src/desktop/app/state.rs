@@ -119,6 +119,74 @@ pub(crate) struct ThinkingMotion {
     pub(crate) full_height: f32,
 }
 
+const MESSAGE_SCROLL_DURATION: Duration = Duration::from_millis(250);
+
+pub(crate) struct MessageScrollMotion {
+    from: f32,
+    started_at: Option<Instant>,
+}
+
+impl MessageScrollMotion {
+    pub(crate) fn new() -> Self {
+        Self {
+            from: 0.0,
+            started_at: None,
+        }
+    }
+
+    pub(crate) fn start(&mut self, from: f32) {
+        self.from = from;
+        self.started_at = Some(Instant::now());
+    }
+
+    pub(crate) fn cancel(&mut self) {
+        self.started_at = None;
+    }
+
+    pub(crate) fn is_active(&self) -> bool {
+        self.started_at.is_some()
+    }
+
+    pub(crate) fn offset(&mut self, target: f32, window: &mut Window) -> Option<(f32, bool)> {
+        let started_at = self.started_at?;
+        let delta = started_at.elapsed().as_secs_f32() / MESSAGE_SCROLL_DURATION.as_secs_f32();
+        if delta >= 1.0 {
+            self.started_at = None;
+            return Some((target, true));
+        }
+
+        window.request_animation_frame();
+        let progress = strong_ease_in_out(delta);
+        Some((self.from + (target - self.from) * progress, false))
+    }
+}
+
+fn strong_ease_in_out(delta: f32) -> f32 {
+    let target_x = delta.clamp(0.0, 1.0);
+    if target_x == 0.0 || target_x == 1.0 {
+        return target_x;
+    }
+
+    let mut lower = 0.0;
+    let mut upper = 1.0;
+    for _ in 0..16 {
+        let time = (lower + upper) / 2.0;
+        if cubic_bezier_coordinate(time, 0.77, 0.175) < target_x {
+            lower = time;
+        } else {
+            upper = time;
+        }
+    }
+    cubic_bezier_coordinate((lower + upper) / 2.0, 0.0, 1.0)
+}
+
+fn cubic_bezier_coordinate(time: f32, control_1: f32, control_2: f32) -> f32 {
+    let inverse = 1.0 - time;
+    3.0 * inverse * inverse * time * control_1
+        + 3.0 * inverse * time * time * control_2
+        + time * time * time
+}
+
 pub(crate) struct ChatState {
     pub(super) draft_model_id: Option<String>,
     pub(super) selected_request_id: Option<String>,
@@ -127,6 +195,7 @@ pub(crate) struct ChatState {
     pub(super) thinking_expansion_overrides: HashSet<String>,
     pub(super) message_editor: Option<MessageEditor>,
     pub(crate) message_scroll: ScrollHandle,
+    pub(crate) message_scroll_motion: MessageScrollMotion,
     pub(crate) text_selection: TextSelection,
     pub(crate) thinking_scrolls: HashMap<String, ScrollHandle>,
     pub(crate) thinking_motions: HashMap<String, ThinkingMotion>,
@@ -152,4 +221,24 @@ pub(crate) struct SettingsState {
     pub(crate) model_editor: Option<ModelEditor>,
     pub(super) model_fetch_revision: u64,
     pub(crate) form_error: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::strong_ease_in_out;
+
+    #[test]
+    fn message_scroll_easing_is_bounded_and_monotonic() {
+        let mut previous = strong_ease_in_out(0.0);
+        assert_eq!(previous, 0.0);
+
+        for step in 1..=100 {
+            let current = strong_ease_in_out(step as f32 / 100.0);
+            assert!((0.0..=1.0).contains(&current));
+            assert!(current >= previous);
+            previous = current;
+        }
+
+        assert_eq!(previous, 1.0);
+    }
 }

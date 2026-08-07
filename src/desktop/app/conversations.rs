@@ -158,18 +158,7 @@ impl OneChat {
     }
 
     pub(crate) fn request_delete_conversation(&mut self, id: String, cx: &mut Context<Self>) {
-        let Some(title) = self
-            .data
-            .snapshot
-            .conversations
-            .iter()
-            .find(|conversation| conversation.id == id)
-            .map(|conversation| conversation.title.clone())
-        else {
-            return;
-        };
-        self.overlays.destructive_action =
-            Some(DestructiveAction::DeleteConversation { id, title });
+        self.overlays.destructive_action = Some(DestructiveAction::DeleteConversation { id });
         self.navigation.pending_focus = Some(PendingFocus::Root);
         self.overlays.command_palette_open = false;
         self.overlays.model_picker_open = false;
@@ -208,9 +197,9 @@ impl OneChat {
             return;
         };
         match action {
-            DestructiveAction::DeleteConversation { id, .. } => self.delete_conversation(id, cx),
-            DestructiveAction::DeleteProvider { id, .. } => self.delete_provider(id, cx),
-            DestructiveAction::DeleteModel { id, .. } => self.delete_model(id, cx),
+            DestructiveAction::DeleteConversation { id } => self.delete_conversation(id, cx),
+            DestructiveAction::DeleteProvider { id } => self.delete_provider(id, cx),
+            DestructiveAction::DeleteModel { id } => self.delete_model(id, cx),
             DestructiveAction::ClearContext { conversation_id } => {
                 self.clear_current_context(conversation_id, cx)
             }

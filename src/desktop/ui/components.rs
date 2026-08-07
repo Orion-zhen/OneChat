@@ -63,38 +63,6 @@ pub(crate) fn primary_button_base(id: impl Into<ElementId>, colors: Colors) -> S
         })
 }
 
-pub(crate) fn destructive_button(
-    id: impl Into<ElementId>,
-    label: impl Into<SharedString>,
-    colors: Colors,
-) -> Stateful<Div> {
-    div()
-        .id(id)
-        .px_3()
-        .py_2()
-        .rounded_lg()
-        .bg(colors.danger)
-        .text_sm()
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(colors.on_accent)
-        .cursor_pointer()
-        .hover(move |style| {
-            style.bg(if colors.dark {
-                rgb(0xff6259)
-            } else {
-                rgb(0xe31b2e)
-            })
-        })
-        .active(move |style| {
-            style.bg(if colors.dark {
-                rgb(0xd92f27)
-            } else {
-                rgb(0xb80012)
-            })
-        })
-        .child(label.into())
-}
-
 pub(crate) fn compact_button(
     id: impl Into<ElementId>,
     label: impl Into<SharedString>,
@@ -120,8 +88,15 @@ pub(crate) enum UiIcon {
     Info,
     Pin,
     Save,
+    Trash,
     Close,
     Settings,
+    Monitor,
+    Sun,
+    Moon,
+    Sliders,
+    Layers,
+    MessageText,
     Menu,
     Plus,
     At,
@@ -272,9 +247,28 @@ fn svg_icon_at_size(icon: UiIcon, color: &str, scale_factor: f32, size: f32) -> 
         UiIcon::Save => {
             r#"<path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/>"#
         }
+        UiIcon::Trash => {
+            r#"<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/>"#
+        }
         UiIcon::Close => r#"<path d="M18 6 6 18"/><path d="m6 6 12 12"/>"#,
         UiIcon::Settings => {
-            r#"<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/>"#
+            r#"<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/>"#
+        }
+        UiIcon::Monitor => {
+            r#"<rect width="18" height="14" x="3" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>"#
+        }
+        UiIcon::Sun => {
+            r#"<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.42 1.42"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>"#
+        }
+        UiIcon::Moon => r#"<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>"#,
+        UiIcon::Sliders => {
+            r#"<path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M1 14h6"/><path d="M9 8h6"/><path d="M17 16h6"/>"#
+        }
+        UiIcon::Layers => {
+            r#"<path d="m12 2 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/>"#
+        }
+        UiIcon::MessageText => {
+            r#"<path d="M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4Z"/><path d="M8 8h8"/><path d="M8 12h6"/>"#
         }
         UiIcon::Menu => r#"<path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/>"#,
         UiIcon::Plus => r#"<path d="M12 3v18"/><path d="M3 12h18"/>"#,
@@ -290,7 +284,7 @@ fn svg_icon_at_size(icon: UiIcon, color: &str, scale_factor: f32, size: f32) -> 
         UiIcon::ChevronUp => r#"<path d="m18 15-6-6-6 6"/>"#,
         UiIcon::ArrowUp => r#"<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>"#,
         UiIcon::Stop => {
-            r#"<rect width="10" height="10" x="7" y="7" rx="1.5" fill="currentColor" stroke="none"/>"#
+            r#"<rect width="12" height="12" x="6" y="6" rx="2" fill="currentColor" stroke="none"/>"#
         }
     };
     let physical_size = (size * scale_factor.max(1.0)).round() as u32;
@@ -338,5 +332,10 @@ mod tests {
 
         let settings = svg_icon_at_size(UiIcon::Settings, "#ffffff", 2.0, 20.0);
         assert!(settings.contains(r#"width="40" height="40""#));
+
+        let stop = svg_icon_at_size(UiIcon::Stop, "#ffffff", 2.0, 18.0);
+        assert!(stop.contains(
+            r#"<rect width="12" height="12" x="6" y="6" rx="2" fill="currentColor" stroke="none"/>"#
+        ));
     }
 }

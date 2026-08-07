@@ -1,8 +1,11 @@
 use super::*;
 
 impl OneChat {
-    pub(crate) fn cycle_theme(&mut self, cx: &mut Context<Self>) {
-        self.data.snapshot.settings.theme = self.data.snapshot.settings.theme.next();
+    pub(crate) fn set_theme(&mut self, theme: Theme, cx: &mut Context<Self>) {
+        if self.data.snapshot.settings.theme == theme {
+            return;
+        }
+        self.data.snapshot.settings.theme = theme;
         self.save_settings(cx);
         cx.notify();
     }

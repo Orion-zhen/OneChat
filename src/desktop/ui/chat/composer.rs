@@ -30,7 +30,7 @@ pub(super) fn render_composer(
                 IconTone::OnAccent,
                 colors,
                 scale_factor,
-                14.0,
+                18.0,
             ))
             .on_click(cx.listener(|this, _, _, cx| this.stop_current_generation(cx)))
             .into_any_element()
@@ -59,7 +59,7 @@ pub(super) fn render_composer(
                 IconTone::Muted,
                 colors,
                 scale_factor,
-                18.0,
+                20.0,
             ))
             .into_any_element()
     };

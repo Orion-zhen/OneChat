@@ -108,63 +108,67 @@ pub(crate) fn render(
         .flex_1()
         .flex()
         .child(messages)
-        .children((!app.chat.follow_latest).then(|| {
-            let glass = if colors.dark {
-                rgba(0x2c2c2ed9)
-            } else {
-                rgba(0xffffffd9)
-            };
-            let glass_hover = if colors.dark {
-                rgba(0x3a3a3cef)
-            } else {
-                rgba(0xfffffff2)
-            };
-            let glass_border = if colors.dark {
-                rgba(0xffffff2b)
-            } else {
-                rgba(0x3c3c4324)
-            };
-            div()
-                .absolute()
-                .left_0()
-                .right_0()
-                .bottom(px(12.0))
-                .flex()
-                .justify_center()
-                .child(
-                    div()
-                        .id("jump-to-latest")
-                        .relative()
-                        .h(px(36.0))
-                        .px_4()
-                        .rounded_full()
-                        .border_1()
-                        .border_color(glass_border)
-                        .bg(glass)
-                        .shadow_md()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .text_sm()
-                        .font_weight(FontWeight::MEDIUM)
-                        .cursor_pointer()
-                        .hover(move |style| style.bg(glass_hover))
-                        .active(move |style| style.bg(colors.accent_soft).text_color(colors.accent))
-                        .child(div().text_base().line_height(px(16.0)).child("↓"))
-                        .child("Jump to Latest")
-                        .on_click(cx.listener(|this, _, _, cx| this.jump_to_latest(cx)))
-                        .with_animation(
-                            "jump-to-latest-appear",
-                            Animation::new(Duration::from_millis(180))
-                                .with_easing(ease_out_quint()),
-                            |button, delta| {
-                                button
-                                    .opacity(0.72 + delta * 0.28)
-                                    .top(px(6.0 * (1.0 - delta)))
-                            },
-                        ),
-                )
-        }));
+        .children(
+            (!app.chat.follow_latest && !app.chat.message_scroll_motion.is_active()).then(|| {
+                let glass = if colors.dark {
+                    rgba(0x2c2c2ed9)
+                } else {
+                    rgba(0xffffffd9)
+                };
+                let glass_hover = if colors.dark {
+                    rgba(0x3a3a3cef)
+                } else {
+                    rgba(0xfffffff2)
+                };
+                let glass_border = if colors.dark {
+                    rgba(0xffffff2b)
+                } else {
+                    rgba(0x3c3c4324)
+                };
+                div()
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .bottom(px(12.0))
+                    .flex()
+                    .justify_center()
+                    .child(
+                        div()
+                            .id("jump-to-latest")
+                            .relative()
+                            .h(px(36.0))
+                            .px_4()
+                            .rounded_full()
+                            .border_1()
+                            .border_color(glass_border)
+                            .bg(glass)
+                            .shadow_md()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .text_sm()
+                            .font_weight(FontWeight::MEDIUM)
+                            .cursor_pointer()
+                            .hover(move |style| style.bg(glass_hover))
+                            .active(move |style| {
+                                style.bg(colors.accent_soft).text_color(colors.accent)
+                            })
+                            .child(div().text_base().line_height(px(16.0)).child("↓"))
+                            .child("Jump to Latest")
+                            .on_click(cx.listener(|this, _, _, cx| this.jump_to_latest(cx)))
+                            .with_animation(
+                                "jump-to-latest-appear",
+                                Animation::new(Duration::from_millis(180))
+                                    .with_easing(ease_out_quint()),
+                                |button, delta| {
+                                    button
+                                        .opacity(0.72 + delta * 0.28)
+                                        .top(px(6.0 * (1.0 - delta)))
+                                },
+                            ),
+                    )
+            }),
+        );
 
     div()
         .size_full()

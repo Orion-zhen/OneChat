@@ -1,7 +1,11 @@
 use super::*;
 
-pub(super) fn general_page(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
-    let theme = app.settings().theme.label();
+pub(super) fn general_page(
+    app: &OneChat,
+    colors: Colors,
+    scale_factor: f32,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
     let appearance = div()
         .flex()
         .flex_col()
@@ -9,8 +13,7 @@ pub(super) fn general_page(app: &OneChat, colors: Colors, cx: &mut Context<OneCh
         .child(setting_row(
             "Theme",
             "Match the Mac or choose a fixed appearance.",
-            button("cycle-theme", theme, colors)
-                .on_click(cx.listener(|this, _, _, cx| this.cycle_theme(cx))),
+            theme_selector(app, colors, scale_factor, cx),
             colors,
         ))
         .child(setting_row(
@@ -32,6 +35,69 @@ pub(super) fn general_page(app: &OneChat, colors: Colors, cx: &mut Context<OneCh
             ))
             .child(section("Appearance", None, appearance, colors)),
     )
+}
+
+fn theme_selector(
+    app: &OneChat,
+    colors: Colors,
+    scale_factor: f32,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    let mut segments = div()
+        .flex_none()
+        .flex()
+        .gap_1()
+        .rounded_lg()
+        .border_1()
+        .border_color(colors.border)
+        .bg(colors.panel)
+        .p(px(2.0));
+
+    for (id, theme, icon) in [
+        ("theme-system", Theme::System, UiIcon::Monitor),
+        ("theme-light", Theme::Light, UiIcon::Sun),
+        ("theme-dark", Theme::Dark, UiIcon::Moon),
+    ] {
+        let selected = app.settings().theme == theme;
+        segments = segments.child(
+            div()
+                .id(id)
+                .w(px(40.0))
+                .h(px(32.0))
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_md()
+                .bg(if selected {
+                    colors.accent_soft
+                } else {
+                    rgba(0x00000000)
+                })
+                .cursor_pointer()
+                .hover(move |style| {
+                    style.bg(if selected {
+                        colors.accent_soft
+                    } else {
+                        colors.hover
+                    })
+                })
+                .active(move |style| style.bg(colors.accent_soft))
+                .child(svg_icon(
+                    icon,
+                    if selected {
+                        IconTone::Accent
+                    } else {
+                        IconTone::Muted
+                    },
+                    colors,
+                    scale_factor,
+                    16.0,
+                ))
+                .on_click(cx.listener(move |this, _, _, cx| this.set_theme(theme, cx))),
+        );
+    }
+
+    segments.into_any_element()
 }
 
 const MESSAGE_WIDTH_SLIDER_WIDTH: f32 = 180.0;

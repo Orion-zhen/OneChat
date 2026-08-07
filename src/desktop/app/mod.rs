@@ -55,9 +55,9 @@ pub(crate) enum ConnectionTestStatus {
 
 #[derive(Clone, Debug)]
 pub(crate) enum DestructiveAction {
-    DeleteConversation { id: String, title: String },
-    DeleteProvider { id: String, name: String },
-    DeleteModel { id: String, name: String },
+    DeleteConversation { id: String },
+    DeleteProvider { id: String },
+    DeleteModel { id: String },
     ClearContext { conversation_id: String },
 }
 
@@ -279,6 +279,7 @@ impl OneChat {
                 thinking_expansion_overrides: HashSet::new(),
                 message_editor: None,
                 message_scroll: ScrollHandle::new(),
+                message_scroll_motion: MessageScrollMotion::new(),
                 text_selection,
                 thinking_scrolls: HashMap::new(),
                 thinking_motions: HashMap::new(),

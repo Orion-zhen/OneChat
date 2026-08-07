@@ -15,9 +15,8 @@ use gpui::{
 
 use super::{
     components::{
-        IconTone, UiIcon, button_base, compact_button, destructive_button, icon_button,
-        large_svg_icon_button, primary_button, primary_button_base, primary_svg_icon_button,
-        svg_icon, svg_icon_button,
+        IconTone, UiIcon, button_base, compact_button, icon_button, large_svg_icon_button,
+        primary_button, primary_button_base, primary_svg_icon_button, svg_icon, svg_icon_button,
     },
     motion::translated_x,
     theme::Colors,
@@ -91,6 +90,10 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         if let Some(input) = input {
             window.focus(&input.read(cx).focus_handle(cx));
         }
+    }
+
+    if app.navigation.page == Page::Chat {
+        app.advance_message_scroll(window);
     }
 
     let colors = Colors::for_theme(app.theme(), window.appearance());
@@ -240,10 +243,14 @@ fn render_top_bar(
                     .child("Settings"),
             )
             .child(
-                compact_button("chat-page", "Done", colors)
-                    .text_color(colors.accent)
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .on_click(cx.listener(|this, _, _, cx| this.set_page(Page::Chat, cx))),
+                large_svg_icon_button(
+                    "chat-page",
+                    UiIcon::Close,
+                    IconTone::Muted,
+                    colors,
+                    scale_factor,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.set_page(Page::Chat, cx))),
             )
             .into_any_element();
     }

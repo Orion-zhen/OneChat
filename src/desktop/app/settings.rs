@@ -167,17 +167,7 @@ impl OneChat {
     }
 
     pub(crate) fn request_delete_provider(&mut self, id: String, cx: &mut Context<Self>) {
-        let Some(name) = self
-            .data
-            .snapshot
-            .providers
-            .iter()
-            .find(|provider| provider.id == id)
-            .map(|provider| provider.name.clone())
-        else {
-            return;
-        };
-        self.overlays.destructive_action = Some(DestructiveAction::DeleteProvider { id, name });
+        self.overlays.destructive_action = Some(DestructiveAction::DeleteProvider { id });
         self.navigation.pending_focus = Some(PendingFocus::Root);
         self.overlays.command_palette_open = false;
         self.overlays.model_picker_open = false;
@@ -430,17 +420,7 @@ impl OneChat {
     }
 
     pub(crate) fn request_delete_model(&mut self, id: String, cx: &mut Context<Self>) {
-        let Some(name) = self
-            .data
-            .snapshot
-            .models
-            .iter()
-            .find(|model| model.id == id)
-            .map(|model| model.display_name.clone())
-        else {
-            return;
-        };
-        self.overlays.destructive_action = Some(DestructiveAction::DeleteModel { id, name });
+        self.overlays.destructive_action = Some(DestructiveAction::DeleteModel { id });
         self.navigation.pending_focus = Some(PendingFocus::Root);
         self.overlays.command_palette_open = false;
         self.overlays.model_picker_open = false;

@@ -6,28 +6,11 @@ pub(super) fn render_destructive_confirmation(
     scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    let (title, detail, confirm_label) = match action {
-        DestructiveAction::DeleteConversation { title, .. } => (
-            "Delete Conversation?",
-            format!("“{title}” and all of its messages will be removed from this Mac."),
-            "Delete",
-        ),
-        DestructiveAction::DeleteProvider { name, .. } => (
-            "Delete Provider?",
-            format!("“{name}” and its configured models will be removed from this Mac."),
-            "Delete Provider",
-        ),
-        DestructiveAction::DeleteModel { name, .. } => (
-            "Delete Model?",
-            format!("“{name}” will no longer be available to conversations."),
-            "Delete Model",
-        ),
-        DestructiveAction::ClearContext { .. } => (
-            "Clear Conversation?",
-            "All messages and request details in this conversation will be permanently removed."
-                .to_string(),
-            "Clear",
-        ),
+    let title = match action {
+        DestructiveAction::DeleteConversation { .. } => "Delete Conversation?",
+        DestructiveAction::DeleteProvider { .. } => "Delete Provider?",
+        DestructiveAction::DeleteModel { .. } => "Delete Model?",
+        DestructiveAction::ClearContext { .. } => "Clear Conversation?",
     };
     let panel = div()
         .w_full()
@@ -68,21 +51,14 @@ pub(super) fn render_destructive_confirmation(
         )
         .child(
             div()
-                .max_w(px(350.0))
-                .text_sm()
-                .line_height(px(21.0))
-                .text_color(colors.muted)
-                .child(detail),
-        )
-        .child(
-            div()
                 .w_full()
                 .pt_2()
                 .flex()
+                .items_center()
                 .justify_end()
                 .gap_2()
                 .child(
-                    svg_icon_button(
+                    large_svg_icon_button(
                         "cancel-destructive-action",
                         UiIcon::Close,
                         IconTone::Muted,
@@ -92,10 +68,14 @@ pub(super) fn render_destructive_confirmation(
                     .on_click(cx.listener(|this, _, _, cx| this.cancel_destructive_action(cx))),
                 )
                 .child(
-                    destructive_button("confirm-destructive-action", confirm_label, colors)
-                        .on_click(
-                            cx.listener(|this, _, _, cx| this.confirm_destructive_action(cx)),
-                        ),
+                    large_svg_icon_button(
+                        "confirm-destructive-action",
+                        UiIcon::Trash,
+                        IconTone::Danger,
+                        colors,
+                        scale_factor,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.confirm_destructive_action(cx))),
                 ),
         );
     animated_overlay(

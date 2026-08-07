@@ -196,6 +196,7 @@ impl OneChat {
                 .insert(turn_id, response_id.clone());
         }
         if scroll_to_bottom {
+            self.chat.message_scroll_motion.cancel();
             self.chat.follow_latest = true;
             self.chat.message_scroll.scroll_to_bottom();
         }
