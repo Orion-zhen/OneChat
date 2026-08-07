@@ -2,6 +2,7 @@ use super::*;
 
 pub(super) fn render_system_prompt_card(
     app: &OneChat,
+    message_max_width: f32,
     colors: Colors,
     scale_factor: f32,
     cx: &mut Context<OneChat>,
@@ -99,7 +100,7 @@ pub(super) fn render_system_prompt_card(
         .mx_auto()
         .mb_7()
         .w_full()
-        .max_w(px(780.0))
+        .max_w(px(message_max_width))
         .rounded_xl()
         .bg(colors.raised)
         .p_4()

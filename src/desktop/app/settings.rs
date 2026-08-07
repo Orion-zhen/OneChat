@@ -1,6 +1,31 @@
 use super::*;
 
 impl OneChat {
+    pub(crate) fn begin_message_width_drag(&mut self, ratio: f32, cx: &mut Context<Self>) {
+        self.settings_ui.message_width_dragging = true;
+        self.update_message_width_ratio(ratio, cx);
+    }
+
+    pub(crate) fn update_message_width_ratio(&mut self, ratio: f32, cx: &mut Context<Self>) {
+        let ratio = ratio.clamp(
+            crate::domain::MIN_MESSAGE_WIDTH_RATIO,
+            crate::domain::MAX_MESSAGE_WIDTH_RATIO,
+        );
+        if (self.data.snapshot.settings.message_width_ratio - ratio).abs() < f32::EPSILON {
+            return;
+        }
+        self.data.snapshot.settings.message_width_ratio = ratio;
+        cx.notify();
+    }
+
+    pub(crate) fn finish_message_width_drag(&mut self, cx: &mut Context<Self>) {
+        if !std::mem::take(&mut self.settings_ui.message_width_dragging) {
+            return;
+        }
+        self.save_settings(cx);
+        cx.notify();
+    }
+
     pub(crate) fn select_settings_section(
         &mut self,
         section: SettingsSection,

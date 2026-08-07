@@ -144,6 +144,7 @@ pub(crate) struct ChatState {
 
 pub(crate) struct SettingsState {
     pub(crate) section: SettingsSection,
+    pub(crate) message_width_dragging: bool,
     pub(crate) default_model_menu_open: bool,
     pub(crate) default_system_prompt_editor: Option<Entity<Composer>>,
     pub(crate) connection_tests: BTreeMap<String, ConnectionTestStatus>,

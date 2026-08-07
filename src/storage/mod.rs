@@ -245,6 +245,7 @@ mod tests {
             sidebar_collapsed: true,
             theme: Theme::Dark,
             default_system_prompt: "Default prompt".into(),
+            message_width_ratio: 0.85,
         };
         storage.save_settings(&settings).unwrap();
         (provider, model, conversation, settings)
@@ -294,6 +295,10 @@ mod tests {
         assert_eq!(snapshot.settings.theme, Theme::Dark);
         assert_eq!(snapshot.settings.primary_model_id, None);
         assert_eq!(snapshot.settings.default_system_prompt, "Be concise");
+        assert_eq!(
+            snapshot.settings.message_width_ratio,
+            crate::domain::DEFAULT_MESSAGE_WIDTH_RATIO
+        );
     }
 
     #[test]

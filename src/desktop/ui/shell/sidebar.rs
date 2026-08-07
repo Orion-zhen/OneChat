@@ -1,5 +1,8 @@
 use super::*;
 
+pub(super) const COLLAPSED_SIDEBAR_WIDTH: f32 = 68.0;
+pub(super) const EXPANDED_SIDEBAR_WIDTH: f32 = 260.0;
+
 pub(super) fn render_sidebar(
     app: &mut OneChat,
     colors: Colors,
@@ -8,7 +11,7 @@ pub(super) fn render_sidebar(
 ) -> AnyElement {
     if app.settings().sidebar_collapsed {
         let sidebar = div()
-            .w(px(68.0))
+            .w(px(COLLAPSED_SIDEBAR_WIDTH))
             .h_full()
             .flex_none()
             .flex()
@@ -111,7 +114,7 @@ pub(super) fn render_sidebar(
     }
 
     let sidebar = div()
-        .w(px(260.0))
+        .w(px(EXPANDED_SIDEBAR_WIDTH))
         .h_full()
         .flex_none()
         .flex()
@@ -188,9 +191,11 @@ fn animate_sidebar(sidebar: Div, collapsed: bool) -> AnyElement {
             Animation::new(Duration::from_millis(220)).with_easing(ease_out_quint()),
             move |sidebar, delta| {
                 let width = if collapsed {
-                    260.0 - 192.0 * delta
+                    EXPANDED_SIDEBAR_WIDTH
+                        - (EXPANDED_SIDEBAR_WIDTH - COLLAPSED_SIDEBAR_WIDTH) * delta
                 } else {
-                    68.0 + 192.0 * delta
+                    COLLAPSED_SIDEBAR_WIDTH
+                        + (EXPANDED_SIDEBAR_WIDTH - COLLAPSED_SIDEBAR_WIDTH) * delta
                 };
                 sidebar.opacity(0.8 + delta * 0.2).w(px(width))
             },

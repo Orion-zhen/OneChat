@@ -2,13 +2,23 @@ use super::*;
 
 pub(super) fn general_page(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
     let theme = app.settings().theme.label();
-    let appearance = div().flex().flex_col().gap_2().child(setting_row(
-        "Theme",
-        "Match the Mac or choose a fixed appearance.",
-        button("cycle-theme", theme, colors)
-            .on_click(cx.listener(|this, _, _, cx| this.cycle_theme(cx))),
-        colors,
-    ));
+    let appearance = div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(setting_row(
+            "Theme",
+            "Match the Mac or choose a fixed appearance.",
+            button("cycle-theme", theme, colors)
+                .on_click(cx.listener(|this, _, _, cx| this.cycle_theme(cx))),
+            colors,
+        ))
+        .child(setting_row(
+            "Message Width",
+            "Maximum width as a share of the available chat area.",
+            message_width_slider(app, colors, cx),
+            colors,
+        ));
 
     detail_page(
         div()
@@ -22,6 +32,119 @@ pub(super) fn general_page(app: &OneChat, colors: Colors, cx: &mut Context<OneCh
             ))
             .child(section("Appearance", None, appearance, colors)),
     )
+}
+
+const MESSAGE_WIDTH_SLIDER_WIDTH: f32 = 180.0;
+const MESSAGE_WIDTH_THUMB_SIZE: f32 = 16.0;
+
+fn message_width_slider(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
+    let ratio = app.settings().message_width_ratio();
+    let progress =
+        (ratio - MIN_MESSAGE_WIDTH_RATIO) / (MAX_MESSAGE_WIDTH_RATIO - MIN_MESSAGE_WIDTH_RATIO);
+    let track_width = MESSAGE_WIDTH_SLIDER_WIDTH - MESSAGE_WIDTH_THUMB_SIZE;
+    let entity = cx.entity();
+
+    let input = canvas(
+        |_, _, _| (),
+        move |bounds, _, window, _| {
+            window.on_mouse_event({
+                let entity = entity.clone();
+                move |event: &MouseDownEvent, _, _, cx| {
+                    if event.button != MouseButton::Left || !bounds.contains(&event.position) {
+                        return;
+                    }
+                    let ratio = message_width_ratio_at(event.position.x, bounds);
+                    entity.update(cx, |this, cx| this.begin_message_width_drag(ratio, cx));
+                }
+            });
+            window.on_mouse_event({
+                let entity = entity.clone();
+                move |event: &MouseMoveEvent, _, _, cx| {
+                    if !event.dragging() || !entity.read(cx).settings_ui.message_width_dragging {
+                        return;
+                    }
+                    let ratio = message_width_ratio_at(event.position.x, bounds);
+                    entity.update(cx, |this, cx| this.update_message_width_ratio(ratio, cx));
+                }
+            });
+            window.on_mouse_event(move |event: &MouseUpEvent, _, _, cx| {
+                if event.button == MouseButton::Left {
+                    entity.update(cx, |this, cx| this.finish_message_width_drag(cx));
+                }
+            });
+        },
+    )
+    .absolute()
+    .top_0()
+    .right_0()
+    .bottom_0()
+    .left_0();
+
+    div()
+        .flex_none()
+        .flex()
+        .items_center()
+        .gap_3()
+        .child(
+            div()
+                .relative()
+                .w(px(MESSAGE_WIDTH_SLIDER_WIDTH))
+                .h(px(28.0))
+                .cursor_pointer()
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(MESSAGE_WIDTH_THUMB_SIZE / 2.0))
+                        .right(px(MESSAGE_WIDTH_THUMB_SIZE / 2.0))
+                        .top(px(12.0))
+                        .h(px(4.0))
+                        .rounded_full()
+                        .bg(colors.border),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(MESSAGE_WIDTH_THUMB_SIZE / 2.0))
+                        .top(px(12.0))
+                        .w(px(track_width * progress))
+                        .h(px(4.0))
+                        .rounded_full()
+                        .bg(colors.accent),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .left(px(track_width * progress))
+                        .top(px(6.0))
+                        .size(px(MESSAGE_WIDTH_THUMB_SIZE))
+                        .rounded_full()
+                        .border_1()
+                        .border_color(colors.accent)
+                        .bg(colors.panel)
+                        .shadow_sm(),
+                )
+                .child(input),
+        )
+        .child(
+            div()
+                .w(px(42.0))
+                .flex_none()
+                .text_right()
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(colors.accent)
+                .child(format!("{:.0}%", ratio * 100.0)),
+        )
+        .into_any_element()
+}
+
+fn message_width_ratio_at(x: Pixels, bounds: Bounds<Pixels>) -> f32 {
+    let inset = px(MESSAGE_WIDTH_THUMB_SIZE / 2.0);
+    let progress =
+        ((x - bounds.left() - inset) / (bounds.size.width - inset * 2.0)).clamp(0.0, 1.0);
+    let ratio =
+        MIN_MESSAGE_WIDTH_RATIO + progress * (MAX_MESSAGE_WIDTH_RATIO - MIN_MESSAGE_WIDTH_RATIO);
+    (ratio * 100.0).round() / 100.0
 }
 
 pub(super) fn default_models_page(

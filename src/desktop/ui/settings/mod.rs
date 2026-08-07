@@ -17,7 +17,8 @@ use providers::{new_provider_page, provider_page};
 use std::collections::BTreeMap;
 
 use gpui::{
-    AnyElement, App, Context, Div, ElementId, Entity, FontWeight, SharedString, Stateful, deferred,
+    AnyElement, App, Bounds, Context, Div, ElementId, Entity, FontWeight, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, SharedString, Stateful, canvas, deferred,
     div, prelude::*, px, rgba,
 };
 
@@ -31,7 +32,10 @@ use super::{
 };
 use crate::{
     desktop::app::{ConnectionTestStatus, OneChat},
-    domain::{Model, ModelCapabilities, Provider, ProviderKind, now_timestamp},
+    domain::{
+        MAX_MESSAGE_WIDTH_RATIO, MIN_MESSAGE_WIDTH_RATIO, Model, ModelCapabilities, Provider,
+        ProviderKind, now_timestamp,
+    },
     providers::AvailableModel,
 };
 

@@ -295,6 +295,7 @@ impl OneChat {
             },
             settings_ui: SettingsState {
                 section: SettingsSection::default(),
+                message_width_dragging: false,
                 default_model_menu_open: false,
                 default_system_prompt_editor: None,
                 connection_tests: BTreeMap::new(),

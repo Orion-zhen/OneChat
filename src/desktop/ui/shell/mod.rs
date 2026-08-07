@@ -4,7 +4,7 @@ mod sidebar;
 
 use dialogs::{animated_overlay, render_destructive_confirmation};
 use pickers::{render_command_palette, render_model_picker};
-use sidebar::render_sidebar;
+use sidebar::{COLLAPSED_SIDEBAR_WIDTH, EXPANDED_SIDEBAR_WIDTH, render_sidebar};
 
 use std::time::Duration;
 
@@ -96,11 +96,17 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
     let colors = Colors::for_theme(app.theme(), window.appearance());
     let scale_factor = window.scale_factor();
     let inspector_progress = app.navigation.inspector_motion.progress(window);
+    let sidebar_width = if app.settings().sidebar_collapsed {
+        COLLAPSED_SIDEBAR_WIDTH
+    } else {
+        EXPANDED_SIDEBAR_WIDTH
+    };
+    let chat_available_width = (f32::from(window.bounds().size.width) - sidebar_width).max(0.0);
     let sidebar =
         (app.navigation.page == Page::Chat).then(|| render_sidebar(app, colors, scale_factor, cx));
     let top_bar = render_top_bar(app, colors, scale_factor, cx);
     let page = match app.navigation.page {
-        Page::Chat => render_chat_page(app, colors, scale_factor, cx),
+        Page::Chat => render_chat_page(app, chat_available_width, colors, scale_factor, cx),
         Page::Settings => settings::render(app, colors, scale_factor, cx),
     };
     let inspector = (app.navigation.page == Page::Chat
@@ -352,6 +358,7 @@ fn render_top_bar(
 
 fn render_chat_page(
     app: &OneChat,
+    available_width: f32,
     colors: Colors,
     scale_factor: f32,
     cx: &mut Context<OneChat>,
@@ -403,7 +410,7 @@ fn render_chat_page(
             cx,
         )
     } else {
-        chat::render(app, colors, scale_factor, cx)
+        chat::render(app, available_width, colors, scale_factor, cx)
     };
 
     div()

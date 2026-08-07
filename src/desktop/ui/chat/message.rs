@@ -2,11 +2,11 @@ use super::*;
 use crate::desktop::ui::stream::should_capture_nested_scroll;
 use unicode_segmentation::UnicodeSegmentation;
 
-const MESSAGE_MAX_WIDTH: f32 = 780.0;
-const USER_MESSAGE_MAX_WIDTH: f32 = MESSAGE_MAX_WIDTH * 0.75;
+const USER_MESSAGE_WIDTH_RATIO: f32 = 0.75;
 const USER_EDITOR_MIN_WIDTH: f32 = 160.0;
+const USER_EDITOR_HORIZONTAL_CHROME: f32 = 64.0;
 
-fn user_editor_width(content: &str) -> f32 {
+pub(super) fn user_editor_width(content: &str, max_width: f32) -> f32 {
     let text_width = content
         .lines()
         .map(|line| {
@@ -15,12 +15,15 @@ fn user_editor_width(content: &str) -> f32 {
                 .sum::<f32>()
         })
         .fold(0.0, f32::max);
-    (text_width + 48.0).clamp(USER_EDITOR_MIN_WIDTH, USER_MESSAGE_MAX_WIDTH)
+    (text_width + USER_EDITOR_HORIZONTAL_CHROME)
+        .max(USER_EDITOR_MIN_WIDTH)
+        .min(max_width)
 }
 
 pub(super) fn render_turn(
     app: &OneChat,
     turn: &Turn,
+    message_max_width: f32,
     colors: Colors,
     scale_factor: f32,
     cx: &mut Context<OneChat>,
@@ -28,9 +31,24 @@ pub(super) fn render_turn(
     let response = app.visible_response(turn);
     div()
         .w_full()
-        .child(render_user_message(app, turn, colors, scale_factor, cx))
+        .child(render_user_message(
+            app,
+            turn,
+            message_max_width,
+            colors,
+            scale_factor,
+            cx,
+        ))
         .children(response.map(|response| {
-            render_assistant_message(app, turn, response, colors, scale_factor, cx)
+            render_assistant_message(
+                app,
+                turn,
+                response,
+                message_max_width,
+                colors,
+                scale_factor,
+                cx,
+            )
         }))
         .into_any_element()
 }
@@ -38,10 +56,12 @@ pub(super) fn render_turn(
 fn render_user_message(
     app: &OneChat,
     turn: &Turn,
+    message_max_width: f32,
     colors: Colors,
     scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
+    let user_message_max_width = message_max_width * USER_MESSAGE_WIDTH_RATIO;
     let generating = app.is_current_generating();
     let editor = app.user_message_editor(turn);
     let editing = editor.is_some();
@@ -58,7 +78,7 @@ fn render_user_message(
         });
     let content = if let Some(editor) = editor {
         let save_id = turn.id.clone();
-        let width = user_editor_width(editor.read(cx).text());
+        let width = user_editor_width(editor.read(cx).text(), user_message_max_width);
         div()
             .w(px(width))
             .rounded_xl()
@@ -99,7 +119,7 @@ fn render_user_message(
             .into_any_element()
     } else {
         div()
-            .max_w(px(USER_MESSAGE_MAX_WIDTH))
+            .max_w(px(user_message_max_width))
             .rounded_xl()
             .bg(colors.accent)
             .px_4()
@@ -228,12 +248,12 @@ fn render_user_message(
         .mx_auto()
         .mb_7()
         .w_full()
-        .max_w(px(MESSAGE_MAX_WIDTH))
+        .max_w(px(message_max_width))
         .flex()
         .justify_end()
         .child(
             div()
-                .max_w(px(USER_MESSAGE_MAX_WIDTH))
+                .max_w(px(user_message_max_width))
                 .min_w_0()
                 .flex()
                 .flex_col()
@@ -248,6 +268,7 @@ fn render_assistant_message(
     app: &OneChat,
     turn: &Turn,
     message: &AssistantResponse,
+    message_max_width: f32,
     colors: Colors,
     scale_factor: f32,
     cx: &mut Context<OneChat>,
@@ -518,7 +539,7 @@ fn render_assistant_message(
         .mx_auto()
         .mb_8()
         .w_full()
-        .max_w(px(MESSAGE_MAX_WIDTH))
+        .max_w(px(message_max_width))
         .child(header)
         .children(render_reasoning(
             app,
