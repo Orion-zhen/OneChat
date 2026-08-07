@@ -5,6 +5,7 @@ pub(super) const EXPANDED_SIDEBAR_WIDTH: f32 = 260.0;
 
 pub(super) fn render_sidebar(
     app: &mut OneChat,
+    animated_title: Option<&str>,
     colors: Colors,
     scale_factor: f32,
     cx: &mut Context<OneChat>,
@@ -105,6 +106,7 @@ pub(super) fn render_sidebar(
                     app,
                     conversation,
                     current_id.as_deref(),
+                    animated_title,
                     colors,
                     scale_factor,
                     cx,
@@ -207,6 +209,7 @@ fn render_conversation_row(
     app: &OneChat,
     conversation: Conversation,
     current_id: Option<&str>,
+    animated_title: Option<&str>,
     colors: Colors,
     scale_factor: f32,
     cx: &mut Context<OneChat>,
@@ -230,6 +233,9 @@ fn render_conversation_row(
     let delete_id = conversation.id.clone();
     let row_id: SharedString = format!("conversation-{}", conversation.id).into();
     let pinned = conversation.pinned;
+    let title_waiting = selected && conversation.auto_title_state == AutoTitleState::Running;
+    let title_animation_id: SharedString =
+        format!("waiting-sidebar-title-{}", conversation.id).into();
 
     let mut actions = div()
         .w(px(if hovered {
@@ -288,6 +294,37 @@ fn render_conversation_row(
             );
     }
 
+    let displayed_title = if selected {
+        animated_title.unwrap_or(&conversation.title).to_string()
+    } else {
+        conversation.title.clone()
+    };
+    let title = waiting_title(
+        div()
+            .id(SharedString::from(format!("select-{}", conversation.id)))
+            .min_w_0()
+            .flex_1()
+            .h_full()
+            .flex()
+            .items_center()
+            .cursor_pointer()
+            .overflow_hidden()
+            .whitespace_nowrap()
+            .text_ellipsis()
+            .text_sm()
+            .font_weight(if selected {
+                FontWeight::SEMIBOLD
+            } else {
+                FontWeight::NORMAL
+            })
+            .on_click(
+                cx.listener(move |this, _, _, cx| this.select_conversation(select_id.clone(), cx)),
+            )
+            .child(displayed_title),
+        title_animation_id,
+        title_waiting,
+    );
+
     div()
         .id(row_id)
         .mb_1()
@@ -326,29 +363,7 @@ fn render_conversation_row(
         .flex()
         .items_center()
         .px_2()
-        .child(
-            div()
-                .id(SharedString::from(format!("select-{}", conversation.id)))
-                .min_w_0()
-                .flex_1()
-                .h_full()
-                .flex()
-                .items_center()
-                .cursor_pointer()
-                .overflow_hidden()
-                .whitespace_nowrap()
-                .text_ellipsis()
-                .text_sm()
-                .font_weight(if selected {
-                    FontWeight::SEMIBOLD
-                } else {
-                    FontWeight::NORMAL
-                })
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.select_conversation(select_id.clone(), cx)
-                }))
-                .child(conversation.title),
-        )
+        .child(title)
         .child(actions)
         .into_any_element()
 }

@@ -39,6 +39,24 @@ mod tests {
         let model = Model::new("provider", "model", "Model");
         let conversation = Conversation::new("Conversation", Some(&model), "");
         assert_eq!(conversation.generation_config, GenerationConfig::default());
+        assert_eq!(conversation.auto_title_state, AutoTitleState::Pending);
+    }
+
+    #[test]
+    fn automatic_title_states_are_monotonic() {
+        assert!(AutoTitleState::Pending < AutoTitleState::Running);
+        assert!(AutoTitleState::Running < AutoTitleState::Finished);
+    }
+
+    #[test]
+    fn title_generation_settings_have_safe_defaults() {
+        let settings = AppSettings::default();
+        assert_eq!(settings.title_generation_model_id, None);
+        assert!(settings.auto_title_enabled);
+        assert_eq!(
+            settings.title_generation_system_prompt,
+            DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT
+        );
     }
 
     #[test]

@@ -1,7 +1,28 @@
+use std::time::Duration;
+
 use gpui::{
-    AnyElement, App, Bounds, Element, GlobalElementId, InspectorElementId, IntoElement, LayoutId,
-    Pixels, Window, point, px,
+    Animation, AnimationExt as _, AnyElement, App, Bounds, Element, GlobalElementId,
+    InspectorElementId, IntoElement, LayoutId, Pixels, SharedString, Window, point, prelude::*,
+    pulsating_between, px,
 };
+
+pub(crate) fn waiting_title<E>(title: E, id: SharedString, active: bool) -> AnyElement
+where
+    E: IntoElement + Styled + 'static,
+{
+    if !active {
+        return title.into_any_element();
+    }
+    title
+        .with_animation(
+            id,
+            Animation::new(Duration::from_secs(3))
+                .repeat()
+                .with_easing(pulsating_between(0.6, 1.0)),
+            |title, opacity| title.opacity(opacity),
+        )
+        .into_any_element()
+}
 
 pub(crate) fn translated_x(child: impl IntoElement, offset: Pixels) -> TranslatedX {
     TranslatedX {

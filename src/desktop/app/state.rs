@@ -210,13 +210,15 @@ pub(crate) struct ChatState {
     pub(crate) composer: Entity<Composer>,
     pub(super) generations: GenerationManager,
     pub(super) markdown_documents: HashMap<String, CachedMarkdown>,
+    pub(super) pending_title_transitions: HashMap<String, PendingTitleTransition>,
+    pub(super) title_transitions: HashMap<String, TitleTransition>,
 }
 
 pub(crate) struct SettingsState {
     pub(crate) section: SettingsSection,
     pub(crate) message_width_dragging: bool,
-    pub(crate) default_model_menu_open: bool,
-    pub(crate) default_system_prompt_editor: Option<Entity<Composer>>,
+    pub(crate) default_model_menu: Option<DefaultModelRole>,
+    pub(crate) prompt_editor: Option<SettingsPromptEditor>,
     pub(crate) connection_tests: BTreeMap<String, ConnectionTestStatus>,
     pub(crate) provider_editor: Option<ProviderEditor>,
     pub(crate) model_editor: Option<ModelEditor>,

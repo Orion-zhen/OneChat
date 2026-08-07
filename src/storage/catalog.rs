@@ -68,6 +68,14 @@ impl Storage {
         {
             settings.app.primary_model_id = None;
         }
+        if settings
+            .app
+            .title_generation_model_id
+            .as_ref()
+            .is_some_and(|id| removed_models.contains(id))
+        {
+            settings.app.title_generation_model_id = None;
+        }
         self.clear_conversation_models(&removed_models)?;
         self.write_settings(&settings)
     }
@@ -106,6 +114,9 @@ impl Storage {
         }
         if settings.app.primary_model_id.as_deref() == Some(id) {
             settings.app.primary_model_id = None;
+        }
+        if settings.app.title_generation_model_id.as_deref() == Some(id) {
+            settings.app.title_generation_model_id = None;
         }
         self.clear_conversation_models(&[id.to_string()])?;
         self.write_settings(&settings)

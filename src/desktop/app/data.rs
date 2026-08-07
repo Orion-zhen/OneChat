@@ -19,7 +19,59 @@ impl OneChat {
 
     fn apply_snapshot(&mut self, result: StorageResult<StorageSnapshot>, cx: &mut Context<Self>) {
         match result {
-            Ok(snapshot) => {
+            Ok(mut snapshot) => {
+                let completed_title_transitions = snapshot
+                    .conversations
+                    .iter()
+                    .filter_map(|conversation| {
+                        let pending = self.chat.pending_title_transitions.get(&conversation.id)?;
+                        (conversation.auto_title_state == AutoTitleState::Finished).then(|| {
+                            (
+                                conversation.id.clone(),
+                                (conversation.title == pending.new_title).then(|| {
+                                    TitleTransition::new(&pending.old_title, &pending.new_title)
+                                }),
+                            )
+                        })
+                    })
+                    .collect::<Vec<_>>();
+                for (conversation_id, transition) in completed_title_transitions {
+                    self.chat.pending_title_transitions.remove(&conversation_id);
+                    if let Some(transition) = transition {
+                        self.chat
+                            .title_transitions
+                            .insert(conversation_id, transition);
+                    }
+                }
+                let stored_titles = snapshot
+                    .conversations
+                    .iter()
+                    .map(|conversation| (conversation.id.clone(), conversation.title.clone()))
+                    .collect::<HashMap<_, _>>();
+                self.chat.pending_title_transitions.retain(|id, _| {
+                    snapshot
+                        .conversations
+                        .iter()
+                        .any(|conversation| &conversation.id == id)
+                });
+                self.chat.title_transitions.retain(|id, transition| {
+                    stored_titles
+                        .get(id)
+                        .is_some_and(|title| title == &transition.new_title)
+                });
+
+                for conversation in &mut snapshot.conversations {
+                    if let Some(current) = self
+                        .data
+                        .snapshot
+                        .conversations
+                        .iter()
+                        .find(|current| current.id == conversation.id)
+                    {
+                        conversation.auto_title_state =
+                            conversation.auto_title_state.max(current.auto_title_state);
+                    }
+                }
                 let previous_conversation_id =
                     self.data.snapshot.settings.current_conversation_id.clone();
                 let conversation_changed =
@@ -220,6 +272,17 @@ impl OneChat {
         });
     }
 
+    pub(crate) fn current_animated_title(&mut self, window: &mut Window) -> Option<String> {
+        let conversation_id = self.current_conversation()?.id.clone();
+        let (title, finished) = self.chat.title_transitions.get(&conversation_id)?.frame();
+        if finished {
+            self.chat.title_transitions.remove(&conversation_id);
+        } else {
+            window.request_animation_frame();
+        }
+        Some(title)
+    }
+
     pub(crate) fn current_conversation(&self) -> Option<&Conversation> {
         let id = self
             .data
@@ -241,6 +304,22 @@ impl OneChat {
             .models
             .iter()
             .find(|model| model.id == model_id)
+    }
+
+    pub(crate) fn title_generation_model(&self) -> Option<&Model> {
+        self.data
+            .snapshot
+            .settings
+            .title_generation_model_id
+            .as_deref()
+            .and_then(|model_id| {
+                self.data
+                    .snapshot
+                    .models
+                    .iter()
+                    .find(|model| model.id == model_id)
+            })
+            .or_else(|| self.primary_model())
     }
 
     pub(crate) fn current_model(&self) -> Option<&Model> {

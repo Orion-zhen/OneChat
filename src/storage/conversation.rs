@@ -7,7 +7,8 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::domain::{
-    AssistantResponse, Conversation, MessageStatus, RequestInfo, Turn, active_turns, new_id,
+    AssistantResponse, AutoTitleState, Conversation, MessageStatus, RequestInfo, Turn,
+    active_turns, new_id, now_timestamp,
 };
 
 use super::codec::{read_jsonc, write_json};
@@ -39,8 +40,61 @@ impl Storage {
     pub fn update_conversation(&self, conversation: &Conversation) -> Result<()> {
         let _guard = self.lock()?;
         let mut file = self.read_conversation(&conversation.id)?;
+        let title = file.conversation.title.clone();
+        let auto_title_state = file.conversation.auto_title_state;
+        let updated_at = file.conversation.updated_at.max(conversation.updated_at);
         file.conversation = conversation.clone();
+        file.conversation.title = title;
+        file.conversation.auto_title_state = auto_title_state;
+        file.conversation.updated_at = updated_at;
         self.write_conversation(&file)
+    }
+
+    pub fn rename_conversation(&self, conversation_id: &str, title: &str) -> Result<()> {
+        let title = title.trim();
+        if title.is_empty() {
+            return Err(StorageError::InvalidData(
+                "conversation title cannot be empty".into(),
+            ));
+        }
+        let _guard = self.lock()?;
+        let mut file = self.read_conversation(conversation_id)?;
+        file.conversation.title = title.to_string();
+        file.conversation.auto_title_state = AutoTitleState::Finished;
+        file.conversation.updated_at = now_timestamp();
+        self.write_conversation(&file)
+    }
+
+    pub fn claim_auto_title(&self, conversation_id: &str) -> Result<bool> {
+        let _guard = self.lock()?;
+        if !self.conversation_path(conversation_id)?.exists() {
+            return Ok(false);
+        }
+        let mut file = self.read_conversation(conversation_id)?;
+        if file.conversation.auto_title_state != AutoTitleState::Pending {
+            return Ok(false);
+        }
+        file.conversation.auto_title_state = AutoTitleState::Running;
+        self.write_conversation(&file)?;
+        Ok(true)
+    }
+
+    pub fn finish_auto_title(&self, conversation_id: &str, title: Option<&str>) -> Result<bool> {
+        let _guard = self.lock()?;
+        if !self.conversation_path(conversation_id)?.exists() {
+            return Ok(false);
+        }
+        let mut file = self.read_conversation(conversation_id)?;
+        if file.conversation.auto_title_state != AutoTitleState::Running {
+            return Ok(false);
+        }
+        if let Some(title) = title.map(str::trim).filter(|title| !title.is_empty()) {
+            file.conversation.title = title.to_string();
+            file.conversation.updated_at = now_timestamp();
+        }
+        file.conversation.auto_title_state = AutoTitleState::Finished;
+        self.write_conversation(&file)?;
+        Ok(true)
     }
 
     pub fn fork_conversation(
@@ -57,8 +111,10 @@ impl Storage {
 
         let source = self.read_conversation(source_conversation_id)?;
         let (turns, requests) = fork_path(&source, response_id, &conversation.id)?;
+        let mut conversation = conversation.clone();
+        conversation.auto_title_state = AutoTitleState::Finished;
         self.write_conversation(&ConversationFile {
-            conversation: conversation.clone(),
+            conversation,
             turns,
             requests,
         })

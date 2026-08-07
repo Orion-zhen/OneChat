@@ -20,7 +20,7 @@ impl OneChat {
         let Some(model) = model else {
             self.navigation.page = Page::Settings;
             self.settings_ui.section = SettingsSection::DefaultModels;
-            self.settings_ui.default_model_menu_open = true;
+            self.settings_ui.default_model_menu = Some(DefaultModelRole::Primary);
             self.data.error = Some("Choose a model before creating a conversation.".into());
             cx.notify();
             return;
@@ -28,7 +28,7 @@ impl OneChat {
         if let Err(reason) = self.model_availability(&model) {
             self.navigation.page = Page::Settings;
             self.settings_ui.section = SettingsSection::DefaultModels;
-            self.settings_ui.default_model_menu_open = true;
+            self.settings_ui.default_model_menu = Some(DefaultModelRole::Primary);
             self.data.error = Some(format!(
                 "Choose an available model before creating a conversation: {reason}."
             ));
@@ -119,23 +119,19 @@ impl OneChat {
         if title.is_empty() {
             return;
         }
-        let Some(mut conversation) = self
+        if !self
             .data
             .snapshot
             .conversations
             .iter()
-            .find(|conversation| conversation.id == id)
-            .cloned()
-        else {
+            .any(|conversation| conversation.id == id)
+        {
             return;
-        };
-        conversation.title = title.to_string();
-        conversation.updated_at = now_timestamp();
+        }
+        let id = id.to_string();
+        let title = title.to_string();
         self.sidebar.rename_editor = None;
-        self.mutate_and_reload(
-            move |storage| storage.update_conversation(&conversation),
-            cx,
-        );
+        self.mutate_and_reload(move |storage| storage.rename_conversation(&id, &title), cx);
     }
 
     pub(crate) fn toggle_pin(&mut self, id: String, cx: &mut Context<Self>) {

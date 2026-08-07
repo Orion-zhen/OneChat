@@ -18,7 +18,7 @@ use super::{
         IconTone, UiIcon, button_base, compact_button, icon_button, large_svg_icon_button,
         primary_button, primary_button_base, primary_svg_icon_button, svg_icon, svg_icon_button,
     },
-    motion::translated_x,
+    motion::{translated_x, waiting_title},
     theme::Colors,
 };
 
@@ -27,7 +27,7 @@ use crate::{
         ConnectionTestStatus, DestructiveAction, OneChat, Page, PaletteCommand, PendingFocus,
     },
     desktop::ui::{chat, inspector, settings},
-    domain::Conversation,
+    domain::{AutoTitleState, Conversation},
 };
 
 actions!(
@@ -78,9 +78,11 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
             PendingFocus::ModelPicker => Some(app.overlays.model_search_input.clone()),
             PendingFocus::ConversationSearch => Some(app.sidebar.search_input.clone()),
             PendingFocus::SystemPrompt => app.chat.system_prompt_editor.clone(),
-            PendingFocus::DefaultSystemPrompt => {
-                app.settings_ui.default_system_prompt_editor.clone()
-            }
+            PendingFocus::SettingsPrompt => app
+                .settings_ui
+                .prompt_editor
+                .as_ref()
+                .map(|editor| editor.input.clone()),
             PendingFocus::MessageEditor => app.active_message_editor(),
             PendingFocus::Composer if app.navigation.page == Page::Chat => {
                 Some(app.chat.composer.clone())
@@ -92,9 +94,12 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         }
     }
 
-    if app.navigation.page == Page::Chat {
+    let animated_title = if app.navigation.page == Page::Chat {
         app.advance_message_scroll(window);
-    }
+        app.current_animated_title(window)
+    } else {
+        None
+    };
 
     let colors = Colors::for_theme(app.theme(), window.appearance());
     let scale_factor = window.scale_factor();
@@ -105,9 +110,9 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         EXPANDED_SIDEBAR_WIDTH
     };
     let chat_available_width = (f32::from(window.bounds().size.width) - sidebar_width).max(0.0);
-    let sidebar =
-        (app.navigation.page == Page::Chat).then(|| render_sidebar(app, colors, scale_factor, cx));
-    let top_bar = render_top_bar(app, colors, scale_factor, cx);
+    let sidebar = (app.navigation.page == Page::Chat)
+        .then(|| render_sidebar(app, animated_title.as_deref(), colors, scale_factor, cx));
+    let top_bar = render_top_bar(app, animated_title.as_deref(), colors, scale_factor, cx);
     let page = match app.navigation.page {
         Page::Chat => render_chat_page(app, chat_available_width, colors, scale_factor, cx),
         Page::Settings => settings::render(app, colors, scale_factor, cx),
@@ -216,6 +221,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
 
 fn render_top_bar(
     app: &OneChat,
+    animated_title: Option<&str>,
     colors: Colors,
     scale_factor: f32,
     cx: &mut Context<OneChat>,
@@ -255,10 +261,18 @@ fn render_top_bar(
             .into_any_element();
     }
 
-    let title = app
-        .current_conversation()
-        .map(|conversation| conversation.title.clone())
-        .unwrap_or_else(|| "OneChat".into());
+    let current_conversation = app.current_conversation();
+    let title = animated_title.map(str::to_string).unwrap_or_else(|| {
+        current_conversation
+            .map(|conversation| conversation.title.clone())
+            .unwrap_or_else(|| "OneChat".into())
+    });
+    let title_waiting = current_conversation
+        .is_some_and(|conversation| conversation.auto_title_state == AutoTitleState::Running);
+    let title_animation_id: SharedString = current_conversation.map_or_else(
+        || "waiting-top-bar-title".into(),
+        |conversation| format!("waiting-top-bar-title-{}", conversation.id).into(),
+    );
     let selected_model = app.selected_model();
     let provider = selected_model.and_then(|model| app.provider_for_model(model));
     let provider_name = provider
@@ -297,7 +311,7 @@ fn render_top_bar(
                 .flex()
                 .flex_col()
                 .justify_center()
-                .child(
+                .child(waiting_title(
                     div()
                         .max_w(px(340.0))
                         .overflow_hidden()
@@ -306,7 +320,9 @@ fn render_top_bar(
                         .text_size(px(14.0))
                         .font_weight(FontWeight::SEMIBOLD)
                         .child(title),
-                )
+                    title_animation_id,
+                    title_waiting,
+                ))
                 .child(
                     div()
                         .flex()

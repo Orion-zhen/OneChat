@@ -31,10 +31,10 @@ use super::{
     theme::Colors,
 };
 use crate::{
-    desktop::app::{ConnectionTestStatus, OneChat},
+    desktop::app::{ConnectionTestStatus, DefaultModelRole, OneChat, SettingsPromptKind},
     domain::{
-        MAX_MESSAGE_WIDTH_RATIO, MIN_MESSAGE_WIDTH_RATIO, Model, ModelCapabilities, Provider,
-        ProviderKind, Theme, now_timestamp,
+        DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, MAX_MESSAGE_WIDTH_RATIO, MIN_MESSAGE_WIDTH_RATIO,
+        Model, ModelCapabilities, Provider, ProviderKind, Theme, now_timestamp,
     },
     providers::AvailableModel,
 };

@@ -17,6 +17,15 @@ pub struct SystemPrompt {
     pub source: SystemPromptSource,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AutoTitleState {
+    #[default]
+    Pending,
+    Running,
+    Finished,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Conversation {
     pub id: String,
@@ -24,6 +33,7 @@ pub struct Conversation {
     pub model_id: Option<String>,
     pub system_prompt: SystemPrompt,
     pub generation_config: GenerationConfig,
+    pub auto_title_state: AutoTitleState,
     pub pinned: bool,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
@@ -50,6 +60,7 @@ impl Conversation {
                 content: prompt,
             },
             generation_config: GenerationConfig::default(),
+            auto_title_state: AutoTitleState::Pending,
             pinned: false,
             created_at: now,
             updated_at: now,

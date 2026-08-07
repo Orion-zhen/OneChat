@@ -81,41 +81,6 @@ impl OneChat {
         cx.write_to_clipboard(ClipboardItem::new_string(content));
     }
 
-    pub(crate) fn begin_edit_default_system_prompt(&mut self, cx: &mut Context<Self>) {
-        let editor = cx.new(|cx| {
-            Composer::multiline(
-                self.data.snapshot.settings.default_system_prompt.clone(),
-                "Copied into each new conversation",
-                cx,
-            )
-        });
-        cx.subscribe(&editor, |this, _, event, cx| {
-            if matches!(event, ComposerEvent::Cancel) {
-                this.cancel_default_system_prompt_edit(cx);
-            }
-        })
-        .detach();
-        self.settings_ui.default_system_prompt_editor = Some(editor);
-        self.navigation.pending_focus = Some(PendingFocus::DefaultSystemPrompt);
-        cx.notify();
-    }
-
-    pub(crate) fn cancel_default_system_prompt_edit(&mut self, cx: &mut Context<Self>) {
-        self.settings_ui.default_system_prompt_editor = None;
-        cx.notify();
-    }
-
-    pub(crate) fn save_default_system_prompt(&mut self, cx: &mut Context<Self>) {
-        let Some(editor) = self.settings_ui.default_system_prompt_editor.as_ref() else {
-            return;
-        };
-        self.data.snapshot.settings.default_system_prompt =
-            editor.read(cx).text().trim().to_string();
-        self.settings_ui.default_system_prompt_editor = None;
-        self.save_settings(cx);
-        cx.notify();
-    }
-
     pub(crate) fn toggle_generation_parameter_menu(&mut self, cx: &mut Context<Self>) {
         if let Some(editor) = &mut self.chat.generation_config_editor {
             editor.toggle_menu();

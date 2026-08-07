@@ -200,7 +200,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::domain::{
-        AssistantResponse, Model, ProviderKind, Theme, Turn, active_turns, now_timestamp,
+        AssistantResponse, AutoTitleState, Model, ProviderKind, Theme, Turn, active_turns,
+        now_timestamp,
     };
 
     use super::*;
@@ -242,9 +243,12 @@ mod tests {
         let settings = AppSettings {
             current_conversation_id: Some(conversation.id.clone()),
             primary_model_id: Some(model.id.clone()),
+            title_generation_model_id: Some(model.id.clone()),
+            auto_title_enabled: true,
             sidebar_collapsed: true,
             theme: Theme::Dark,
             default_system_prompt: "Default prompt".into(),
+            title_generation_system_prompt: "Generate a title".into(),
             message_width_ratio: 0.85,
         };
         storage.save_settings(&settings).unwrap();
@@ -294,6 +298,7 @@ mod tests {
         let snapshot = test.storage.load_snapshot().unwrap();
         assert_eq!(snapshot.settings.theme, Theme::Dark);
         assert_eq!(snapshot.settings.primary_model_id, None);
+        assert!(snapshot.settings.auto_title_enabled);
         assert_eq!(snapshot.settings.default_system_prompt, "Be concise");
         assert_eq!(
             snapshot.settings.message_width_ratio,
@@ -360,6 +365,7 @@ mod tests {
         assert!(snapshot.providers.is_empty());
         assert!(snapshot.models.is_empty());
         assert_eq!(snapshot.settings.primary_model_id, None);
+        assert_eq!(snapshot.settings.title_generation_model_id, None);
         assert_eq!(snapshot.conversations[0].id, conversation.id);
         assert_eq!(snapshot.conversations[0].model_id, None);
     }
@@ -374,6 +380,7 @@ mod tests {
         let snapshot = test.storage.load_snapshot().unwrap();
         assert!(snapshot.models.is_empty());
         assert_eq!(snapshot.settings.primary_model_id, None);
+        assert_eq!(snapshot.settings.title_generation_model_id, None);
         assert_eq!(snapshot.conversations[0].id, conversation.id);
         assert_eq!(snapshot.conversations[0].model_id, None);
     }
@@ -399,6 +406,66 @@ mod tests {
         assert_eq!(snapshot.current_turns[0].user.content, "Hello");
         assert_eq!(snapshot.current_turns[0].responses, vec![response]);
         assert_eq!(snapshot.current_requests, vec![request]);
+    }
+
+    #[test]
+    fn automatic_titles_are_claimed_once_and_persisted() {
+        let test = TestStorage::new();
+        let (_, _, conversation, _) = configured_conversation(&test.storage);
+
+        assert!(test.storage.claim_auto_title(&conversation.id).unwrap());
+        assert!(!test.storage.claim_auto_title(&conversation.id).unwrap());
+        assert!(
+            test.storage
+                .finish_auto_title(&conversation.id, Some("Generated title"))
+                .unwrap()
+        );
+
+        let stored = &test.storage.load_snapshot().unwrap().conversations[0];
+        assert_eq!(stored.title, "Generated title");
+        assert_eq!(stored.auto_title_state, AutoTitleState::Finished);
+        assert!(!test.storage.claim_auto_title(&conversation.id).unwrap());
+    }
+
+    #[test]
+    fn conversation_updates_preserve_an_automatic_title_claim() {
+        let test = TestStorage::new();
+        let (_, _, mut conversation, _) = configured_conversation(&test.storage);
+        assert!(test.storage.claim_auto_title(&conversation.id).unwrap());
+
+        conversation.pinned = true;
+        test.storage.update_conversation(&conversation).unwrap();
+        assert!(
+            test.storage
+                .finish_auto_title(&conversation.id, Some("Generated title"))
+                .unwrap()
+        );
+
+        let stored = &test.storage.load_snapshot().unwrap().conversations[0];
+        assert!(stored.pinned);
+        assert_eq!(stored.title, "Generated title");
+    }
+
+    #[test]
+    fn manual_titles_win_while_automatic_title_generation_is_running() {
+        let test = TestStorage::new();
+        let (_, _, conversation, _) = configured_conversation(&test.storage);
+        assert!(test.storage.claim_auto_title(&conversation.id).unwrap());
+
+        test.storage
+            .rename_conversation(&conversation.id, "Manual title")
+            .unwrap();
+        assert!(
+            !test
+                .storage
+                .finish_auto_title(&conversation.id, Some("Generated title"))
+                .unwrap()
+        );
+
+        assert_eq!(
+            test.storage.load_snapshot().unwrap().conversations[0].title,
+            "Manual title"
+        );
     }
 
     #[test]
@@ -637,6 +704,15 @@ mod tests {
         test.storage.save_settings(&settings).unwrap();
 
         let snapshot = test.storage.load_snapshot().unwrap();
+        assert_eq!(
+            snapshot
+                .conversations
+                .iter()
+                .find(|conversation| conversation.id == fork.id)
+                .unwrap()
+                .auto_title_state,
+            AutoTitleState::Finished
+        );
         assert_eq!(snapshot.current_turns.len(), 2);
         assert_eq!(snapshot.current_requests.len(), 2);
         assert_eq!(snapshot.current_turns[0].user.content, "Root");
@@ -781,10 +857,11 @@ mod tests {
     #[test]
     fn restart_marks_unfinished_generation_as_interrupted() {
         let test = TestStorage::new();
-        let (provider, model, conversation, settings) = configured_conversation(&test.storage);
+        let (provider, model, mut conversation, settings) = configured_conversation(&test.storage);
         let (turn, _, mut request) = generation_records(&conversation, &provider, &model, "Hello");
         request.status = RequestStatus::Streaming;
         test.storage.begin_turn(&turn, &request).unwrap();
+        assert!(test.storage.claim_auto_title(&conversation.id).unwrap());
 
         let reopened = Storage::open(
             test.storage.settings_path().to_path_buf(),
@@ -792,10 +869,15 @@ mod tests {
         )
         .unwrap();
         let snapshot = reopened.load_startup_snapshot().unwrap();
+        conversation.auto_title_state = AutoTitleState::Finished;
         assert_eq!(snapshot.providers, vec![provider]);
         assert_eq!(snapshot.models, vec![model]);
         assert_eq!(snapshot.conversations, vec![conversation]);
         assert_eq!(snapshot.settings, settings);
+        assert_eq!(
+            snapshot.conversations[0].auto_title_state,
+            AutoTitleState::Finished
+        );
         assert_eq!(
             snapshot.current_turns[0].responses[0].status,
             MessageStatus::Interrupted

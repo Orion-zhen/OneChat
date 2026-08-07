@@ -43,7 +43,7 @@ impl OneChat {
         self.overlays.command_palette_open = false;
         self.overlays.model_picker_open = false;
         self.overlays.response_model_turn_id = None;
-        self.settings_ui.default_model_menu_open = false;
+        self.settings_ui.default_model_menu = None;
         cx.notify();
     }
 
@@ -133,8 +133,8 @@ impl OneChat {
         {
             editor.close_menu();
             cx.notify();
-        } else if self.settings_ui.default_model_menu_open {
-            self.settings_ui.default_model_menu_open = false;
+        } else if self.settings_ui.default_model_menu.is_some() {
+            self.settings_ui.default_model_menu = None;
             cx.notify();
         } else if let Some(editor) = &mut self.settings_ui.provider_editor
             && editor.kind_menu_open

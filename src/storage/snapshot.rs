@@ -1,4 +1,4 @@
-use crate::domain::{MessageStatus, RequestStatus};
+use crate::domain::{AutoTitleState, MessageStatus, RequestStatus};
 
 use super::{Result, Storage, StorageSnapshot};
 
@@ -23,6 +23,15 @@ impl Storage {
             .is_some_and(|id| !settings.models.iter().any(|model| &model.id == id))
         {
             settings.app.primary_model_id = None;
+            settings_changed = true;
+        }
+        if settings
+            .app
+            .title_generation_model_id
+            .as_ref()
+            .is_some_and(|id| !settings.models.iter().any(|model| &model.id == id))
+        {
+            settings.app.title_generation_model_id = None;
             settings_changed = true;
         }
         if settings_changed {
@@ -84,6 +93,10 @@ impl Storage {
     pub(super) fn recover_interrupted_locked(&self) -> Result<()> {
         for mut file in self.read_conversations()? {
             let mut changed = false;
+            if file.conversation.auto_title_state == AutoTitleState::Running {
+                file.conversation.auto_title_state = AutoTitleState::Finished;
+                changed = true;
+            }
             for response in file.turns.iter_mut().flat_map(|turn| &mut turn.responses) {
                 if matches!(
                     response.status,

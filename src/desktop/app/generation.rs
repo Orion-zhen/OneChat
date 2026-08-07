@@ -1,5 +1,11 @@
 use super::*;
 
+enum AutoTitleUpdate {
+    Claimed,
+    Finished(Option<String>),
+    ClaimFailed(String),
+}
+
 impl OneChat {
     pub(crate) fn is_current_generating(&self) -> bool {
         self.current_conversation()
@@ -263,6 +269,14 @@ impl OneChat {
     ) {
         let conversation_id = prepared.request_info.conversation_id.clone();
         let request_id = prepared.request_info.id.clone();
+        let root_user_message = self
+            .data
+            .snapshot
+            .current_turns
+            .iter()
+            .find(|turn| turn.id == prepared.request_info.turn_id)
+            .filter(|turn| turn.parent_response_id.is_none())
+            .map(|turn| turn.user.content.clone());
         self.chat
             .thinking_started_at
             .insert(request_id.clone(), Instant::now());
@@ -350,6 +364,14 @@ impl OneChat {
                             }
                             if terminal {
                                 this.chat.generations.finish(&conversation_id, &request_id);
+                                if let Some(user_message) = root_user_message.clone() {
+                                    this.start_auto_title(
+                                        conversation_id.clone(),
+                                        user_message,
+                                        &response,
+                                        cx,
+                                    );
+                                }
                             }
                             cx.notify();
                         });
@@ -362,6 +384,161 @@ impl OneChat {
             let _ = this.update(cx, |this, _| {
                 this.chat.thinking_started_at.remove(&cleanup_request_id);
             });
+        })
+        .detach();
+    }
+
+    fn start_auto_title(
+        &mut self,
+        conversation_id: String,
+        user_message: String,
+        response: &AssistantResponse,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.data.snapshot.settings.auto_title_enabled
+            || response.status != MessageStatus::Completed
+            || response.content.trim().is_empty()
+        {
+            return;
+        }
+        if !self.data.snapshot.conversations.iter().any(|conversation| {
+            conversation.id == conversation_id
+                && conversation.auto_title_state == AutoTitleState::Pending
+        }) {
+            return;
+        }
+
+        let system_prompt = self
+            .data
+            .snapshot
+            .settings
+            .title_generation_system_prompt
+            .trim()
+            .to_string();
+        let target = self
+            .title_generation_model()
+            .filter(|model| self.model_availability(model).is_ok())
+            .and_then(|model| {
+                self.provider_for_model(model)
+                    .map(|provider| (provider.clone(), model.clone()))
+            })
+            .filter(|_| !system_prompt.is_empty());
+        let assistant_response = response.content.clone();
+        let storage = self.services.storage.clone();
+        let claim_id = conversation_id.clone();
+        let (sender, receiver) = async_channel::bounded::<AutoTitleUpdate>(2);
+        self.services.runtime.spawn(async move {
+            let claimed = tokio::task::spawn_blocking(move || {
+                storage
+                    .claim_auto_title(&claim_id)
+                    .map_err(|error| error.to_string())
+            })
+            .await;
+            match claimed {
+                Ok(Ok(true)) => {
+                    if sender.send(AutoTitleUpdate::Claimed).await.is_err() {
+                        return;
+                    }
+                }
+                Ok(Ok(false)) => return,
+                Ok(Err(error)) => {
+                    let _ = sender.send(AutoTitleUpdate::ClaimFailed(error)).await;
+                    return;
+                }
+                Err(error) => {
+                    let _ = sender
+                        .send(AutoTitleUpdate::ClaimFailed(format!(
+                            "automatic title claim task failed: {error}"
+                        )))
+                        .await;
+                    return;
+                }
+            }
+
+            let title = match target {
+                Some((provider, model)) => generate_title(
+                    provider,
+                    model,
+                    system_prompt,
+                    user_message,
+                    assistant_response,
+                )
+                .await
+                .ok(),
+                None => None,
+            };
+            let _ = sender.send(AutoTitleUpdate::Finished(title)).await;
+        });
+
+        cx.spawn(async move |this, cx| {
+            while let Ok(update) = receiver.recv().await {
+                let finished = matches!(
+                    &update,
+                    AutoTitleUpdate::Finished(_) | AutoTitleUpdate::ClaimFailed(_)
+                );
+                let _ = this.update(cx, |this, cx| match update {
+                    AutoTitleUpdate::Claimed => {
+                        if let Some(conversation) = this
+                            .data
+                            .snapshot
+                            .conversations
+                            .iter_mut()
+                            .find(|conversation| {
+                                conversation.id == conversation_id
+                                    && conversation.auto_title_state == AutoTitleState::Pending
+                            })
+                        {
+                            conversation.auto_title_state = AutoTitleState::Running;
+                            cx.notify();
+                        }
+                    }
+                    AutoTitleUpdate::Finished(title) => {
+                        let title = this
+                            .data
+                            .snapshot
+                            .settings
+                            .auto_title_enabled
+                            .then_some(title)
+                            .flatten();
+                        if let Some(new_title) = title.as_ref()
+                            && let Some(conversation) = this
+                                .data
+                                .snapshot
+                                .conversations
+                                .iter()
+                                .find(|conversation| {
+                                    conversation.id == conversation_id
+                                        && conversation.auto_title_state == AutoTitleState::Running
+                                })
+                            && conversation.title != *new_title
+                        {
+                            this.chat.pending_title_transitions.insert(
+                                conversation_id.clone(),
+                                PendingTitleTransition {
+                                    old_title: conversation.title.clone(),
+                                    new_title: new_title.clone(),
+                                },
+                            );
+                        }
+                        let conversation_id = conversation_id.clone();
+                        this.mutate_and_reload(
+                            move |storage| {
+                                storage
+                                    .finish_auto_title(&conversation_id, title.as_deref())
+                                    .map(|_| ())
+                            },
+                            cx,
+                        );
+                    }
+                    AutoTitleUpdate::ClaimFailed(error) => {
+                        this.data.error = Some(format!("Could not start automatic title: {error}"));
+                        cx.notify();
+                    }
+                });
+                if finished {
+                    break;
+                }
+            }
         })
         .detach();
     }

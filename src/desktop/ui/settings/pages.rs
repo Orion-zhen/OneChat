@@ -22,6 +22,12 @@ pub(super) fn general_page(
             message_width_slider(app, colors, cx),
             colors,
         ));
+    let automation = setting_row(
+        "Automatic Titles",
+        "Generate a title after the first completed response.",
+        auto_title_toggle(app, colors, cx),
+        colors,
+    );
 
     detail_page(
         div()
@@ -33,8 +39,43 @@ pub(super) fn general_page(
                 "Choose how OneChat looks and responds.",
                 colors,
             ))
-            .child(section("Appearance", None, appearance, colors)),
+            .child(section("Appearance", None, appearance, colors))
+            .child(section("Automation", None, automation, colors)),
     )
+}
+
+fn auto_title_toggle(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
+    let enabled = app.settings().auto_title_enabled;
+    div()
+        .id("automatic-titles-toggle")
+        .w(px(32.0))
+        .h(px(18.0))
+        .p(px(2.0))
+        .flex_none()
+        .rounded_full()
+        .border_1()
+        .border_color(if enabled {
+            colors.accent
+        } else {
+            colors.border
+        })
+        .bg(if enabled {
+            colors.accent
+        } else {
+            colors.raised
+        })
+        .flex()
+        .items_center()
+        .when(enabled, |element| element.justify_end())
+        .cursor_pointer()
+        .hover(|style| style.opacity(0.8))
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_auto_title_enabled(cx)))
+        .child(div().size(px(12.0)).rounded_full().bg(if enabled {
+            colors.on_accent
+        } else {
+            colors.muted
+        }))
+        .into_any_element()
 }
 
 fn theme_selector(
@@ -219,12 +260,28 @@ pub(super) fn default_models_page(
     scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    let content = setting_row(
-        "Primary Model",
-        "Used when creating a new conversation.",
-        primary_model_select(app, colors, scale_factor, cx),
-        colors,
-    );
+    let content = div()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(setting_row(
+            "Primary Model",
+            "Used when creating a new conversation.",
+            default_model_select(app, DefaultModelRole::Primary, colors, scale_factor, cx),
+            colors,
+        ))
+        .child(setting_row(
+            "Title Generation Model",
+            "Used to generate an automatic title after the first response.",
+            default_model_select(
+                app,
+                DefaultModelRole::TitleGeneration,
+                colors,
+                scale_factor,
+                cx,
+            ),
+            colors,
+        ));
 
     detail_page(
         div()
@@ -233,7 +290,7 @@ pub(super) fn default_models_page(
             .gap_6()
             .child(page_header(
                 "Default Models",
-                "Choose the models OneChat uses for new conversations.",
+                "Choose the models OneChat uses by default.",
                 colors,
             ))
             .child(section(
@@ -245,17 +302,24 @@ pub(super) fn default_models_page(
     )
 }
 
-fn primary_model_select(
+fn default_model_select(
     app: &OneChat,
+    role: DefaultModelRole,
     colors: Colors,
     scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    let selected_id = app.settings().primary_model_id.as_deref();
+    let selected_id = match role {
+        DefaultModelRole::Primary => app.settings().primary_model_id.as_deref(),
+        DefaultModelRole::TitleGeneration => app.settings().title_generation_model_id.as_deref(),
+    };
     let selected_model =
         selected_id.and_then(|id| app.data.snapshot.models.iter().find(|model| model.id == id));
     let label = selected_model.map_or_else(
-        || "Choose a model".to_string(),
+        || match role {
+            DefaultModelRole::Primary => "Choose a model".to_string(),
+            DefaultModelRole::TitleGeneration => "Use Primary Model".to_string(),
+        },
         |model| {
             if app.model_availability(model).is_ok() {
                 model.display_name.clone()
@@ -265,8 +329,12 @@ fn primary_model_select(
         },
     );
 
+    let key = match role {
+        DefaultModelRole::Primary => "primary",
+        DefaultModelRole::TitleGeneration => "title-generation",
+    };
     let mut options = div()
-        .id("primary-model-options")
+        .id(SharedString::from(format!("{key}-model-options")))
         .occlude()
         .absolute()
         .top(px(40.0))
@@ -282,6 +350,38 @@ fn primary_model_select(
         .flex()
         .flex_col()
         .shadow_lg();
+    if role == DefaultModelRole::TitleGeneration {
+        let selected = selected_id.is_none();
+        options = options.child(
+            div()
+                .id("title-generation-model-primary")
+                .w_full()
+                .px_3()
+                .py_2()
+                .rounded_md()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_3()
+                .bg(if selected {
+                    colors.accent_soft
+                } else {
+                    colors.panel
+                })
+                .cursor_pointer()
+                .hover(move |style| style.bg(colors.hover))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.select_default_model(DefaultModelRole::TitleGeneration, None, cx)
+                }))
+                .child(
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("Use Primary Model"),
+                )
+                .children(selected.then(|| div().flex_none().text_color(colors.accent).child("✓"))),
+        );
+    }
     let available_models = app
         .data
         .snapshot
@@ -308,7 +408,7 @@ fn primary_model_select(
                 .unwrap_or("Missing provider");
             options = options.child(
                 div()
-                    .id(SharedString::from(format!("primary-model-{}", model.id)))
+                    .id(SharedString::from(format!("{key}-model-{}", model.id)))
                     .w_full()
                     .px_3()
                     .py_2()
@@ -325,7 +425,7 @@ fn primary_model_select(
                     .cursor_pointer()
                     .hover(move |style| style.bg(colors.hover))
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.select_primary_model(model_id.clone(), cx)
+                        this.select_default_model(role, Some(model_id.clone()), cx)
                     }))
                     .child(
                         div()
@@ -357,7 +457,7 @@ fn primary_model_select(
     }
 
     let select = div()
-        .id("primary-model-select")
+        .id(SharedString::from(format!("{key}-model-select")))
         .w_full()
         .h(px(36.0))
         .px_3()
@@ -372,7 +472,7 @@ fn primary_model_select(
         .text_sm()
         .cursor_pointer()
         .hover(move |style| style.bg(colors.hover))
-        .on_click(cx.listener(|this, _, _, cx| this.toggle_primary_model_menu(cx)))
+        .on_click(cx.listener(move |this, _, _, cx| this.toggle_default_model_menu(role, cx)))
         .child(
             div()
                 .min_w_0()
@@ -382,7 +482,7 @@ fn primary_model_select(
                 .child(label),
         )
         .child(svg_icon(
-            if app.settings_ui.default_model_menu_open {
+            if app.settings_ui.default_model_menu == Some(role) {
                 UiIcon::ChevronUp
             } else {
                 UiIcon::ChevronDown
@@ -399,8 +499,7 @@ fn primary_model_select(
         .flex_none()
         .child(select)
         .children(
-            app.settings_ui
-                .default_model_menu_open
+            (app.settings_ui.default_model_menu == Some(role))
                 .then(|| deferred(options).priority(1)),
         )
         .into_any_element()
@@ -412,74 +511,24 @@ pub(super) fn system_prompts_page(
     scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    let edit_actions = div()
-        .flex()
-        .justify_end()
-        .gap_2()
-        .child(
-            large_svg_icon_button(
-                "cancel-default-system-prompt",
-                UiIcon::Close,
-                IconTone::Muted,
-                colors,
-                scale_factor,
-            )
-            .on_click(cx.listener(|this, _, _, cx| this.cancel_default_system_prompt_edit(cx))),
-        )
-        .child(
-            primary_svg_icon_button(
-                "save-default-system-prompt",
-                UiIcon::Save,
-                colors,
-                scale_factor,
-            )
-            .on_click(cx.listener(|this, _, _, cx| this.save_default_system_prompt(cx))),
-        );
-    let content = if let Some(editor) = &app.settings_ui.default_system_prompt_editor {
-        div()
-            .flex()
-            .flex_col()
-            .gap_4()
-            .child(editor.clone())
-            .child(edit_actions)
-            .into_any_element()
-    } else {
-        let prompt = app.data.snapshot.settings.default_system_prompt.trim();
-        div()
-            .flex()
-            .items_start()
-            .justify_between()
-            .gap_5()
-            .child(
-                div()
-                    .min_w_0()
-                    .flex_1()
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Default Prompt"),
-                    )
-                    .child(
-                        div()
-                            .pt_1()
-                            .text_size(px(12.0))
-                            .line_height(px(18.0))
-                            .text_color(colors.muted)
-                            .child(if prompt.is_empty() {
-                                "New conversations start without a System Prompt.".into()
-                            } else {
-                                prompt_preview(prompt)
-                            }),
-                    ),
-            )
-            .child(
-                button("edit-default-system-prompt", "Edit", colors).on_click(
-                    cx.listener(|this, _, _, cx| this.begin_edit_default_system_prompt(cx)),
-                ),
-            )
-            .into_any_element()
-    };
+    let conversation_prompt = settings_prompt_content(
+        app,
+        SettingsPromptKind::ConversationDefault,
+        "Default Prompt",
+        "New conversations start without a System Prompt.",
+        colors,
+        scale_factor,
+        cx,
+    );
+    let title_prompt = settings_prompt_content(
+        app,
+        SettingsPromptKind::TitleGeneration,
+        "Title Prompt",
+        "",
+        colors,
+        scale_factor,
+        cx,
+    );
 
     detail_page(
         div()
@@ -488,14 +537,146 @@ pub(super) fn system_prompts_page(
             .gap_6()
             .child(page_header(
                 "System Prompts",
-                "Set the instructions copied into every new conversation.",
+                "Configure instructions for conversations and automatic titles.",
                 colors,
             ))
             .child(section(
-                "Default",
-                Some("Existing conversations keep their own prompt."),
-                content,
+                "Conversation Default",
+                Some(
+                    "Copied into new conversations; existing conversations keep their own prompt.",
+                ),
+                conversation_prompt,
+                colors,
+            ))
+            .child(section(
+                "Title Generation",
+                Some("Used after the first completed response; changes apply to future titles."),
+                title_prompt,
                 colors,
             )),
     )
+}
+
+fn settings_prompt_content(
+    app: &OneChat,
+    kind: SettingsPromptKind,
+    title: &'static str,
+    empty_message: &'static str,
+    colors: Colors,
+    scale_factor: f32,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    let key = match kind {
+        SettingsPromptKind::ConversationDefault => "default",
+        SettingsPromptKind::TitleGeneration => "title-generation",
+    };
+    let prompt = match kind {
+        SettingsPromptKind::ConversationDefault => {
+            app.data.snapshot.settings.default_system_prompt.trim()
+        }
+        SettingsPromptKind::TitleGeneration => app
+            .data
+            .snapshot
+            .settings
+            .title_generation_system_prompt
+            .trim(),
+    };
+    let customized = kind == SettingsPromptKind::TitleGeneration
+        && prompt != DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT;
+
+    if let Some(editor) = app
+        .settings_ui
+        .prompt_editor
+        .as_ref()
+        .filter(|editor| editor.kind == kind)
+    {
+        let mut actions = div().flex().justify_end().gap_2();
+        if customized {
+            actions = actions.child(
+                button(
+                    "reset-title-generation-prompt-editor",
+                    "Reset to Default",
+                    colors,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.reset_title_generation_prompt(cx))),
+            );
+        }
+        actions = actions
+            .child(
+                large_svg_icon_button(
+                    SharedString::from(format!("cancel-{key}-system-prompt")),
+                    UiIcon::Close,
+                    IconTone::Muted,
+                    colors,
+                    scale_factor,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.cancel_settings_prompt_edit(cx))),
+            )
+            .child(
+                primary_svg_icon_button(
+                    SharedString::from(format!("save-{key}-system-prompt")),
+                    UiIcon::Save,
+                    colors,
+                    scale_factor,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.save_settings_prompt(cx))),
+            );
+        return div()
+            .flex()
+            .flex_col()
+            .gap_4()
+            .child(editor.input.clone())
+            .child(actions)
+            .into_any_element();
+    }
+
+    let kind_for_edit = kind;
+    let mut actions = div().flex().items_center().gap_2();
+    if customized {
+        actions = actions.child(
+            button("reset-title-generation-prompt", "Reset to Default", colors)
+                .on_click(cx.listener(|this, _, _, cx| this.reset_title_generation_prompt(cx))),
+        );
+    }
+    actions = actions.child(
+        button(
+            SharedString::from(format!("edit-{key}-system-prompt")),
+            "Edit",
+            colors,
+        )
+        .on_click(
+            cx.listener(move |this, _, _, cx| this.begin_edit_settings_prompt(kind_for_edit, cx)),
+        ),
+    );
+
+    div()
+        .flex()
+        .items_start()
+        .justify_between()
+        .gap_5()
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .child(
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(title),
+                )
+                .child(
+                    div()
+                        .pt_1()
+                        .text_size(px(12.0))
+                        .line_height(px(18.0))
+                        .text_color(colors.muted)
+                        .child(if prompt.is_empty() {
+                            empty_message.to_string()
+                        } else {
+                            prompt_preview(prompt)
+                        }),
+                ),
+        )
+        .child(actions)
+        .into_any_element()
 }

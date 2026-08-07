@@ -23,10 +23,15 @@ use gpui::{
 };
 use tokio::runtime::Runtime;
 use tokio_util::sync::CancellationToken;
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
-    application::generation::{
-        GenerationManager, GenerationStart, GenerationUpdate, PreparedGeneration, run_generation,
+    application::{
+        generation::{
+            GenerationManager, GenerationStart, GenerationUpdate, PreparedGeneration,
+            run_generation,
+        },
+        title::generate_title,
     },
     desktop::ui::{
         composer::{Composer, ComposerEvent, PickerDirection},
@@ -37,9 +42,10 @@ use crate::{
         stream::follow_after_scroll,
     },
     domain::{
-        AppSettings, AssistantResponse, ChatMessage, Conversation, MessageStatus, Model, Provider,
-        ProviderKind, RequestInfo, SystemPromptSource, Theme, Turn, active_turns, new_id,
-        now_timestamp, user_branches,
+        AppSettings, AssistantResponse, AutoTitleState, ChatMessage, Conversation,
+        DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, MessageStatus, Model, Provider, ProviderKind,
+        RequestInfo, SystemPromptSource, Theme, Turn, active_turns, new_id, now_timestamp,
+        user_branches,
     },
     markdown::MarkdownDocument,
     providers::{self, AvailableModel},
@@ -79,6 +85,69 @@ struct MessageEditor {
 struct CachedMarkdown {
     source: String,
     document: MarkdownDocument,
+}
+
+#[derive(Clone)]
+pub(crate) struct PendingTitleTransition {
+    pub(crate) old_title: String,
+    pub(crate) new_title: String,
+}
+
+pub(crate) struct TitleTransition {
+    old_graphemes: Vec<String>,
+    new_graphemes: Vec<String>,
+    new_title: String,
+    started_at: Instant,
+}
+
+impl TitleTransition {
+    pub(crate) fn new(old_title: &str, new_title: &str) -> Self {
+        Self {
+            old_graphemes: old_title.graphemes(true).map(str::to_string).collect(),
+            new_graphemes: new_title.graphemes(true).map(str::to_string).collect(),
+            new_title: new_title.to_string(),
+            started_at: Instant::now(),
+        }
+    }
+
+    pub(crate) fn frame(&self) -> (String, bool) {
+        self.frame_at(self.started_at.elapsed())
+    }
+
+    fn frame_at(&self, elapsed: Duration) -> (String, bool) {
+        const CHARACTER_INTERVAL_MS: u128 = 30;
+        let step = elapsed.as_millis() / CHARACTER_INTERVAL_MS;
+        let step = usize::try_from(step).unwrap_or(usize::MAX);
+        if step < self.old_graphemes.len() {
+            return (
+                self.old_graphemes[..self.old_graphemes.len() - step].concat(),
+                false,
+            );
+        }
+
+        let written = (step - self.old_graphemes.len()).min(self.new_graphemes.len());
+        (
+            self.new_graphemes[..written].concat(),
+            written == self.new_graphemes.len(),
+        )
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum DefaultModelRole {
+    Primary,
+    TitleGeneration,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SettingsPromptKind {
+    ConversationDefault,
+    TitleGeneration,
+}
+
+pub(crate) struct SettingsPromptEditor {
+    pub(crate) kind: SettingsPromptKind,
+    pub(crate) input: Entity<Composer>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -167,7 +236,7 @@ pub(crate) enum PendingFocus {
     ModelPicker,
     ConversationSearch,
     SystemPrompt,
-    DefaultSystemPrompt,
+    SettingsPrompt,
     MessageEditor,
     Composer,
 }
@@ -294,12 +363,14 @@ impl OneChat {
                 composer,
                 generations: GenerationManager::default(),
                 markdown_documents: HashMap::new(),
+                pending_title_transitions: HashMap::new(),
+                title_transitions: HashMap::new(),
             },
             settings_ui: SettingsState {
                 section: SettingsSection::default(),
                 message_width_dragging: false,
-                default_model_menu_open: false,
-                default_system_prompt_editor: None,
+                default_model_menu: None,
+                prompt_editor: None,
                 connection_tests: BTreeMap::new(),
                 provider_editor: None,
                 model_editor: None,
@@ -335,6 +406,29 @@ impl Render for OneChat {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn title_transition_deletes_before_typing() {
+        let transition = TitleTransition::new("AB", "XYZ");
+
+        assert_eq!(transition.frame_at(Duration::ZERO), ("AB".into(), false));
+        assert_eq!(
+            transition.frame_at(Duration::from_millis(30)),
+            ("A".into(), false)
+        );
+        assert_eq!(
+            transition.frame_at(Duration::from_millis(60)),
+            (String::new(), false)
+        );
+        assert_eq!(
+            transition.frame_at(Duration::from_millis(90)),
+            ("X".into(), false)
+        );
+        assert_eq!(
+            transition.frame_at(Duration::from_millis(150)),
+            ("XYZ".into(), true)
+        );
+    }
 
     #[test]
     fn palette_filtering_uses_labels_and_keywords() {

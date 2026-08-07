@@ -26,6 +26,13 @@ impl OneChat {
         cx.notify();
     }
 
+    pub(crate) fn toggle_auto_title_enabled(&mut self, cx: &mut Context<Self>) {
+        self.data.snapshot.settings.auto_title_enabled =
+            !self.data.snapshot.settings.auto_title_enabled;
+        self.save_settings(cx);
+        cx.notify();
+    }
+
     pub(crate) fn select_settings_section(
         &mut self,
         section: SettingsSection,
@@ -35,41 +42,136 @@ impl OneChat {
             return;
         }
         self.settings_ui.section = section;
-        self.settings_ui.default_model_menu_open = false;
+        self.settings_ui.default_model_menu = None;
         self.settings_ui.provider_editor = None;
         self.settings_ui.model_editor = None;
-        self.settings_ui.default_system_prompt_editor = None;
+        self.settings_ui.prompt_editor = None;
         self.settings_ui.form_error = None;
         cx.notify();
     }
 
-    pub(crate) fn toggle_primary_model_menu(&mut self, cx: &mut Context<Self>) {
-        self.settings_ui.default_model_menu_open = !self.settings_ui.default_model_menu_open;
+    pub(crate) fn toggle_default_model_menu(
+        &mut self,
+        role: DefaultModelRole,
+        cx: &mut Context<Self>,
+    ) {
+        self.settings_ui.default_model_menu =
+            (self.settings_ui.default_model_menu != Some(role)).then_some(role);
         cx.notify();
     }
 
-    pub(crate) fn select_primary_model(&mut self, model_id: String, cx: &mut Context<Self>) {
-        let Some(model) = self
-            .data
-            .snapshot
-            .models
-            .iter()
-            .find(|model| model.id == model_id)
-        else {
-            return;
-        };
-        if let Err(reason) = self.model_availability(model) {
-            self.data.error = Some(format!("Model is unavailable: {reason}."));
-            cx.notify();
+    pub(crate) fn select_default_model(
+        &mut self,
+        role: DefaultModelRole,
+        model_id: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(model_id) = model_id.as_deref() {
+            let Some(model) = self
+                .data
+                .snapshot
+                .models
+                .iter()
+                .find(|model| model.id == model_id)
+            else {
+                return;
+            };
+            if let Err(reason) = self.model_availability(model) {
+                self.data.error = Some(format!("Model is unavailable: {reason}."));
+                cx.notify();
+                return;
+            }
+        } else if role == DefaultModelRole::Primary {
             return;
         }
 
-        self.settings_ui.default_model_menu_open = false;
-        if self.data.snapshot.settings.primary_model_id.as_deref() == Some(&model_id) {
+        self.settings_ui.default_model_menu = None;
+        let stored_id = match role {
+            DefaultModelRole::Primary => &mut self.data.snapshot.settings.primary_model_id,
+            DefaultModelRole::TitleGeneration => {
+                &mut self.data.snapshot.settings.title_generation_model_id
+            }
+        };
+        if *stored_id == model_id {
             cx.notify();
             return;
         }
-        self.data.snapshot.settings.primary_model_id = Some(model_id);
+        *stored_id = model_id;
+        self.save_settings(cx);
+        cx.notify();
+    }
+
+    pub(crate) fn begin_edit_settings_prompt(
+        &mut self,
+        kind: SettingsPromptKind,
+        cx: &mut Context<Self>,
+    ) {
+        let (content, placeholder) = match kind {
+            SettingsPromptKind::ConversationDefault => (
+                self.data.snapshot.settings.default_system_prompt.clone(),
+                "Copied into each new conversation",
+            ),
+            SettingsPromptKind::TitleGeneration => (
+                self.data
+                    .snapshot
+                    .settings
+                    .title_generation_system_prompt
+                    .clone(),
+                "Used to generate automatic conversation titles",
+            ),
+        };
+        let input = cx.new(|cx| Composer::multiline(content, placeholder, cx));
+        cx.subscribe(&input, |this, _, event, cx| {
+            if matches!(event, ComposerEvent::Cancel) {
+                this.cancel_settings_prompt_edit(cx);
+            }
+        })
+        .detach();
+        self.settings_ui.prompt_editor = Some(SettingsPromptEditor { kind, input });
+        self.navigation.pending_focus = Some(PendingFocus::SettingsPrompt);
+        cx.notify();
+    }
+
+    pub(crate) fn cancel_settings_prompt_edit(&mut self, cx: &mut Context<Self>) {
+        self.settings_ui.prompt_editor = None;
+        cx.notify();
+    }
+
+    pub(crate) fn save_settings_prompt(&mut self, cx: &mut Context<Self>) {
+        let Some(editor) = self.settings_ui.prompt_editor.as_ref() else {
+            return;
+        };
+        let kind = editor.kind;
+        let content = editor.input.read(cx).text().trim().to_string();
+        if kind == SettingsPromptKind::TitleGeneration && content.is_empty() {
+            self.data.error = Some("The title generation prompt cannot be empty.".into());
+            cx.notify();
+            return;
+        }
+        match kind {
+            SettingsPromptKind::ConversationDefault => {
+                self.data.snapshot.settings.default_system_prompt = content;
+            }
+            SettingsPromptKind::TitleGeneration => {
+                self.data.snapshot.settings.title_generation_system_prompt = content;
+            }
+        }
+        self.settings_ui.prompt_editor = None;
+        self.save_settings(cx);
+        cx.notify();
+    }
+
+    pub(crate) fn reset_title_generation_prompt(&mut self, cx: &mut Context<Self>) {
+        self.data.snapshot.settings.title_generation_system_prompt =
+            DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT.into();
+        if self
+            .settings_ui
+            .prompt_editor
+            .as_ref()
+            .is_some_and(|editor| editor.kind == SettingsPromptKind::TitleGeneration)
+        {
+            self.settings_ui.prompt_editor = None;
+        }
         self.save_settings(cx);
         cx.notify();
     }
