@@ -6,7 +6,7 @@ mod render;
 
 use editor::{EditorState, range_from_utf16_in};
 use element::TextElement;
-use layout::{InputLayout, estimated_visual_lines, text_runs};
+use layout::{InputLayout, text_runs};
 
 use std::{cell::RefCell, ops::Range, rc::Rc};
 
@@ -156,9 +156,6 @@ pub struct Composer {
     read_only: bool,
     picker_navigation: bool,
     prominent: bool,
-    previous_visual_lines: usize,
-    visual_lines: usize,
-    height_revision: u64,
 }
 
 impl Composer {
@@ -197,7 +194,6 @@ impl Composer {
     ) -> Self {
         let text = text.into();
         let cursor = text.len();
-        let visual_lines = estimated_visual_lines(&text);
         Self {
             focus_handle: cx.focus_handle(),
             editor: EditorState {
@@ -216,9 +212,6 @@ impl Composer {
             read_only,
             picker_navigation,
             prominent: clear_on_submit,
-            previous_visual_lines: visual_lines,
-            visual_lines,
-            height_revision: 0,
         }
     }
 
@@ -228,14 +221,6 @@ impl Composer {
 
     pub fn text(&self) -> &str {
         &self.editor.text
-    }
-
-    pub fn height_transition(&self) -> (usize, usize, u64) {
-        (
-            self.previous_visual_lines,
-            self.visual_lines,
-            self.height_revision,
-        )
     }
 
     pub fn set_text(&mut self, text: impl Into<String>, cx: &mut Context<Self>) {
@@ -258,12 +243,6 @@ impl Composer {
     }
 
     fn changed(&mut self, cx: &mut Context<Self>) {
-        let visual_lines = estimated_visual_lines(&self.editor.text);
-        if visual_lines != self.visual_lines {
-            self.previous_visual_lines = self.visual_lines;
-            self.visual_lines = visual_lines;
-            self.height_revision = self.height_revision.wrapping_add(1);
-        }
         self.scroll_handle.scroll_to_bottom();
         cx.emit(ComposerEvent::Changed(self.editor.text.clone()));
         cx.notify();
@@ -512,14 +491,6 @@ impl Focusable for Composer {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn composer_height_estimate_is_bounded_and_tracks_wrapping() {
-        assert_eq!(estimated_visual_lines(""), 1);
-        assert_eq!(estimated_visual_lines("first\nsecond"), 2);
-        assert_eq!(estimated_visual_lines(&"x".repeat(73)), 2);
-        assert_eq!(estimated_visual_lines(&"x".repeat(1000)), 8);
-    }
 
     #[test]
     fn input_palette_keeps_background_contrasted_with_inherited_text() {

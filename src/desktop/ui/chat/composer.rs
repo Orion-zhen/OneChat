@@ -64,29 +64,12 @@ pub(super) fn render_composer(
             .into_any_element()
     };
 
-    let (previous_lines, visual_lines, height_revision) =
-        app.chat.composer.read(cx).height_transition();
-    let previous_height = 50.0 + (previous_lines.saturating_sub(1) as f32 * 24.0);
-    let target_height = 50.0 + (visual_lines.saturating_sub(1) as f32 * 24.0);
     let input = div()
         .relative()
         .min_w_0()
         .flex_1()
-        .flex()
-        .flex_col()
-        .justify_end()
-        .overflow_hidden()
-        .child(div().flex_none().w_full().child(app.chat.composer.clone()))
-        .child(action)
-        .with_animation(
-            SharedString::from(format!("composer-height-{height_revision}")),
-            Animation::new(Duration::from_millis(200)).with_easing(ease_out_quint()),
-            move |input, delta| {
-                input.opacity(0.86 + delta * 0.14).max_h(px(
-                    previous_height + (target_height - previous_height) * delta
-                ))
-            },
-        );
+        .child(app.chat.composer.clone())
+        .child(action);
 
     div()
         .flex_none()

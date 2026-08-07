@@ -1,12 +1,5 @@
 use super::*;
 
-pub(super) fn estimated_visual_lines(text: &str) -> usize {
-    text.split('\n')
-        .map(|line| line.chars().count().div_ceil(72).max(1))
-        .sum::<usize>()
-        .clamp(1, 8)
-}
-
 pub(super) fn text_runs(base: TextRun, marked_range: Option<Range<usize>>) -> Vec<TextRun> {
     let Some(marked) = marked_range else {
         return vec![base];

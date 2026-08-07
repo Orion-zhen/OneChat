@@ -66,7 +66,7 @@ impl Render for Composer {
                     .max_h(if self.single_line {
                         px(24.0)
                     } else {
-                        px(196.0)
+                        px(192.0)
                     })
                     .overflow_y_scroll()
                     .track_scroll(&self.scroll_handle)
