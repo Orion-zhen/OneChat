@@ -26,19 +26,19 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     application::generation::{
-        GenerationManager, GenerationUpdate, PreparedGeneration, run_generation,
+        GenerationManager, GenerationStart, GenerationUpdate, PreparedGeneration, run_generation,
     },
     desktop::ui::{
         composer::{Composer, ComposerEvent, PickerDirection},
-        inspector::{GenerationConfigEditor, InspectorTab},
+        inspector::{GenerationConfigEditor, GenerationParameter, InspectorTab},
         selectable_text::TextSelection,
         settings::{Capability, ModelEditor, ProviderEditor, SettingsSection},
         shell,
         stream::follow_after_scroll,
     },
     domain::{
-        AppSettings, Conversation, Message, MessageRole, Model, Provider, ProviderKind,
-        RequestInfo, SystemPromptSource, Theme, now_timestamp,
+        AppSettings, AssistantResponse, ChatMessage, Conversation, MessageStatus, Model, Provider,
+        ProviderKind, RequestInfo, SystemPromptSource, Theme, Turn, now_timestamp,
     },
     markdown::MarkdownDocument,
     providers::{self, AvailableModel},
@@ -258,6 +258,7 @@ impl OneChat {
                 command_selection: 0,
                 command_scroll: ScrollHandle::new(),
                 model_picker_open: false,
+                response_model_turn_id: None,
                 destructive_action: None,
                 model_query: String::new(),
                 model_search_input,
@@ -267,8 +268,9 @@ impl OneChat {
             chat: ChatState {
                 draft_model_id: None,
                 selected_request_id: None,
+                visible_response_ids: HashMap::new(),
                 expanded_error_ids: HashSet::new(),
-                collapsed_thinking_ids: HashSet::new(),
+                thinking_expansion_overrides: HashSet::new(),
                 message_editor: None,
                 message_scroll: ScrollHandle::new(),
                 text_selection,
@@ -279,6 +281,7 @@ impl OneChat {
                 system_prompt_mode: SystemPromptMode::default(),
                 system_prompt_editor: None,
                 generation_config_editor: None,
+                generation_config_save_revision: 0,
                 parameter_error: None,
                 composer,
                 generations: GenerationManager::default(),

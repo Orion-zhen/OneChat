@@ -141,7 +141,8 @@ pub struct RequestError {
 pub struct RequestInfo {
     pub id: String,
     pub conversation_id: String,
-    pub assistant_message_id: String,
+    pub turn_id: String,
+    pub response_id: String,
     pub provider_id: Option<String>,
     pub model_id: Option<String>,
     pub status: RequestStatus,
@@ -158,12 +159,14 @@ pub struct RequestInfo {
 impl RequestInfo {
     pub fn new(
         conversation_id: impl Into<String>,
-        assistant_message_id: impl Into<String>,
+        turn_id: impl Into<String>,
+        response_id: impl Into<String>,
     ) -> Self {
         Self {
             id: new_id("request"),
             conversation_id: conversation_id.into(),
-            assistant_message_id: assistant_message_id.into(),
+            turn_id: turn_id.into(),
+            response_id: response_id.into(),
             provider_id: None,
             model_id: None,
             status: RequestStatus::Sending,

@@ -140,7 +140,10 @@ pub(super) fn render_model_picker(
     colors: Colors,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    let current_model_id = app.selected_model().map(|model| model.id.as_str());
+    let adding_response = app.overlays.response_model_turn_id.is_some();
+    let current_model_id = (!adding_response)
+        .then(|| app.selected_model().map(|model| model.id.as_str()))
+        .flatten();
     let filtered_models = app.filtered_models();
     let mut models = div()
         .id("model-picker-list")
@@ -155,7 +158,14 @@ pub(super) fn render_model_picker(
     if app.data.snapshot.models.is_empty() {
         models = models.child(notice_row("No models configured.", colors));
     } else if filtered_models.is_empty() {
-        models = models.child(notice_row("No models match this search.", colors));
+        models = models.child(notice_row(
+            if adding_response && app.overlays.model_query.trim().is_empty() {
+                "No other models are available."
+            } else {
+                "No models match this search."
+            },
+            colors,
+        ));
     } else {
         for (index, model) in filtered_models.into_iter().enumerate() {
             let provider = app
@@ -266,12 +276,13 @@ pub(super) fn render_model_picker(
                 .flex()
                 .items_center()
                 .justify_between()
-                .child(
-                    div()
-                        .text_lg()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child("Choose Model"),
-                )
+                .child(div().text_lg().font_weight(FontWeight::SEMIBOLD).child(
+                    if adding_response {
+                        "Choose another model"
+                    } else {
+                        "Choose Model"
+                    },
+                ))
                 .child(
                     icon_button("close-model-picker", "×", colors)
                         .on_click(cx.listener(|this, _, _, cx| this.close_model_picker(cx))),

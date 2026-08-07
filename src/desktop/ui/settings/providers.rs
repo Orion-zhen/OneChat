@@ -46,7 +46,6 @@ pub(super) fn provider_page(
 ) -> AnyElement {
     let (status, status_color) = provider_status(app, provider, colors);
     let provider_id = provider.id.clone();
-    let toggle_id = provider.id.clone();
     let edit_id = provider.id.clone();
     let testing = matches!(
         app.settings_ui.connection_tests.get(&provider.id),
@@ -86,41 +85,6 @@ pub(super) fn provider_page(
                     .flex()
                     .items_center()
                     .gap_2()
-                    .child(
-                        div()
-                            .id(SharedString::from(format!(
-                                "toggle-provider-{}",
-                                provider.id
-                            )))
-                            .w(px(32.0))
-                            .h(px(18.0))
-                            .p(px(2.0))
-                            .rounded_full()
-                            .border_1()
-                            .border_color(if provider.enabled {
-                                colors.accent
-                            } else {
-                                colors.border
-                            })
-                            .bg(if provider.enabled {
-                                colors.accent
-                            } else {
-                                colors.raised
-                            })
-                            .flex()
-                            .items_center()
-                            .when(provider.enabled, |element| element.justify_end())
-                            .cursor_pointer()
-                            .hover(|style| style.opacity(0.8))
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.toggle_provider_enabled(toggle_id.clone(), cx)
-                            }))
-                            .child(div().size(px(12.0)).rounded_full().bg(if provider.enabled {
-                                colors.on_accent
-                            } else {
-                                colors.muted
-                            })),
-                    )
                     .child(
                         button(
                             SharedString::from(format!("test-provider-{}", provider.id)),

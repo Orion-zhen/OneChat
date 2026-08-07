@@ -113,6 +113,61 @@ impl OneChat {
         cx.notify();
     }
 
+    pub(crate) fn toggle_generation_parameter_menu(&mut self, cx: &mut Context<Self>) {
+        if let Some(editor) = &mut self.chat.generation_config_editor {
+            editor.toggle_menu();
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn add_generation_parameter(
+        &mut self,
+        parameter: GenerationParameter,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(editor) = &mut self.chat.generation_config_editor {
+            editor.add(parameter);
+            self.chat.parameter_error = None;
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn remove_generation_parameter(
+        &mut self,
+        parameter: GenerationParameter,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(editor) = &mut self.chat.generation_config_editor {
+            editor.remove(parameter, cx);
+            self.schedule_generation_config_save(cx);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn schedule_generation_config_save(&mut self, cx: &mut Context<Self>) {
+        let Some(conversation_id) = self.current_conversation().map(|value| value.id.clone())
+        else {
+            return;
+        };
+        self.chat.generation_config_save_revision =
+            self.chat.generation_config_save_revision.wrapping_add(1);
+        let revision = self.chat.generation_config_save_revision;
+        let timer = cx.background_executor().timer(Duration::from_millis(350));
+        cx.spawn(async move |this, cx| {
+            timer.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.chat.generation_config_save_revision == revision
+                    && this
+                        .current_conversation()
+                        .is_some_and(|conversation| conversation.id == conversation_id)
+                {
+                    this.save_generation_config(cx);
+                }
+            });
+        })
+        .detach();
+    }
+
     pub(crate) fn save_generation_config(&mut self, cx: &mut Context<Self>) {
         let Some(mut conversation) = self.current_conversation().cloned() else {
             return;

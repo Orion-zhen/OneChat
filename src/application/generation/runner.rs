@@ -7,7 +7,7 @@ use async_channel::Sender;
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    domain::{Message, RequestInfo},
+    domain::{AssistantResponse, RequestInfo},
     providers,
     storage::{Storage, StorageError},
 };
@@ -18,7 +18,7 @@ pub const UI_FLUSH_INTERVAL: Duration = Duration::from_millis(40);
 pub const STORAGE_FLUSH_INTERVAL: Duration = Duration::from_millis(320);
 
 pub struct GenerationSnapshot {
-    pub assistant: Message,
+    pub response: AssistantResponse,
     pub request: RequestInfo,
     pub terminal: bool,
     pub thinking_finished: bool,
@@ -42,7 +42,7 @@ pub async fn run_generation(
         cancellation,
     ));
 
-    let mut assistant = prepared.assistant;
+    let mut response = prepared.response;
     let mut request = prepared.request_info;
     let started = Instant::now();
     let mut last_storage_flush = Instant::now();
@@ -63,14 +63,14 @@ pub async fn run_generation(
 
         let mut thinking_finished = false;
         for event in events {
-            let outcome = apply_event(event, &mut assistant, &mut request, started.elapsed());
+            let outcome = apply_event(event, &mut response, &mut request, started.elapsed());
             terminal |= outcome.terminal;
             thinking_finished |= outcome.thinking_finished;
         }
 
         if terminal || last_storage_flush.elapsed() >= STORAGE_FLUSH_INTERVAL {
             let storage = storage.clone();
-            let saved_assistant = assistant.clone();
+            let saved_assistant = response.clone();
             let saved_request = request.clone();
             let result = tokio::task::spawn_blocking(move || {
                 storage.persist_generation(&saved_assistant, &saved_request)
@@ -105,7 +105,7 @@ pub async fn run_generation(
 
         if updates
             .send(GenerationUpdate::Snapshot(Box::new(GenerationSnapshot {
-                assistant: assistant.clone(),
+                response: response.clone(),
                 request: request.clone(),
                 terminal,
                 thinking_finished,

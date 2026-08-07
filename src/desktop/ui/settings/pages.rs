@@ -220,32 +220,39 @@ fn primary_model_select(
 pub(super) fn system_prompts_page(
     app: &OneChat,
     colors: Colors,
+    scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
+    let edit_actions = div()
+        .flex()
+        .justify_end()
+        .gap_2()
+        .child(
+            large_svg_icon_button(
+                "cancel-default-system-prompt",
+                UiIcon::Close,
+                IconTone::Muted,
+                colors,
+                scale_factor,
+            )
+            .on_click(cx.listener(|this, _, _, cx| this.cancel_default_system_prompt_edit(cx))),
+        )
+        .child(
+            primary_svg_icon_button(
+                "save-default-system-prompt",
+                UiIcon::Save,
+                colors,
+                scale_factor,
+            )
+            .on_click(cx.listener(|this, _, _, cx| this.save_default_system_prompt(cx))),
+        );
     let content = if let Some(editor) = &app.settings_ui.default_system_prompt_editor {
         div()
             .flex()
             .flex_col()
             .gap_4()
             .child(editor.clone())
-            .child(
-                div()
-                    .flex()
-                    .justify_end()
-                    .gap_2()
-                    .child(
-                        button("cancel-default-system-prompt", "Cancel", colors).on_click(
-                            cx.listener(|this, _, _, cx| {
-                                this.cancel_default_system_prompt_edit(cx)
-                            }),
-                        ),
-                    )
-                    .child(
-                        primary_button("save-default-system-prompt", "Save", colors).on_click(
-                            cx.listener(|this, _, _, cx| this.save_default_system_prompt(cx)),
-                        ),
-                    ),
-            )
+            .child(edit_actions)
             .into_any_element()
     } else {
         let prompt = app.data.snapshot.settings.default_system_prompt.trim();

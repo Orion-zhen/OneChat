@@ -3,7 +3,7 @@ mod message;
 mod system_prompt;
 
 use composer::render_composer;
-use message::render_message;
+use message::render_turn;
 use system_prompt::render_system_prompt_card;
 
 #[cfg(test)]
@@ -20,17 +20,16 @@ use gpui::{
 
 use super::{
     components::{
-        IconTone, UiIcon, button, compact_button, destructive_icon_button, primary_button,
-        primary_icon_button, svg_icon_button,
+        IconTone, UiIcon, button, compact_button, large_svg_icon_button, primary_button,
+        primary_svg_icon_button, svg_icon, svg_icon_button,
     },
-    inspector::InspectorTab,
     markdown,
     selectable_text::{SelectableText, selection_color},
     theme::Colors,
 };
 use crate::{
     desktop::app::{COLLAPSED_THINKING_HEIGHT, OneChat, SystemPromptMode},
-    domain::{Message, MessageRole, MessageStatus, RequestInfo, SystemPromptSource},
+    domain::{AssistantResponse, MessageStatus, RequestInfo, SystemPromptSource, Turn},
 };
 
 pub(crate) fn render(
@@ -76,14 +75,14 @@ pub(crate) fn render(
         .pb_6()
         .children(
             (has_system_prompt || editing_system_prompt)
-                .then(|| render_system_prompt_card(app, colors, cx)),
+                .then(|| render_system_prompt_card(app, colors, scale_factor, cx)),
         );
 
-    if app.current_messages().is_empty() {
+    if app.current_turns().is_empty() {
         messages = messages.child(render_empty_conversation(app, colors, cx));
     } else {
-        for message in app.current_messages() {
-            messages = messages.child(render_message(app, message, colors, scale_factor, cx));
+        for turn in app.current_turns() {
+            messages = messages.child(render_turn(app, turn, colors, scale_factor, cx));
         }
     }
 
@@ -156,13 +155,7 @@ pub(crate) fn render(
         .flex()
         .flex_col()
         .child(message_area)
-        .child(render_composer(
-            app,
-            has_system_prompt,
-            editing_system_prompt,
-            colors,
-            cx,
-        ))
+        .child(render_composer(app, colors, scale_factor, cx))
         .into_any_element()
 }
 
@@ -241,7 +234,7 @@ mod tests {
 
     #[test]
     fn message_stats_show_output_speed_and_ttft() {
-        let mut request = RequestInfo::new("conversation", "message");
+        let mut request = RequestInfo::new("conversation", "turn", "response");
         request.usage.output_tokens = Some(120);
         request.ttft_ms = Some(250);
         request.duration_ms = Some(2_250);
@@ -254,7 +247,7 @@ mod tests {
 
     #[test]
     fn message_stats_mark_estimated_tokens_and_omit_unavailable_values() {
-        let mut request = RequestInfo::new("conversation", "message");
+        let mut request = RequestInfo::new("conversation", "turn", "response");
         request.usage.output_tokens = Some(12);
         request.usage.estimated = true;
 

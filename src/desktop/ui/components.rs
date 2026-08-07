@@ -112,71 +112,6 @@ pub(crate) fn compact_button(
         .child(label.into())
 }
 
-pub(crate) fn primary_icon_button(
-    id: impl Into<ElementId>,
-    label: impl Into<SharedString>,
-    colors: Colors,
-) -> Stateful<Div> {
-    div()
-        .id(id)
-        .size(px(32.0))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded_full()
-        .bg(colors.accent)
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(colors.on_accent)
-        .cursor_pointer()
-        .hover(move |style| {
-            style.bg(if colors.dark {
-                rgb(0x2693ff)
-            } else {
-                rgb(0x1683ff)
-            })
-        })
-        .active(move |style| {
-            style.bg(if colors.dark {
-                rgb(0x0068d6)
-            } else {
-                rgb(0x006ee6)
-            })
-        })
-        .child(label.into())
-}
-
-pub(crate) fn destructive_icon_button(
-    id: impl Into<ElementId>,
-    label: impl Into<SharedString>,
-    colors: Colors,
-) -> Stateful<Div> {
-    div()
-        .id(id)
-        .size(px(32.0))
-        .flex()
-        .items_center()
-        .justify_center()
-        .rounded_full()
-        .bg(colors.danger)
-        .text_color(colors.on_accent)
-        .cursor_pointer()
-        .hover(move |style| {
-            style.bg(if colors.dark {
-                rgb(0xff6259)
-            } else {
-                rgb(0xe31b2e)
-            })
-        })
-        .active(move |style| {
-            style.bg(if colors.dark {
-                rgb(0xd92f27)
-            } else {
-                rgb(0xb80012)
-            })
-        })
-        .child(label.into())
-}
-
 #[derive(Clone, Copy)]
 pub(crate) enum UiIcon {
     Copy,
@@ -184,13 +119,18 @@ pub(crate) enum UiIcon {
     Regenerate,
     Info,
     Pin,
+    Save,
     Close,
     Settings,
     Menu,
     Plus,
+    At,
+    Context,
     ChevronLeft,
     ChevronDown,
     ChevronUp,
+    ArrowUp,
+    Stop,
 }
 
 #[derive(Clone, Copy)]
@@ -328,19 +268,32 @@ fn svg_icon_at_size(icon: UiIcon, color: &str, scale_factor: f32, size: f32) -> 
         UiIcon::Pin => {
             r#"<path d="M12 17v5"/><path d="M5 17h14"/><path d="M6 17h12l-1-5 2-2V8H5v2l2 2Z"/><path d="M9 8V2h6v6"/>"#
         }
+        UiIcon::Save => {
+            r#"<path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/>"#
+        }
         UiIcon::Close => r#"<path d="M18 6 6 18"/><path d="m6 6 12 12"/>"#,
         UiIcon::Settings => {
             r#"<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/>"#
         }
         UiIcon::Menu => r#"<path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/>"#,
         UiIcon::Plus => r#"<path d="M12 3v18"/><path d="M3 12h18"/>"#,
+        UiIcon::At => {
+            r#"<circle cx="12" cy="12" r="4"/><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/>"#
+        }
+        UiIcon::Context => {
+            r#"<circle cx="11" cy="12.25" r="8"/><path d="m7 12.25 3.5 3.5L20.5 3.75"/>"#
+        }
         UiIcon::ChevronLeft => r#"<path d="m16 20-8-8 8-8"/>"#,
         UiIcon::ChevronDown => r#"<path d="m6 9 6 6 6-6"/>"#,
         UiIcon::ChevronUp => r#"<path d="m18 15-6-6-6 6"/>"#,
+        UiIcon::ArrowUp => r#"<path d="M12 19V5"/><path d="m5 12 7-7 7 7"/>"#,
+        UiIcon::Stop => {
+            r#"<rect width="10" height="10" x="7" y="7" rx="1.5" fill="currentColor" stroke="none"/>"#
+        }
     };
     let physical_size = (size * scale_factor.max(1.0)).round() as u32;
     format!(
-        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{physical_size}" height="{physical_size}" viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" shape-rendering="geometricPrecision">{paths}</svg>"#
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="{physical_size}" height="{physical_size}" viewBox="0 0 24 24" color="{color}" fill="none" stroke="{color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" shape-rendering="geometricPrecision">{paths}</svg>"#
     )
 }
 

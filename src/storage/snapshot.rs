@@ -29,21 +29,20 @@ impl Storage {
             self.write_settings(&settings)?;
         }
 
-        let (current_messages, current_requests) = settings
+        let (current_turns, current_requests) = settings
             .app
             .current_conversation_id
             .as_deref()
             .and_then(|id| files.iter().find(|file| file.conversation.id == id))
             .map(|file| {
-                let mut messages = file.messages.clone();
-                messages.sort_by(|a, b| (a.created_at, &a.id).cmp(&(b.created_at, &b.id)));
+                let turns = file.turns.clone();
                 let mut requests = file.requests.clone();
                 requests.sort_by(|a, b| {
                     b.started_at
                         .cmp(&a.started_at)
                         .then_with(|| b.id.cmp(&a.id))
                 });
-                (messages, requests)
+                (turns, requests)
             })
             .unwrap_or_default();
 
@@ -76,7 +75,7 @@ impl Storage {
             providers,
             models,
             conversations,
-            current_messages,
+            current_turns,
             current_requests,
             settings: settings.app,
         })
@@ -85,12 +84,12 @@ impl Storage {
     pub(super) fn recover_interrupted_locked(&self) -> Result<()> {
         for mut file in self.read_conversations()? {
             let mut changed = false;
-            for message in &mut file.messages {
+            for response in file.turns.iter_mut().flat_map(|turn| &mut turn.responses) {
                 if matches!(
-                    message.status,
+                    response.status,
                     MessageStatus::Pending | MessageStatus::Streaming
                 ) {
-                    message.status = MessageStatus::Interrupted;
+                    response.status = MessageStatus::Interrupted;
                     changed = true;
                 }
             }

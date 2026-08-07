@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use crate::domain::{
-    GenerationError, GenerationErrorKind, GenerationEvent, Message, MessageStatus, RequestError,
-    RequestInfo, RequestStatus, now_timestamp,
+    AssistantResponse, GenerationError, GenerationErrorKind, GenerationEvent, MessageStatus,
+    RequestError, RequestInfo, RequestStatus, now_timestamp,
 };
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -13,7 +13,7 @@ pub struct EventOutcome {
 
 pub fn apply_event(
     event: GenerationEvent,
-    assistant: &mut Message,
+    assistant: &mut AssistantResponse,
     request: &mut RequestInfo,
     elapsed: Duration,
 ) -> EventOutcome {
@@ -97,7 +97,11 @@ fn mark_first_token(request: &mut RequestInfo, elapsed: Duration) {
     request.status = RequestStatus::Streaming;
 }
 
-fn finish_thinking(assistant: &Message, request: &mut RequestInfo, elapsed: Duration) -> bool {
+fn finish_thinking(
+    assistant: &AssistantResponse,
+    request: &mut RequestInfo,
+    elapsed: Duration,
+) -> bool {
     if assistant.thinking.is_empty() || request.thinking_duration_ms.is_some() {
         return false;
     }
@@ -111,7 +115,7 @@ fn finish_request(request: &mut RequestInfo, status: RequestStatus, elapsed: Dur
     request.duration_ms = Some(elapsed.as_millis() as u64);
 }
 
-fn estimate_output_usage(assistant: &Message, request: &mut RequestInfo) {
+fn estimate_output_usage(assistant: &AssistantResponse, request: &mut RequestInfo) {
     if request.usage.output_tokens.is_none() {
         request.usage.output_tokens = Some(estimate_tokens(
             assistant.content.chars().count() + assistant.thinking.chars().count(),

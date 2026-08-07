@@ -3,6 +3,7 @@ use super::*;
 pub(super) fn render_destructive_confirmation(
     action: &DestructiveAction,
     colors: Colors,
+    scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let (title, detail, confirm_label) = match action {
@@ -81,8 +82,14 @@ pub(super) fn render_destructive_confirmation(
                 .justify_end()
                 .gap_2()
                 .child(
-                    button("cancel-destructive-action", "Cancel", colors)
-                        .on_click(cx.listener(|this, _, _, cx| this.cancel_destructive_action(cx))),
+                    svg_icon_button(
+                        "cancel-destructive-action",
+                        UiIcon::Close,
+                        IconTone::Muted,
+                        colors,
+                        scale_factor,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.cancel_destructive_action(cx))),
                 )
                 .child(
                     destructive_button("confirm-destructive-action", confirm_label, colors)

@@ -1,27 +1,48 @@
 use super::*;
 use crate::desktop::ui::stream::should_capture_nested_scroll;
 
-pub(super) fn render_message(
+pub(super) fn render_turn(
     app: &OneChat,
-    message: &Message,
+    turn: &Turn,
     colors: Colors,
     scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    match message.role {
-        MessageRole::User => render_user_message(app, message, colors),
-        MessageRole::Assistant => render_assistant_message(app, message, colors, scale_factor, cx),
-    }
+    let response = app.visible_response(turn);
+    div()
+        .w_full()
+        .child(render_user_message(app, turn, colors, scale_factor, cx))
+        .children(response.map(|response| {
+            render_assistant_message(app, turn, response, colors, scale_factor, cx)
+        }))
+        .into_any_element()
 }
 
-fn render_user_message(app: &OneChat, message: &Message, colors: Colors) -> AnyElement {
+fn render_user_message(
+    app: &OneChat,
+    turn: &Turn,
+    colors: Colors,
+    scale_factor: f32,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    let can_add_response = !app.is_current_generating()
+        && turn.responses.len() < 4
+        && app.data.snapshot.models.iter().any(|model| {
+            app.model_availability(model).is_ok()
+                && !turn
+                    .responses
+                    .iter()
+                    .any(|response| response.model_id == model.id)
+        });
+    let turn_id = turn.id.clone();
     div()
         .mx_auto()
         .mb_7()
         .w_full()
         .max_w(px(780.0))
         .flex()
-        .justify_end()
+        .flex_col()
+        .items_end()
         .child(
             div()
                 .max_w(px(590.0))
@@ -33,23 +54,38 @@ fn render_user_message(app: &OneChat, message: &Message, colors: Colors) -> AnyE
                 .whitespace_normal()
                 .line_height(px(23.0))
                 .child(SelectableText::new(
-                    SharedString::from(format!("user-message-content-{}", message.id)),
-                    message.content.clone(),
+                    SharedString::from(format!("user-message-content-{}", turn.user.id)),
+                    turn.user.content.clone(),
                     app.chat.text_selection.clone(),
                     rgba(0x00000038),
                 )),
         )
+        .children(can_add_response.then(|| {
+            svg_icon_button(
+                SharedString::from(format!("add-response-{}", turn.id)),
+                UiIcon::At,
+                IconTone::Muted,
+                colors,
+                scale_factor,
+            )
+            .mt_1()
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.open_response_model_picker(turn_id.clone(), cx)
+            }))
+        }))
         .into_any_element()
 }
 
 fn render_assistant_message(
     app: &OneChat,
-    message: &Message,
+    turn: &Turn,
+    message: &AssistantResponse,
     colors: Colors,
     scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    let request = app.request_for_message(message);
+    let request = app.request_for_response(message);
+    let assistant_label = format!("{} · {}", message.model_name, message.provider_name);
     let waiting = message.content.is_empty()
         && matches!(
             message.status,
@@ -75,18 +111,21 @@ fn render_assistant_message(
                     .justify_end()
                     .gap_2()
                     .child(
-                        button(
+                        large_svg_icon_button(
                             SharedString::from(format!("cancel-edit-message-{}", message.id)),
-                            "Cancel",
+                            UiIcon::Close,
+                            IconTone::Muted,
                             colors,
+                            scale_factor,
                         )
                         .on_click(cx.listener(|this, _, _, cx| this.cancel_assistant_edit(cx))),
                     )
                     .child(
-                        primary_button(
+                        primary_svg_icon_button(
                             SharedString::from(format!("save-edit-message-{}", message.id)),
-                            "Save",
+                            UiIcon::Save,
                             colors,
+                            scale_factor,
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.save_assistant_edit(save_id.clone(), cx)
@@ -124,7 +163,7 @@ fn render_assistant_message(
         )
     };
 
-    let latest = app.is_latest_assistant(&message.id);
+    let latest = app.is_latest_turn(&turn.id);
     let generating = app.is_current_generating();
     let copy_id = message.id.clone();
     let edit_id = message.id.clone();
@@ -143,7 +182,7 @@ fn render_assistant_message(
             .on_click(cx.listener(move |this, _, _, cx| this.copy_assistant(copy_id.clone(), cx))),
         );
     }
-    if !generating && (!editing_any || editing) {
+    if latest && !generating && (!editing_any || editing) {
         actions = actions.child(
             svg_icon_button(
                 SharedString::from(format!("edit-message-{}", message.id)),
@@ -197,9 +236,112 @@ fn render_assistant_message(
                 })),
             );
     }
+    if latest
+        && !generating
+        && message.status == MessageStatus::Completed
+        && !message.content.is_empty()
+        && turn.continuation_response_id.as_deref() != Some(&message.id)
+    {
+        let context_turn_id = turn.id.clone();
+        let context_response_id = message.id.clone();
+        actions = actions.child(
+            svg_icon_button(
+                SharedString::from(format!("use-response-context-{}", message.id)),
+                UiIcon::Context,
+                IconTone::Muted,
+                colors,
+                scale_factor,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.use_response_for_context(
+                    context_turn_id.clone(),
+                    context_response_id.clone(),
+                    cx,
+                )
+            })),
+        );
+    }
 
+    let header = if turn.responses.len() > 1 {
+        let mut tabs = div().mb_3().flex().flex_wrap().items_center().gap_1();
+        for response in &turn.responses {
+            let selected = response.id == message.id;
+            let context = turn.continuation_response_id.as_deref() == Some(&response.id);
+            let status = match response.status {
+                MessageStatus::Pending | MessageStatus::Streaming => "  ·  …",
+                MessageStatus::Failed | MessageStatus::Interrupted => "  ·  !",
+                MessageStatus::Stopped => "  ·  ■",
+                MessageStatus::Completed => "",
+            };
+            let label = format!("{}{}", response.model_name, status);
+            let tab_turn_id = turn.id.clone();
+            let tab_response_id = response.id.clone();
+            tabs = tabs.child(
+                compact_button(
+                    SharedString::from(format!("response-tab-{}", response.id)),
+                    label,
+                    colors,
+                )
+                .flex()
+                .items_center()
+                .gap_1()
+                .children(context.then(|| {
+                    svg_icon(
+                        UiIcon::Context,
+                        IconTone::Accent,
+                        colors,
+                        scale_factor,
+                        13.0,
+                    )
+                }))
+                .bg(if selected {
+                    colors.accent_soft
+                } else {
+                    rgba(0x00000000)
+                })
+                .text_color(if selected {
+                    colors.accent
+                } else {
+                    colors.muted
+                })
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.show_response(tab_turn_id.clone(), tab_response_id.clone(), cx)
+                })),
+            );
+        }
+        tabs.into_any_element()
+    } else {
+        div()
+            .mb_3()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(
+                div()
+                    .size(px(24.0))
+                    .rounded_lg()
+                    .bg(colors.accent_soft)
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .text_size(px(11.0))
+                    .text_color(colors.accent)
+                    .child("✦"),
+            )
+            .child(
+                div()
+                    .text_size(px(12.0))
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(colors.muted)
+                    .child(assistant_label),
+            )
+            .children(
+                (!matches!(message.status, MessageStatus::Completed))
+                    .then(|| status_badge(message.status, colors)),
+            )
+            .into_any_element()
+    };
     let stats = request.map(format_message_stats).unwrap_or_default();
-    let show_status = !matches!(message.status, MessageStatus::Completed);
     div()
         .id(SharedString::from(format!(
             "assistant-message-{}",
@@ -209,33 +351,7 @@ fn render_assistant_message(
         .mb_8()
         .w_full()
         .max_w(px(780.0))
-        .child(
-            div()
-                .mb_3()
-                .flex()
-                .items_center()
-                .gap_2()
-                .child(
-                    div()
-                        .size(px(24.0))
-                        .rounded_lg()
-                        .bg(colors.accent_soft)
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_size(px(11.0))
-                        .text_color(colors.accent)
-                        .child("✦"),
-                )
-                .child(
-                    div()
-                        .text_size(px(12.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(colors.muted)
-                        .child("OneChat"),
-                )
-                .children(show_status.then(|| status_badge(message.status, colors))),
-        )
+        .child(header)
         .children(render_reasoning(
             app,
             message,
@@ -272,7 +388,7 @@ fn render_assistant_message(
 
 fn render_reasoning(
     app: &OneChat,
-    message: &Message,
+    message: &AssistantResponse,
     request: Option<&RequestInfo>,
     colors: Colors,
     scale_factor: f32,
@@ -287,7 +403,7 @@ fn render_reasoning(
         MessageStatus::Pending | MessageStatus::Streaming
     );
     let live = streaming && request.is_some_and(|request| request.thinking_duration_ms.is_none());
-    let expanded = app.thinking_expanded(&message.id);
+    let expanded = app.thinking_expanded(&message.id, live);
     let duration = request
         .and_then(|request| reasoning_duration_ms(app, request, live))
         .map(format_reasoning_duration);
@@ -322,7 +438,9 @@ fn render_reasoning(
             colors,
             scale_factor,
         )
-        .on_click(cx.listener(move |this, _, _, cx| this.toggle_thinking(thinking_id.clone(), cx)))
+        .on_click(
+            cx.listener(move |this, _, _, cx| this.toggle_thinking(thinking_id.clone(), live, cx)),
+        )
         .with_animation(
             SharedString::from(format!(
                 "thinking-toggle-{}-{}",
@@ -517,7 +635,7 @@ fn status_badge(status: MessageStatus, colors: Colors) -> AnyElement {
 
 fn render_error_card(
     app: &OneChat,
-    message: &Message,
+    message: &AssistantResponse,
     request: Option<&RequestInfo>,
     latest: bool,
     generating: bool,

@@ -24,7 +24,7 @@ impl OneChat {
     }
 
     pub(super) fn start_generation(&mut self, prompt: String, cx: &mut Context<Self>) {
-        let (conversation, provider, model) = match self.generation_target() {
+        let (conversation, provider, model) = match self.generation_target(None) {
             Ok(target) => target,
             Err(error) => {
                 self.data.error = Some(error);
@@ -32,30 +32,95 @@ impl OneChat {
                 return;
             }
         };
+        if self.data.snapshot.current_turns.last().is_some_and(|turn| {
+            turn.continuation_response_id
+                .as_deref()
+                .and_then(|id| turn.response(id))
+                .is_none_or(|response| {
+                    response.status != MessageStatus::Completed || response.content.is_empty()
+                })
+        }) {
+            self.data.error = Some("Choose a completed response before continuing.".into());
+            cx.notify();
+            return;
+        }
         let prepared = PreparedGeneration::new(
             &conversation,
             &provider,
             &model,
-            &self.data.snapshot.current_messages,
+            &self.data.snapshot.current_turns,
             prompt,
         );
         self.begin_prepared_generation(prepared, cx);
     }
 
-    fn generation_target(&self) -> Result<(Conversation, Provider, Model), String> {
+    pub(crate) fn start_additional_response(
+        &mut self,
+        turn_id: String,
+        model_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        let (conversation, provider, model) = match self.generation_target(Some(&model_id)) {
+            Ok(target) => target,
+            Err(error) => {
+                self.data.error = Some(error);
+                cx.notify();
+                return;
+            }
+        };
+        let Some(turn) = self
+            .data
+            .snapshot
+            .current_turns
+            .iter()
+            .find(|turn| turn.id == turn_id)
+            .cloned()
+        else {
+            return;
+        };
+        if turn
+            .responses
+            .iter()
+            .any(|response| response.model_id == model.id)
+        {
+            self.data.error = Some("This model has already answered this message.".into());
+            cx.notify();
+            return;
+        }
+        let prepared = PreparedGeneration::additional(
+            &conversation.id,
+            &provider,
+            &model,
+            &self.data.snapshot.current_turns,
+            &turn,
+        );
+        self.begin_prepared_generation(prepared, cx);
+    }
+
+    fn generation_target(
+        &self,
+        model_id: Option<&str>,
+    ) -> Result<(Conversation, Provider, Model), String> {
         let conversation = self
             .current_conversation()
             .cloned()
             .ok_or_else(|| "Create or select a conversation first.".to_string())?;
-        let model = self
-            .current_model()
-            .cloned()
-            .ok_or_else(|| "Choose a model before sending.".to_string())?;
+        let model = if let Some(model_id) = model_id {
+            self.data
+                .snapshot
+                .models
+                .iter()
+                .find(|model| model.id == model_id)
+        } else {
+            self.current_model()
+        }
+        .cloned()
+        .ok_or_else(|| "Choose a model before sending.".to_string())?;
         if !model.capabilities.streaming {
             return Err("The selected model does not support streaming.".into());
         }
         let provider = self
-            .current_provider()
+            .provider_for_model(&model)
             .cloned()
             .ok_or_else(|| "The selected model has no provider.".to_string())?;
         if !provider.enabled {
@@ -64,8 +129,20 @@ impl OneChat {
         Ok((conversation, provider, model))
     }
 
-    pub(crate) fn regenerate_assistant(&mut self, message_id: String, cx: &mut Context<Self>) {
-        let (conversation, provider, model) = match self.generation_target() {
+    pub(crate) fn regenerate_assistant(&mut self, response_id: String, cx: &mut Context<Self>) {
+        let Some((turn, response)) = self
+            .response(&response_id)
+            .map(|(turn, response)| (turn.clone(), response.clone()))
+        else {
+            return;
+        };
+        if !self.is_latest_turn(&turn.id) {
+            self.data.error = Some("Only responses in the latest turn can be regenerated.".into());
+            cx.notify();
+            return;
+        }
+        let (conversation, provider, model) = match self.generation_target(Some(&response.model_id))
+        {
             Ok(target) => target,
             Err(error) => {
                 self.data.error = Some(error);
@@ -73,37 +150,13 @@ impl OneChat {
                 return;
             }
         };
-        let Some(latest_assistant) = self
-            .data
-            .snapshot
-            .current_messages
-            .iter()
-            .rev()
-            .find(|message| message.role == MessageRole::Assistant)
-        else {
-            return;
-        };
-        if latest_assistant.id != message_id {
-            self.data.error = Some("Only the latest assistant response can be regenerated.".into());
-            cx.notify();
-            return;
-        }
-        let Some(index) = self
-            .data
-            .snapshot
-            .current_messages
-            .iter()
-            .position(|message| message.id == message_id)
-        else {
-            return;
-        };
-        let previous_assistant = self.data.snapshot.current_messages[index].clone();
         let prepared = PreparedGeneration::regenerate(
-            &conversation,
+            &conversation.id,
             &provider,
             &model,
-            &self.data.snapshot.current_messages[..index],
-            &previous_assistant,
+            &self.data.snapshot.current_turns,
+            &turn,
+            &response,
         );
         self.begin_prepared_generation(prepared, cx);
     }
@@ -119,21 +172,31 @@ impl OneChat {
         if !self.chat.generations.start(
             conversation_id.clone(),
             prepared.request_info.id.clone(),
-            prepared.assistant.id.clone(),
+            prepared.response.id.clone(),
             cancellation.clone(),
         ) {
             return;
         }
-        self.chat.follow_latest = true;
+
+        let turn_id = prepared.request_info.turn_id.clone();
+        let response_id = prepared.response.id.clone();
+        let scroll_to_bottom =
+            matches!(&prepared.start, GenerationStart::NewTurn(_)) || self.is_latest_turn(&turn_id);
+        if !matches!(&prepared.start, GenerationStart::NewTurn(_)) {
+            self.chat
+                .visible_response_ids
+                .insert(turn_id, response_id.clone());
+        }
+        if scroll_to_bottom {
+            self.chat.follow_latest = true;
+            self.chat.message_scroll.scroll_to_bottom();
+        }
         self.chat.message_editor = None;
-        self.chat
-            .collapsed_thinking_ids
-            .remove(&prepared.assistant.id);
-        self.chat.thinking_motions.remove(&prepared.assistant.id);
+        self.chat.thinking_expansion_overrides.remove(&response_id);
+        self.chat.thinking_motions.remove(&response_id);
         self.chat
             .thinking_scrolls
-            .insert(prepared.assistant.id.clone(), ScrollHandle::new());
-        self.chat.message_scroll.scroll_to_bottom();
+            .insert(response_id, ScrollHandle::new());
         cx.notify();
 
         let persisted = prepared.clone();
@@ -143,15 +206,22 @@ impl OneChat {
             previous.await;
             let result = cx
                 .background_spawn(async move {
-                    if let Some(user) = persisted.user.as_ref() {
-                        storage.begin_generation(
-                            user,
-                            &persisted.assistant,
+                    match &persisted.start {
+                        GenerationStart::NewTurn(turn) => {
+                            storage.begin_turn(turn, &persisted.request_info)?;
+                        }
+                        GenerationStart::AddResponse { turn_id } => storage.begin_response(
+                            &persisted.request_info.conversation_id,
+                            turn_id,
+                            &persisted.response,
                             &persisted.request_info,
-                        )?;
-                    } else {
-                        storage
-                            .begin_regeneration(&persisted.assistant, &persisted.request_info)?;
+                        )?,
+                        GenerationStart::RetryResponse { turn_id } => storage.begin_regeneration(
+                            &persisted.request_info.conversation_id,
+                            turn_id,
+                            &persisted.response,
+                            &persisted.request_info,
+                        )?,
                     }
                     storage.load_snapshot()
                 })
@@ -230,13 +300,13 @@ impl OneChat {
                         });
                     }
                     GenerationUpdate::Snapshot(snapshot) => {
-                        let assistant = snapshot.assistant;
+                        let response = snapshot.response;
                         let request = snapshot.request;
                         let terminal = snapshot.terminal;
                         let thinking_finished = snapshot.thinking_finished;
-                        let parsed_markdown = if assistant.content != last_markdown_source {
-                            last_markdown_source.clone_from(&assistant.content);
-                            let source = assistant.content.clone();
+                        let parsed_markdown = if response.content != last_markdown_source {
+                            last_markdown_source.clone_from(&response.content);
+                            let source = response.content.clone();
                             Some(
                                 cx.background_spawn(async move {
                                     let document = MarkdownDocument::parse(&source);
@@ -253,23 +323,19 @@ impl OneChat {
                             }
                             let visible = this.update_generation_snapshot(
                                 &conversation_id,
-                                &assistant,
+                                &response,
                                 &request,
                             );
-                            if visible
-                                && thinking_finished
-                                && !assistant.thinking.is_empty()
-                                && this.thinking_expanded(&assistant.id)
-                            {
-                                this.toggle_thinking(assistant.id.clone(), cx);
+                            if visible && thinking_finished && !response.thinking.is_empty() {
+                                this.finish_thinking(response.id.clone());
                             }
                             if let Some((source, document)) = parsed_markdown
-                                && this.data.snapshot.current_messages.iter().any(|message| {
-                                    message.id == assistant.id && message.content == source
-                                })
+                                && this
+                                    .response(&response.id)
+                                    .is_some_and(|(_, stored)| stored.content == source)
                             {
                                 this.chat.markdown_documents.insert(
-                                    assistant.id.clone(),
+                                    response.id.clone(),
                                     CachedMarkdown { source, document },
                                 );
                             }
@@ -294,7 +360,7 @@ impl OneChat {
     fn update_generation_snapshot(
         &mut self,
         conversation_id: &str,
-        assistant: &Message,
+        response: &AssistantResponse,
         request: &RequestInfo,
     ) -> bool {
         if self
@@ -308,20 +374,35 @@ impl OneChat {
             return false;
         }
         let thinking_grew = self
+            .response(&response.id)
+            .is_none_or(|(_, stored)| stored.thinking.len() < response.thinking.len());
+        if let Some(turn) = self
             .data
             .snapshot
-            .current_messages
-            .iter()
-            .find(|message| message.id == assistant.id)
-            .is_none_or(|message| message.thinking.len() < assistant.thinking.len());
-        if let Some(message) = self
-            .data
-            .snapshot
-            .current_messages
+            .current_turns
             .iter_mut()
-            .find(|message| message.id == assistant.id)
+            .find(|turn| turn.id == request.turn_id)
         {
-            *message = assistant.clone();
+            if let Some(stored) = turn
+                .responses
+                .iter_mut()
+                .find(|stored| stored.id == response.id)
+            {
+                *stored = response.clone();
+            }
+            let continuation_is_unusable = turn
+                .continuation_response_id
+                .as_deref()
+                .and_then(|id| turn.response(id))
+                .is_none_or(|response| {
+                    response.status != MessageStatus::Completed || response.content.is_empty()
+                });
+            if response.status == MessageStatus::Completed
+                && !response.content.is_empty()
+                && continuation_is_unusable
+            {
+                turn.continuation_response_id = Some(response.id.clone());
+            }
         }
         if let Some(info) = self
             .data
@@ -335,11 +416,11 @@ impl OneChat {
         if thinking_grew {
             self.chat
                 .thinking_scrolls
-                .entry(assistant.id.clone())
+                .entry(response.id.clone())
                 .or_default()
                 .scroll_to_bottom();
         }
-        if self.chat.follow_latest {
+        if self.chat.follow_latest && self.is_latest_turn(&request.turn_id) {
             self.chat.message_scroll.scroll_to_bottom();
         }
         true

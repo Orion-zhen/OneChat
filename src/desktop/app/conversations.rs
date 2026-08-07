@@ -69,7 +69,7 @@ impl OneChat {
         let mut settings = self.data.snapshot.settings.clone();
         settings.current_conversation_id = Some(id);
         self.data.snapshot.settings = settings.clone();
-        self.data.snapshot.current_messages.clear();
+        self.data.snapshot.current_turns.clear();
         self.data.snapshot.current_requests.clear();
         self.navigation.page = Page::Chat;
         self.reset_conversation_ui(cx);

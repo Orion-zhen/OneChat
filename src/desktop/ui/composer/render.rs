@@ -8,7 +8,7 @@ impl Render for Composer {
             .key_context("Composer")
             .track_focus(&self.focus_handle(cx))
             .cursor(CursorStyle::IBeam)
-            .when(self.prominent, |element| element.rounded_xl().shadow_md())
+            .when(self.prominent, |element| element.rounded_xl())
             .when(!self.prominent, |element| element.rounded_lg())
             .border_1()
             .border_color(if self.focus_handle.is_focused(window) {
@@ -22,7 +22,7 @@ impl Render for Composer {
                 palette.background
             })
             .text_color(palette.text)
-            .when(self.prominent, |element| element.px_4().py_3())
+            .when(self.prominent, |element| element.pl_4().pr(px(56.0)).py_3())
             .when(!self.prominent, |element| element.p_3())
             .on_action(cx.listener(Self::backspace))
             .on_action(cx.listener(Self::delete))

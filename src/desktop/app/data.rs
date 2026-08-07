@@ -42,23 +42,22 @@ impl OneChat {
     }
 
     pub(super) fn refresh_markdown_documents(&mut self, cx: &mut Context<Self>) {
-        self.chat.markdown_documents.retain(|message_id, cached| {
-            self.data.snapshot.current_messages.iter().any(|message| {
-                message.id == *message_id
-                    && message.role == MessageRole::Assistant
-                    && message.content == cached.source
-            })
+        self.chat.markdown_documents.retain(|response_id, cached| {
+            self.data
+                .snapshot
+                .current_turns
+                .iter()
+                .flat_map(|turn| &turn.responses)
+                .any(|response| response.id == *response_id && response.content == cached.source)
         });
         let pending = self
             .data
             .snapshot
-            .current_messages
+            .current_turns
             .iter()
-            .filter(|message| {
-                message.role == MessageRole::Assistant
-                    && !self.chat.markdown_documents.contains_key(&message.id)
-            })
-            .map(|message| (message.id.clone(), message.content.clone()))
+            .flat_map(|turn| &turn.responses)
+            .filter(|response| !self.chat.markdown_documents.contains_key(&response.id))
+            .map(|response| (response.id.clone(), response.content.clone()))
             .collect::<Vec<_>>();
         if pending.is_empty() {
             return;
@@ -80,9 +79,10 @@ impl OneChat {
                     if this
                         .data
                         .snapshot
-                        .current_messages
+                        .current_turns
                         .iter()
-                        .any(|message| message.id == id && message.content == source)
+                        .flat_map(|turn| &turn.responses)
+                        .any(|response| response.id == id && response.content == source)
                     {
                         this.chat
                             .markdown_documents
@@ -95,11 +95,11 @@ impl OneChat {
         .detach();
     }
 
-    pub(crate) fn markdown_for(&self, message: &Message) -> Option<&MarkdownDocument> {
+    pub(crate) fn markdown_for(&self, response: &AssistantResponse) -> Option<&MarkdownDocument> {
         self.chat
             .markdown_documents
-            .get(&message.id)
-            .filter(|cached| cached.source == message.content)
+            .get(&response.id)
+            .filter(|cached| cached.source == response.content)
             .map(|cached| &cached.document)
     }
 
@@ -132,8 +132,10 @@ impl OneChat {
         self.overlays.command_palette_open = false;
         self.overlays.model_picker_open = false;
         self.chat.selected_request_id = None;
+        self.chat.visible_response_ids.clear();
+        self.overlays.response_model_turn_id = None;
         self.chat.expanded_error_ids.clear();
-        self.chat.collapsed_thinking_ids.clear();
+        self.chat.thinking_expansion_overrides.clear();
         self.chat.message_editor = None;
         self.chat.follow_latest = true;
         self.chat.message_scroll = ScrollHandle::new();
@@ -141,6 +143,8 @@ impl OneChat {
         self.chat.thinking_scrolls.clear();
         self.chat.thinking_motions.clear();
         self.chat.generation_config_editor = None;
+        self.chat.generation_config_save_revision =
+            self.chat.generation_config_save_revision.wrapping_add(1);
         self.chat.parameter_error = None;
         self.sync_generation_config_editor(cx);
     }
@@ -149,21 +153,29 @@ impl OneChat {
         self.chat.thinking_motions.retain(|message_id, _| {
             self.data
                 .snapshot
-                .current_messages
+                .current_turns
                 .iter()
-                .any(|message| message.id == *message_id)
+                .flat_map(|turn| &turn.responses)
+                .any(|response| response.id == *message_id)
         });
         self.chat.thinking_scrolls.retain(|message_id, _| {
             self.data
                 .snapshot
-                .current_messages
+                .current_turns
                 .iter()
-                .any(|message| message.id == *message_id)
+                .flat_map(|turn| &turn.responses)
+                .any(|response| response.id == *message_id)
         });
-        for message in &self.data.snapshot.current_messages {
+        for response in self
+            .data
+            .snapshot
+            .current_turns
+            .iter()
+            .flat_map(|turn| &turn.responses)
+        {
             self.chat
                 .thinking_scrolls
-                .entry(message.id.clone())
+                .entry(response.id.clone())
                 .or_default();
         }
     }
@@ -297,10 +309,29 @@ impl OneChat {
 
     pub(crate) fn filtered_models(&self) -> Vec<&Model> {
         let query = self.overlays.model_query.trim().to_lowercase();
+        let replied_model_ids = self
+            .overlays
+            .response_model_turn_id
+            .as_deref()
+            .and_then(|turn_id| {
+                self.data
+                    .snapshot
+                    .current_turns
+                    .iter()
+                    .find(|turn| turn.id == turn_id)
+            })
+            .map(|turn| {
+                turn.responses
+                    .iter()
+                    .map(|response| response.model_id.as_str())
+                    .collect::<HashSet<_>>()
+            })
+            .unwrap_or_default();
         self.data
             .snapshot
             .models
             .iter()
+            .filter(|model| !replied_model_ids.contains(model.id.as_str()))
             .filter(|model| {
                 if query.is_empty() {
                     return true;
@@ -322,7 +353,12 @@ impl OneChat {
 
     pub(super) fn initial_model_selection(&self) -> usize {
         let models = self.filtered_models();
-        let selected_id = self.selected_model().map(|model| model.id.as_str());
+        let selected_id = self
+            .overlays
+            .response_model_turn_id
+            .is_none()
+            .then(|| self.selected_model().map(|model| model.id.as_str()))
+            .flatten();
         models
             .iter()
             .position(|model| {
@@ -336,8 +372,8 @@ impl OneChat {
             .unwrap_or(0)
     }
 
-    pub(crate) fn current_messages(&self) -> &[Message] {
-        &self.data.snapshot.current_messages
+    pub(crate) fn current_turns(&self) -> &[Turn] {
+        &self.data.snapshot.current_turns
     }
 
     pub(crate) fn current_request(&self) -> Option<&RequestInfo> {
@@ -353,8 +389,11 @@ impl OneChat {
         self.data.snapshot.current_requests.first()
     }
 
-    pub(crate) fn request_for_message(&self, message: &Message) -> Option<&RequestInfo> {
-        let request_id = message.request_id.as_deref()?;
+    pub(crate) fn request_for_response(
+        &self,
+        response: &AssistantResponse,
+    ) -> Option<&RequestInfo> {
+        let request_id = response.request_id.as_deref()?;
         self.data
             .snapshot
             .current_requests
@@ -376,13 +415,36 @@ impl OneChat {
             .or_else(|| self.current_request())
     }
 
-    pub(crate) fn is_latest_assistant(&self, message_id: &str) -> bool {
+    pub(crate) fn visible_response<'a>(&self, turn: &'a Turn) -> Option<&'a AssistantResponse> {
+        self.chat
+            .visible_response_ids
+            .get(&turn.id)
+            .and_then(|id| turn.response(id))
+            .or_else(|| {
+                turn.continuation_response_id
+                    .as_deref()
+                    .and_then(|id| turn.response(id))
+            })
+            .or_else(|| turn.responses.first())
+    }
+
+    pub(crate) fn response(&self, response_id: &str) -> Option<(&Turn, &AssistantResponse)> {
         self.data
             .snapshot
-            .current_messages
+            .current_turns
             .iter()
-            .rev()
-            .find(|message| message.role == MessageRole::Assistant)
-            .is_some_and(|message| message.id == message_id)
+            .find_map(|turn| turn.response(response_id).map(|response| (turn, response)))
+    }
+
+    pub(crate) fn is_latest_turn(&self, turn_id: &str) -> bool {
+        self.data
+            .snapshot
+            .current_turns
+            .last()
+            .is_some_and(|turn| turn.id == turn_id)
+    }
+
+    pub(crate) fn current_context_messages(&self) -> Vec<ChatMessage> {
+        crate::application::generation::history_for_new_turn(&self.data.snapshot.current_turns)
     }
 }

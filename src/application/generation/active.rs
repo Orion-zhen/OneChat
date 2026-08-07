@@ -4,7 +4,7 @@ use tokio_util::sync::CancellationToken;
 
 pub struct ActiveGeneration {
     pub request_id: String,
-    pub assistant_message_id: String,
+    pub response_id: String,
     pub cancellation: CancellationToken,
 }
 
@@ -22,7 +22,7 @@ impl GenerationManager {
         &mut self,
         conversation_id: String,
         request_id: String,
-        assistant_message_id: String,
+        response_id: String,
         cancellation: CancellationToken,
     ) -> bool {
         if self.active.contains_key(&conversation_id) {
@@ -32,7 +32,7 @@ impl GenerationManager {
             conversation_id,
             ActiveGeneration {
                 request_id,
-                assistant_message_id,
+                response_id,
                 cancellation,
             },
         );

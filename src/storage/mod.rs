@@ -11,7 +11,7 @@ use std::{
     sync::{Mutex, MutexGuard},
 };
 
-use crate::domain::{AppSettings, Conversation, Message, Model, Provider, RequestInfo};
+use crate::domain::{AppSettings, Conversation, Model, Provider, RequestInfo, Turn};
 use catalog::SettingsFile;
 use codec::write_json;
 
@@ -58,7 +58,7 @@ pub struct StorageSnapshot {
     pub providers: Vec<Provider>,
     pub models: Vec<Model>,
     pub conversations: Vec<Conversation>,
-    pub current_messages: Vec<Message>,
+    pub current_turns: Vec<Turn>,
     pub current_requests: Vec<RequestInfo>,
     pub settings: AppSettings,
 }
@@ -199,7 +199,7 @@ fn default_state_dir(home: &Path) -> Result<PathBuf> {
 mod tests {
     use std::collections::BTreeMap;
 
-    use crate::domain::{MessageRole, Model, ProviderKind, Theme, now_timestamp};
+    use crate::domain::{AssistantResponse, Model, ProviderKind, Theme, Turn, now_timestamp};
 
     use super::*;
 
@@ -248,6 +248,21 @@ mod tests {
         (provider, model, conversation, settings)
     }
 
+    fn generation_records(
+        conversation: &Conversation,
+        provider: &Provider,
+        model: &Model,
+        prompt: &str,
+    ) -> (Turn, AssistantResponse, RequestInfo) {
+        let response = AssistantResponse::new(model, provider);
+        let mut turn = Turn::new(conversation, None, prompt, response);
+        turn.responses[0].status = MessageStatus::Streaming;
+        let request = RequestInfo::new(&conversation.id, &turn.id, &turn.responses[0].id);
+        turn.responses[0].request_id = Some(request.id.clone());
+        let response = turn.responses[0].clone();
+        (turn, response, request)
+    }
+
     #[test]
     fn settings_accept_jsonc_comments_and_trailing_commas() {
         let test = TestStorage::new();
@@ -286,8 +301,23 @@ mod tests {
             .conversations_dir()
             .join(format!("{}.json", conversation.id));
         let data = fs::read_to_string(conversation_path).unwrap();
-        assert!(data.contains("\"messages\": []"));
+        assert!(data.contains("\"turns\": []"));
         assert!(data.contains("\"requests\": []"));
+    }
+
+    #[test]
+    fn malformed_conversation_files_are_ignored() {
+        let test = TestStorage::new();
+        let (_, _, conversation, _) = configured_conversation(&test.storage);
+        fs::write(
+            test.storage.conversations_dir().join("broken.json"),
+            "{ this is not a conversation }",
+        )
+        .unwrap();
+
+        let snapshot = test.storage.load_startup_snapshot().unwrap();
+
+        assert_eq!(snapshot.conversations, vec![conversation]);
     }
 
     #[test]
@@ -334,68 +364,91 @@ mod tests {
     #[test]
     fn generation_is_started_and_finalized_in_one_conversation_file() {
         let test = TestStorage::new();
-        let (_, _, conversation, _) = configured_conversation(&test.storage);
-        let user = Message::new(&conversation.id, MessageRole::User, "Hello");
-        let mut assistant = Message::new(&conversation.id, MessageRole::Assistant, "");
-        assistant.status = MessageStatus::Streaming;
-        let mut request = RequestInfo::new(&conversation.id, &assistant.id);
-        assistant.request_id = Some(request.id.clone());
+        let (provider, model, conversation, _) = configured_conversation(&test.storage);
+        let (turn, mut response, mut request) =
+            generation_records(&conversation, &provider, &model, "Hello");
 
-        test.storage
-            .begin_generation(&user, &assistant, &request)
-            .unwrap();
-        assistant.content = "Hi".into();
-        assistant.status = MessageStatus::Completed;
+        test.storage.begin_turn(&turn, &request).unwrap();
+        response.content = "Hi".into();
+        response.status = MessageStatus::Completed;
         request.status = RequestStatus::Completed;
         request.usage.output_tokens = Some(4);
         test.storage
-            .persist_generation(&assistant, &request)
+            .persist_generation(&response, &request)
             .unwrap();
 
         let snapshot = test.storage.load_snapshot().unwrap();
-        assert_eq!(snapshot.current_messages, vec![user, assistant]);
+        assert_eq!(snapshot.current_turns.len(), 1);
+        assert_eq!(snapshot.current_turns[0].user.content, "Hello");
+        assert_eq!(snapshot.current_turns[0].responses, vec![response]);
         assert_eq!(snapshot.current_requests, vec![request]);
     }
 
     #[test]
-    fn regeneration_reuses_the_assistant_message_and_replaces_its_request() {
+    fn regeneration_reuses_the_response_and_keeps_request_history() {
         let test = TestStorage::new();
-        let (_, _, conversation, _) = configured_conversation(&test.storage);
-        let user = Message::new(&conversation.id, MessageRole::User, "Question");
-        let mut assistant = Message::new(&conversation.id, MessageRole::Assistant, "Old answer");
-        let old_request = RequestInfo::new(&conversation.id, &assistant.id);
-        assistant.request_id = Some(old_request.id.clone());
-        test.storage
-            .begin_generation(&user, &assistant, &old_request)
-            .unwrap();
+        let (provider, model, conversation, _) = configured_conversation(&test.storage);
+        let (mut turn, mut response, old_request) =
+            generation_records(&conversation, &provider, &model, "Question");
+        response.content = "Old answer".into();
+        turn.responses[0] = response.clone();
+        test.storage.begin_turn(&turn, &old_request).unwrap();
 
-        assistant.content.clear();
-        assistant.status = MessageStatus::Streaming;
-        let new_request = RequestInfo::new(&conversation.id, &assistant.id);
-        assistant.request_id = Some(new_request.id.clone());
+        response.content.clear();
+        response.status = MessageStatus::Streaming;
+        let new_request = RequestInfo::new(&conversation.id, &turn.id, &response.id);
+        response.request_id = Some(new_request.id.clone());
         test.storage
-            .begin_regeneration(&assistant, &new_request)
+            .begin_regeneration(&conversation.id, &turn.id, &response, &new_request)
             .unwrap();
 
         let snapshot = test.storage.load_snapshot().unwrap();
-        assert_eq!(snapshot.current_messages.len(), 2);
-        assert_eq!(snapshot.current_messages[1], assistant);
-        assert_eq!(snapshot.current_requests, vec![new_request]);
+        assert_eq!(snapshot.current_turns[0].responses, vec![response]);
+        assert_eq!(snapshot.current_requests.len(), 2);
+        assert!(snapshot.current_requests.contains(&old_request));
+        assert!(snapshot.current_requests.contains(&new_request));
+    }
+
+    #[test]
+    fn first_successful_alternative_replaces_an_empty_failed_continuation() {
+        let test = TestStorage::new();
+        let (provider, model, conversation, _) = configured_conversation(&test.storage);
+        let (mut turn, _, mut failed_request) =
+            generation_records(&conversation, &provider, &model, "Question");
+        turn.responses[0].status = MessageStatus::Failed;
+        failed_request.status = RequestStatus::Failed;
+        test.storage.begin_turn(&turn, &failed_request).unwrap();
+
+        let other = Model::new(&provider.id, "other", "Other");
+        let mut alternative = AssistantResponse::new(&other, &provider);
+        alternative.status = MessageStatus::Streaming;
+        let mut request = RequestInfo::new(&conversation.id, &turn.id, &alternative.id);
+        alternative.request_id = Some(request.id.clone());
+        test.storage
+            .begin_response(&conversation.id, &turn.id, &alternative, &request)
+            .unwrap();
+
+        alternative.status = MessageStatus::Completed;
+        alternative.content = "Answer".into();
+        request.status = RequestStatus::Completed;
+        test.storage
+            .persist_generation(&alternative, &request)
+            .unwrap();
+
+        let snapshot = test.storage.load_snapshot().unwrap();
+        assert_eq!(
+            snapshot.current_turns[0].continuation_response_id,
+            Some(alternative.id)
+        );
     }
 
     #[test]
     fn restart_marks_unfinished_generation_as_interrupted() {
         let test = TestStorage::new();
         let (provider, model, conversation, settings) = configured_conversation(&test.storage);
-        let user = Message::new(&conversation.id, MessageRole::User, "Hello");
-        let mut assistant = Message::new(&conversation.id, MessageRole::Assistant, "partial");
-        assistant.status = MessageStatus::Streaming;
-        let mut request = RequestInfo::new(&conversation.id, &assistant.id);
+        let (turn, _, mut request) = generation_records(&conversation, &provider, &model, "Hello");
         request.status = RequestStatus::Streaming;
-        assistant.request_id = Some(request.id.clone());
-        test.storage
-            .begin_generation(&user, &assistant, &request)
-            .unwrap();
+        test.storage.begin_turn(&turn, &request).unwrap();
 
         let reopened = Storage::open(
             test.storage.settings_path().to_path_buf(),
@@ -408,7 +461,7 @@ mod tests {
         assert_eq!(snapshot.conversations, vec![conversation]);
         assert_eq!(snapshot.settings, settings);
         assert_eq!(
-            snapshot.current_messages[1].status,
+            snapshot.current_turns[0].responses[0].status,
             MessageStatus::Interrupted
         );
         assert_eq!(
@@ -420,20 +473,16 @@ mod tests {
     #[test]
     fn clearing_context_keeps_conversation_configuration() {
         let test = TestStorage::new();
-        let (_, _, conversation, _) = configured_conversation(&test.storage);
-        let user = Message::new(&conversation.id, MessageRole::User, "Hello");
-        let assistant = Message::new(&conversation.id, MessageRole::Assistant, "Hi");
-        let request = RequestInfo::new(&conversation.id, &assistant.id);
-        test.storage
-            .begin_generation(&user, &assistant, &request)
-            .unwrap();
+        let (provider, model, conversation, _) = configured_conversation(&test.storage);
+        let (turn, _, request) = generation_records(&conversation, &provider, &model, "Hello");
+        test.storage.begin_turn(&turn, &request).unwrap();
 
         test.storage
             .clear_conversation_context(&conversation.id)
             .unwrap();
 
         let snapshot = test.storage.load_snapshot().unwrap();
-        assert!(snapshot.current_messages.is_empty());
+        assert!(snapshot.current_turns.is_empty());
         assert!(snapshot.current_requests.is_empty());
         assert_eq!(snapshot.conversations, vec![conversation]);
     }

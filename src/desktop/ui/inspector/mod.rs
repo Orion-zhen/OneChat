@@ -1,14 +1,18 @@
 mod editor;
 
-pub use editor::GenerationConfigEditor;
+pub use editor::{GenerationConfigEditor, GenerationParameter};
 
 use std::{fmt::Display, str::FromStr};
 
-use gpui::{AnyElement, App, Context, Entity, FontWeight, div, prelude::*, px};
+use gpui::{
+    AnyElement, App, Context, Entity, FontWeight, SharedString, deferred, div, prelude::*, px,
+};
 use serde_json::{Map, Value};
 
 use super::{
-    components::{button, icon_button, primary_button},
+    components::{
+        IconTone, UiIcon, button, icon_button, primary_button, svg_icon, svg_icon_button,
+    },
     composer::Composer,
     theme::Colors,
 };
@@ -35,7 +39,12 @@ impl InspectorTab {
     }
 }
 
-pub(crate) fn render(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
+pub(crate) fn render(
+    app: &OneChat,
+    colors: Colors,
+    scale_factor: f32,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
     let mut tabs = div().rounded_lg().bg(colors.raised).p_1().flex().gap_1();
     for tab in [
         InspectorTab::Model,
@@ -72,7 +81,7 @@ pub(crate) fn render(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -
     }
 
     let content = match app.navigation.inspector_tab {
-        InspectorTab::Model => render_model(app, colors, cx),
+        InspectorTab::Model => render_model(app, colors, scale_factor, cx),
         InspectorTab::Context => render_context(app, colors, cx),
         InspectorTab::Info => render_info(app, colors),
     };
@@ -120,7 +129,12 @@ pub(crate) fn render(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -
         .into_any_element()
 }
 
-fn render_model(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
+fn render_model(
+    app: &OneChat,
+    colors: Colors,
+    scale_factor: f32,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
     let Some(conversation) = app.current_conversation() else {
         return notice("Select a conversation to configure its model.", colors);
     };
@@ -153,17 +167,7 @@ fn render_model(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> Any
         .flex()
         .flex_col()
         .gap_3()
-        .child(inspector_field("Model", &model.display_name, colors))
-        .child(inspector_field("Provider", provider, colors))
-        .child(inspector_field(
-            "Capabilities",
-            &capability_summary(model),
-            colors,
-        ))
-        .child(
-            button("inspector-choose-model", "Change model", colors)
-                .on_click(cx.listener(|this, _, _, cx| this.open_model_picker(cx))),
-        );
+        .child(model_summary(model, provider, colors));
 
     if !ignored.is_empty() {
         parameters = parameters.child(
@@ -181,63 +185,25 @@ fn render_model(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> Any
     }
 
     let capabilities = &model.capabilities;
-    if capabilities.temperature {
-        parameters = parameters.child(parameter_field(
-            "Temperature",
-            editor.temperature.clone(),
-            colors,
-        ));
-    }
-    if capabilities.top_p {
-        parameters = parameters.child(parameter_field("Top P", editor.top_p.clone(), colors));
-    }
-    if capabilities.top_k {
-        parameters = parameters.child(parameter_field("Top K", editor.top_k.clone(), colors));
-    }
-    if capabilities.max_output_tokens {
-        parameters = parameters.child(parameter_field(
-            "Max Output",
-            editor.max_output_tokens.clone(),
-            colors,
-        ));
-    }
-    if capabilities.frequency_penalty {
-        parameters = parameters.child(parameter_field(
-            "Frequency Penalty",
-            editor.frequency_penalty.clone(),
-            colors,
-        ));
-    }
-    if capabilities.presence_penalty {
-        parameters = parameters.child(parameter_field(
-            "Presence Penalty",
-            editor.presence_penalty.clone(),
-            colors,
-        ));
-    }
-    if capabilities.seed {
-        parameters = parameters.child(parameter_field("Seed", editor.seed.clone(), colors));
-    }
-    if capabilities.stop_sequences {
-        parameters = parameters.child(parameter_field(
-            "Stop Sequences",
-            editor.stop_sequences.clone(),
-            colors,
-        ));
-    }
-    if capabilities.thinking_budget {
-        parameters = parameters.child(parameter_field(
-            "Thinking Budget",
-            editor.thinking_budget.clone(),
-            colors,
-        ));
+    for parameter in GenerationParameter::ALL {
+        if editor.is_active(parameter) && parameter.supported_by(capabilities) {
+            parameters = parameters.child(parameter_field(
+                parameter,
+                editor.input(parameter),
+                colors,
+                scale_factor,
+                cx,
+            ));
+        }
     }
 
     parameters
-        .child(parameter_field(
-            "Provider-specific Parameters (JSON object)",
-            editor.extra.clone(),
+        .child(add_parameter_select(
+            editor,
+            capabilities,
             colors,
+            scale_factor,
+            cx,
         ))
         .children(app.chat.parameter_error.as_ref().map(|error| {
             div()
@@ -248,10 +214,6 @@ fn render_model(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> Any
                 .text_color(colors.danger)
                 .child(error.clone())
         }))
-        .child(
-            primary_button("save-generation-config", "Save Parameters", colors)
-                .on_click(cx.listener(|this, _, _, cx| this.save_generation_config(cx))),
-        )
         .into_any_element()
 }
 
@@ -279,7 +241,7 @@ fn render_context(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> A
         .child(inspector_field("Prompt source", source, colors))
         .child(inspector_field(
             "Messages",
-            &app.current_messages().len().to_string(),
+            &app.current_context_messages().len().to_string(),
             colors,
         ))
         .child(inspector_field(
@@ -427,7 +389,7 @@ fn estimate_context_tokens(app: &OneChat) -> usize {
         .map(|conversation| conversation.system_prompt.content.chars().count())
         .unwrap_or_default()
         + app
-            .current_messages()
+            .current_context_messages()
             .iter()
             .map(|message| message.content.chars().count())
             .sum::<usize>();
@@ -447,19 +409,163 @@ fn format_token_count(value: Option<u64>, estimated: bool) -> String {
     )
 }
 
-fn parameter_field(label: &str, input: Entity<Composer>, colors: Colors) -> AnyElement {
+fn parameter_field(
+    parameter: GenerationParameter,
+    input: Entity<Composer>,
+    colors: Colors,
+    scale_factor: f32,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
     div()
         .flex()
         .flex_col()
         .gap_1()
         .child(
             div()
-                .text_size(px(11.0))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(colors.muted)
-                .child(label.to_string()),
+                .flex()
+                .items_center()
+                .justify_between()
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(colors.muted)
+                        .child(parameter.label()),
+                )
+                .child(
+                    svg_icon_button(
+                        SharedString::from(format!("remove-parameter-{}", parameter.id())),
+                        UiIcon::Close,
+                        IconTone::Muted,
+                        colors,
+                        scale_factor,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.remove_generation_parameter(parameter, cx)
+                    })),
+                ),
         )
         .child(input)
+        .into_any_element()
+}
+
+fn add_parameter_select(
+    editor: &GenerationConfigEditor,
+    capabilities: &crate::domain::ModelCapabilities,
+    colors: Colors,
+    scale_factor: f32,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    let available = GenerationParameter::ALL
+        .into_iter()
+        .filter(|parameter| parameter.supported_by(capabilities) && !editor.is_active(*parameter))
+        .collect::<Vec<_>>();
+    let disabled = available.is_empty();
+    let mut menu = div()
+        .id("generation-parameter-options")
+        .occlude()
+        .absolute()
+        .top(px(42.0))
+        .left_0()
+        .right_0()
+        .rounded_lg()
+        .border_1()
+        .border_color(colors.border)
+        .bg(colors.panel)
+        .p_1()
+        .flex()
+        .flex_col()
+        .shadow_lg();
+    for parameter in available {
+        menu = menu.child(
+            div()
+                .id(SharedString::from(format!(
+                    "generation-parameter-option-{}",
+                    parameter.id()
+                )))
+                .w_full()
+                .px_3()
+                .py_2()
+                .rounded_md()
+                .text_sm()
+                .cursor_pointer()
+                .hover(move |style| style.bg(colors.hover))
+                .on_click(
+                    cx.listener(move |this, _, _, cx| this.add_generation_parameter(parameter, cx)),
+                )
+                .child(parameter.label()),
+        );
+    }
+
+    let trigger = div()
+        .id("add-generation-parameter")
+        .w_full()
+        .px_3()
+        .py_2()
+        .rounded_lg()
+        .bg(colors.raised)
+        .flex()
+        .items_center()
+        .justify_between()
+        .text_sm()
+        .text_color(if disabled { colors.muted } else { colors.text })
+        .when(!disabled, |element| {
+            element
+                .cursor_pointer()
+                .hover(move |style| style.bg(colors.hover))
+                .active(move |style| style.bg(colors.accent_soft))
+                .on_click(cx.listener(|this, _, _, cx| this.toggle_generation_parameter_menu(cx)))
+        })
+        .child(if disabled {
+            "All available parameters added"
+        } else {
+            "Add parameter"
+        })
+        .child(svg_icon(
+            if editor.parameter_menu_open {
+                UiIcon::ChevronUp
+            } else {
+                UiIcon::ChevronDown
+            },
+            IconTone::Muted,
+            colors,
+            scale_factor,
+            14.0,
+        ));
+
+    div()
+        .relative()
+        .w_full()
+        .child(trigger)
+        .children((editor.parameter_menu_open && !disabled).then(|| deferred(menu).priority(1)))
+        .into_any_element()
+}
+
+fn model_summary(model: &Model, provider: &str, colors: Colors) -> AnyElement {
+    div()
+        .rounded_lg()
+        .bg(colors.raised)
+        .p_3()
+        .child(
+            div()
+                .text_size(px(11.0))
+                .text_color(colors.muted)
+                .child("Model"),
+        )
+        .child(
+            div()
+                .pt_1()
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(model.display_name.clone()),
+        )
+        .child(
+            div()
+                .pt_1()
+                .text_size(px(11.0))
+                .text_color(colors.muted)
+                .child(format!("{} · {}", provider, capability_summary(model))),
+        )
         .into_any_element()
 }
 

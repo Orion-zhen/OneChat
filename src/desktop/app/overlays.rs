@@ -42,12 +42,14 @@ impl OneChat {
         self.navigation.page = page;
         self.overlays.command_palette_open = false;
         self.overlays.model_picker_open = false;
+        self.overlays.response_model_turn_id = None;
         self.settings_ui.default_model_menu_open = false;
         cx.notify();
     }
 
     pub(crate) fn open_command_palette(&mut self, cx: &mut Context<Self>) {
         self.overlays.model_picker_open = false;
+        self.overlays.response_model_turn_id = None;
         self.overlays.command_palette_open = true;
         self.overlays.command_selection = 0;
         self.overlays
@@ -126,7 +128,12 @@ impl OneChat {
     }
 
     pub(crate) fn dismiss_overlay(&mut self, cx: &mut Context<Self>) {
-        if self.settings_ui.default_model_menu_open {
+        if let Some(editor) = &mut self.chat.generation_config_editor
+            && editor.parameter_menu_open
+        {
+            editor.close_menu();
+            cx.notify();
+        } else if self.settings_ui.default_model_menu_open {
             self.settings_ui.default_model_menu_open = false;
             cx.notify();
         } else if let Some(editor) = &mut self.settings_ui.provider_editor
@@ -182,17 +189,34 @@ impl OneChat {
 
     pub(crate) fn open_model_picker(&mut self, cx: &mut Context<Self>) {
         self.overlays.command_palette_open = false;
+        self.overlays.response_model_turn_id = None;
         self.overlays.model_picker_open = true;
-        self.overlays.model_selection = self.initial_model_selection();
         self.overlays
             .model_search_input
             .update(cx, |input, cx| input.set_text("", cx));
+        self.overlays.model_selection = self.initial_model_selection();
+        self.navigation.pending_focus = Some(PendingFocus::ModelPicker);
+        cx.notify();
+    }
+
+    pub(crate) fn open_response_model_picker(&mut self, turn_id: String, cx: &mut Context<Self>) {
+        if self.is_current_generating() {
+            return;
+        }
+        self.overlays.command_palette_open = false;
+        self.overlays.response_model_turn_id = Some(turn_id);
+        self.overlays.model_picker_open = true;
+        self.overlays
+            .model_search_input
+            .update(cx, |input, cx| input.set_text("", cx));
+        self.overlays.model_selection = self.initial_model_selection();
         self.navigation.pending_focus = Some(PendingFocus::ModelPicker);
         cx.notify();
     }
 
     pub(crate) fn close_model_picker(&mut self, cx: &mut Context<Self>) {
         self.overlays.model_picker_open = false;
+        self.overlays.response_model_turn_id = None;
         self.navigation.pending_focus = Some(PendingFocus::Composer);
         cx.notify();
     }
@@ -239,12 +263,18 @@ impl OneChat {
             return;
         }
         let conversation = self.current_conversation().cloned();
+        let response_turn_id = self.overlays.response_model_turn_id.take();
         self.overlays.model_picker_open = false;
         self.navigation.pending_focus = Some(if conversation.is_some() {
             PendingFocus::Composer
         } else {
             PendingFocus::Root
         });
+
+        if let Some(turn_id) = response_turn_id {
+            self.start_additional_response(turn_id, model.id, cx);
+            return;
+        }
 
         let Some(mut conversation) = conversation else {
             self.chat.draft_model_id = Some(model.id);

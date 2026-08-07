@@ -12,7 +12,6 @@ pub(super) fn settings_sidebar(
     let mut providers = div().flex().flex_col().gap_1();
 
     for provider in &app.data.snapshot.providers {
-        let provider_id = provider.id.clone();
         let selected = app.settings_ui.section == SettingsSection::Provider(provider.id.clone());
         let model_count = app
             .data
@@ -21,20 +20,13 @@ pub(super) fn settings_sidebar(
             .iter()
             .filter(|model| model.provider_id == provider.id)
             .count();
-        let status_color = match app.settings_ui.connection_tests.get(&provider.id) {
-            Some(ConnectionTestStatus::Testing) => colors.accent,
-            Some(ConnectionTestStatus::Connected) => colors.success,
-            Some(ConnectionTestStatus::Failed(_)) => colors.danger,
-            None if provider.enabled => colors.success,
-            None => colors.muted,
-        };
-        providers = providers.child(
-            provider_nav_row(provider, model_count, status_color, selected, colors).on_click(
-                cx.listener(move |this, _, _, cx| {
-                    this.select_settings_section(SettingsSection::Provider(provider_id.clone()), cx)
-                }),
-            ),
-        );
+        providers = providers.child(provider_nav_row(
+            provider,
+            model_count,
+            selected,
+            colors,
+            cx,
+        ));
     }
 
     if app.data.snapshot.providers.is_empty() {
@@ -252,10 +244,13 @@ fn settings_nav_row(
 fn provider_nav_row(
     provider: &Provider,
     model_count: usize,
-    status_color: gpui::Rgba,
     selected: bool,
     colors: Colors,
+    cx: &mut Context<OneChat>,
 ) -> Stateful<Div> {
+    let select_id = provider.id.clone();
+    let toggle_id = provider.id.clone();
+
     div()
         .id(SharedString::from(format!(
             "settings-provider-{}",
@@ -272,7 +267,6 @@ fn provider_nav_row(
         } else {
             rgba(0x00000000)
         })
-        .cursor_pointer()
         .hover(move |style| {
             style.bg(if selected {
                 colors.accent_soft
@@ -280,19 +274,54 @@ fn provider_nav_row(
                 colors.hover
             })
         })
-        .active(move |style| style.bg(colors.accent_soft))
         .child(
             div()
-                .w(px(22.0))
+                .id(SharedString::from(format!(
+                    "toggle-provider-sidebar-{}",
+                    provider.id
+                )))
+                .w(px(32.0))
+                .h(px(18.0))
+                .p(px(2.0))
                 .flex_none()
+                .rounded_full()
+                .border_1()
+                .border_color(if provider.enabled {
+                    colors.accent
+                } else {
+                    colors.border
+                })
+                .bg(if provider.enabled {
+                    colors.accent
+                } else {
+                    colors.raised
+                })
                 .flex()
-                .justify_center()
-                .child(div().size(px(8.0)).rounded_full().bg(status_color)),
+                .items_center()
+                .when(provider.enabled, |element| element.justify_end())
+                .cursor_pointer()
+                .hover(|style| style.opacity(0.8))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.toggle_provider_enabled(toggle_id.clone(), cx)
+                }))
+                .child(div().size(px(12.0)).rounded_full().bg(if provider.enabled {
+                    colors.on_accent
+                } else {
+                    colors.muted
+                })),
         )
         .child(
             div()
+                .id(SharedString::from(format!(
+                    "select-provider-sidebar-{}",
+                    provider.id
+                )))
                 .min_w_0()
                 .flex_1()
+                .cursor_pointer()
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.select_settings_section(SettingsSection::Provider(select_id.clone()), cx)
+                }))
                 .child(
                     div()
                         .overflow_hidden()
@@ -310,9 +339,14 @@ fn provider_nav_row(
                     div()
                         .text_size(px(11.0))
                         .text_color(colors.muted)
+                        .child(provider.kind.label()),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(colors.muted)
                         .child(format!(
-                            "{} · {} {}",
-                            provider.kind.label(),
+                            "{} {}",
                             model_count,
                             if model_count == 1 { "model" } else { "models" }
                         )),

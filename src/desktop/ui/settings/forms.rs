@@ -159,20 +159,18 @@ pub(super) fn provider_form(
                 .justify_end()
                 .gap_2()
                 .child(
-                    button("cancel-provider", "Cancel", colors)
-                        .on_click(cx.listener(|this, _, _, cx| this.cancel_provider_editor(cx))),
+                    large_svg_icon_button(
+                        "cancel-provider",
+                        UiIcon::Close,
+                        IconTone::Muted,
+                        colors,
+                        scale_factor,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.cancel_provider_editor(cx))),
                 )
                 .child(
-                    primary_button(
-                        "save-provider",
-                        if editor.is_new() {
-                            "Add Provider"
-                        } else {
-                            "Save Changes"
-                        },
-                        colors,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| this.save_provider(cx))),
+                    primary_svg_icon_button("save-provider", UiIcon::Save, colors, scale_factor)
+                        .on_click(cx.listener(|this, _, _, cx| this.save_provider(cx))),
                 ),
         )
         .into_any_element()
@@ -217,11 +215,17 @@ pub(super) fn model_form(
                 .justify_end()
                 .gap_2()
                 .child(
-                    button("cancel-model", "Cancel", colors)
-                        .on_click(cx.listener(|this, _, _, cx| this.cancel_model_editor(cx))),
+                    large_svg_icon_button(
+                        "cancel-model",
+                        UiIcon::Close,
+                        IconTone::Muted,
+                        colors,
+                        scale_factor,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.cancel_model_editor(cx))),
                 )
                 .child(
-                    primary_button("save-model", "Save Model", colors)
+                    primary_svg_icon_button("save-model", UiIcon::Save, colors, scale_factor)
                         .on_click(cx.listener(|this, _, _, cx| this.save_model(cx))),
                 ),
         )

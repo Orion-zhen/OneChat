@@ -4,7 +4,7 @@ mod reducer;
 mod runner;
 
 pub use active::{ActiveGeneration, GenerationManager};
-pub use prepare::PreparedGeneration;
+pub use prepare::{GenerationStart, PreparedGeneration, history_for_new_turn, history_for_turn};
 pub use reducer::{EventOutcome, apply_event, interrupted_event};
 pub use runner::{
     GenerationSnapshot, GenerationUpdate, STORAGE_FLUSH_INTERVAL, UI_FLUSH_INTERVAL, run_generation,
@@ -19,75 +19,125 @@ mod tests {
     use super::*;
     use crate::domain::*;
 
+    fn response(provider: &Provider, model: &Model) -> AssistantResponse {
+        AssistantResponse::new(model, provider)
+    }
+
+    fn request(response: &AssistantResponse) -> RequestInfo {
+        RequestInfo::new("conversation", "turn", &response.id)
+    }
+
     #[test]
-    fn preparation_includes_context_and_paired_storage_records() {
+    fn preparation_creates_a_turn_and_paired_records() {
         let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
         let model = Model::new(&provider.id, "gpt-test", "GPT Test");
         let mut conversation = Conversation::new("Test", Some(&model), "");
         conversation.generation_config.temperature = Some(0.4);
         conversation.generation_config.top_k = Some(20);
-        let context = vec![Message::new(
-            &conversation.id,
-            MessageRole::Assistant,
-            "Earlier",
-        )];
 
         let prepared =
-            PreparedGeneration::new(&conversation, &provider, &model, &context, "Next".into());
+            PreparedGeneration::new(&conversation, &provider, &model, &[], "Next".into());
+        let GenerationStart::NewTurn(turn) = &prepared.start else {
+            panic!("expected a new turn");
+        };
 
-        assert_eq!(prepared.provider_request.messages.len(), 2);
-        assert_eq!(prepared.user.as_ref().unwrap().content, "Next");
+        assert_eq!(turn.user.content, "Next");
+        assert_eq!(turn.responses, vec![prepared.response.clone()]);
         assert_eq!(
-            prepared.assistant.request_id,
+            prepared.response.request_id,
             Some(prepared.request_info.id.clone())
         );
-        assert_eq!(prepared.assistant.status, MessageStatus::Streaming);
-        assert_eq!(prepared.request_info.status, RequestStatus::Sending);
-        assert!(prepared.request_info.usage.estimated);
-        assert!(prepared.request_info.usage.input_tokens.is_some());
+        assert_eq!(prepared.response.status, MessageStatus::Streaming);
+        assert_eq!(prepared.request_info.turn_id, turn.id);
+        assert_eq!(prepared.provider_request.messages.len(), 1);
         assert_eq!(prepared.provider_request.config.temperature, Some(0.4));
         assert_eq!(prepared.provider_request.config.top_k, None);
-        assert_eq!(conversation.generation_config.top_k, Some(20));
     }
 
     #[test]
-    fn regeneration_reuses_the_assistant_message_without_adding_a_user_message() {
+    fn additional_responses_use_the_turns_original_parent_path() {
         let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
         let model = Model::new(&provider.id, "gpt-test", "GPT Test");
+        let other = Model::new(&provider.id, "other", "Other");
         let conversation = Conversation::new("Test", Some(&model), "");
-        let user = Message::new(&conversation.id, MessageRole::User, "Question");
-        let mut assistant = Message::new(&conversation.id, MessageRole::Assistant, "Old answer");
-        assistant.thinking = "Old thinking".into();
-        assistant.request_id = Some("old-request".into());
 
-        let prepared = PreparedGeneration::regenerate(
+        let first =
+            PreparedGeneration::new(&conversation, &provider, &model, &[], "Question one".into());
+        let GenerationStart::NewTurn(turn_one) = first.start else {
+            panic!("expected a new turn");
+        };
+        let mut turn_one = *turn_one;
+        turn_one.responses[0].content = "Chosen answer".into();
+        turn_one.responses[0].status = MessageStatus::Completed;
+
+        let second = PreparedGeneration::new(
             &conversation,
             &provider,
             &model,
-            std::slice::from_ref(&user),
-            &assistant,
+            std::slice::from_ref(&turn_one),
+            "Question two".into(),
+        );
+        let GenerationStart::NewTurn(turn_two) = second.start else {
+            panic!("expected a new turn");
+        };
+        let turn_two = *turn_two;
+        let turns = vec![turn_one, turn_two.clone()];
+        let alternate =
+            PreparedGeneration::additional(&conversation.id, &provider, &other, &turns, &turn_two);
+
+        assert_eq!(
+            alternate
+                .provider_request
+                .messages
+                .iter()
+                .map(|message| (message.role, message.content.as_str()))
+                .collect::<Vec<_>>(),
+            vec![
+                (MessageRole::User, "Question one"),
+                (MessageRole::Assistant, "Chosen answer"),
+                (MessageRole::User, "Question two"),
+            ]
+        );
+    }
+
+    #[test]
+    fn regeneration_reuses_the_response_id() {
+        let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+        let model = Model::new(&provider.id, "gpt-test", "GPT Test");
+        let conversation = Conversation::new("Test", Some(&model), "");
+        let mut previous = response(&provider, &model);
+        previous.content = "Old answer".into();
+        previous.thinking = "Old thinking".into();
+        let turn = Turn::new(&conversation, None, "Question", previous.clone());
+
+        let prepared = PreparedGeneration::regenerate(
+            &conversation.id,
+            &provider,
+            &model,
+            std::slice::from_ref(&turn),
+            &turn,
+            &previous,
         );
 
-        assert!(prepared.user.is_none());
-        assert_eq!(prepared.assistant.id, assistant.id);
-        assert_eq!(prepared.assistant.status, MessageStatus::Streaming);
-        assert!(prepared.assistant.content.is_empty());
-        assert!(prepared.assistant.thinking.is_empty());
-        assert_ne!(prepared.assistant.request_id, assistant.request_id);
-        assert_eq!(prepared.provider_request.messages.len(), 1);
-        assert_eq!(prepared.provider_request.messages[0].content, "Question");
+        assert_eq!(prepared.response.id, previous.id);
+        assert_eq!(prepared.response.status, MessageStatus::Streaming);
+        assert!(prepared.response.content.is_empty());
+        assert!(prepared.response.thinking.is_empty());
+        assert_ne!(prepared.response.request_id, previous.request_id);
     }
 
     #[test]
     fn events_preserve_partial_text_when_stopped() {
-        let mut message = Message::new("conversation", MessageRole::Assistant, "");
-        message.status = MessageStatus::Streaming;
-        let mut request = RequestInfo::new("conversation", &message.id);
+        let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+        let model = Model::new(&provider.id, "model", "Model");
+        let mut response = response(&provider, &model);
+        response.status = MessageStatus::Streaming;
+        let mut request = request(&response);
 
         assert!(
             !apply_event(
                 GenerationEvent::TextDelta("partial".into()),
-                &mut message,
+                &mut response,
                 &mut request,
                 Duration::from_millis(25),
             )
@@ -96,15 +146,15 @@ mod tests {
         assert!(
             apply_event(
                 GenerationEvent::Failed(GenerationError::cancelled()),
-                &mut message,
+                &mut response,
                 &mut request,
                 Duration::from_millis(80),
             )
             .terminal
         );
 
-        assert_eq!(message.content, "partial");
-        assert_eq!(message.status, MessageStatus::Stopped);
+        assert_eq!(response.content, "partial");
+        assert_eq!(response.status, MessageStatus::Stopped);
         assert_eq!(request.status, RequestStatus::Stopped);
         assert_eq!(request.ttft_ms, Some(25));
         assert_eq!(request.duration_ms, Some(80));
@@ -112,25 +162,26 @@ mod tests {
 
     #[test]
     fn reasoning_duration_stops_when_answer_text_starts() {
-        let mut message = Message::new("conversation", MessageRole::Assistant, "");
-        message.status = MessageStatus::Streaming;
-        let mut request = RequestInfo::new("conversation", &message.id);
+        let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+        let model = Model::new(&provider.id, "model", "Model");
+        let mut response = response(&provider, &model);
+        let mut request = request(&response);
 
         let thinking = apply_event(
             GenerationEvent::ThinkingDelta("Working".into()),
-            &mut message,
+            &mut response,
             &mut request,
             Duration::from_millis(400),
         );
         let first_text = apply_event(
             GenerationEvent::TextDelta("Done".into()),
-            &mut message,
+            &mut response,
             &mut request,
             Duration::from_millis(1_250),
         );
         let second_text = apply_event(
             GenerationEvent::TextDelta(".".into()),
-            &mut message,
+            &mut response,
             &mut request,
             Duration::from_millis(1_500),
         );
@@ -143,19 +194,20 @@ mod tests {
 
     #[test]
     fn reasoning_only_generation_signals_completion() {
-        let mut message = Message::new("conversation", MessageRole::Assistant, "");
-        message.status = MessageStatus::Streaming;
-        let mut request = RequestInfo::new("conversation", &message.id);
+        let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+        let model = Model::new(&provider.id, "model", "Model");
+        let mut response = response(&provider, &model);
+        let mut request = request(&response);
         apply_event(
             GenerationEvent::ThinkingDelta("Working".into()),
-            &mut message,
+            &mut response,
             &mut request,
             Duration::from_millis(400),
         );
 
         let completed = apply_event(
             GenerationEvent::Completed,
-            &mut message,
+            &mut response,
             &mut request,
             Duration::from_millis(800),
         );
@@ -167,15 +219,17 @@ mod tests {
 
     #[test]
     fn usage_and_failure_are_recorded() {
-        let mut message = Message::new("conversation", MessageRole::Assistant, "");
-        let mut request = RequestInfo::new("conversation", &message.id);
+        let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+        let model = Model::new(&provider.id, "model", "Model");
+        let mut response = response(&provider, &model);
+        let mut request = request(&response);
         apply_event(
             GenerationEvent::UsageUpdated(TokenUsage {
                 input_tokens: Some(4),
                 output_tokens: Some(9),
                 estimated: false,
             }),
-            &mut message,
+            &mut response,
             &mut request,
             Duration::ZERO,
         );
@@ -184,7 +238,7 @@ mod tests {
                 GenerationErrorKind::RateLimited,
                 "Slow down",
             )),
-            &mut message,
+            &mut response,
             &mut request,
             Duration::from_millis(100),
         );
@@ -206,7 +260,7 @@ mod tests {
         assert!(manager.start(
             "conversation".into(),
             "request".into(),
-            "message".into(),
+            "response".into(),
             CancellationToken::new(),
         ));
         assert!(!manager.start(

@@ -23,7 +23,8 @@ use gpui::{
 
 use super::{
     components::{
-        IconTone, UiIcon, button, compact_button, primary_button, svg_icon, svg_icon_button,
+        IconTone, UiIcon, button, compact_button, large_svg_icon_button, primary_button,
+        primary_svg_icon_button, svg_icon, svg_icon_button,
     },
     composer::{Composer, PickerDirection},
     theme::Colors,
@@ -43,7 +44,7 @@ pub(crate) fn render(
     let detail = match &app.settings_ui.section {
         SettingsSection::General => general_page(app, colors, cx),
         SettingsSection::DefaultModels => default_models_page(app, colors, scale_factor, cx),
-        SettingsSection::SystemPrompts => system_prompts_page(app, colors, cx),
+        SettingsSection::SystemPrompts => system_prompts_page(app, colors, scale_factor, cx),
         SettingsSection::Provider(provider_id) => app
             .data
             .snapshot

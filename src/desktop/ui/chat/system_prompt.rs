@@ -3,6 +3,7 @@ use super::*;
 pub(super) fn render_system_prompt_card(
     app: &OneChat,
     colors: Colors,
+    scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let conversation = app
@@ -52,12 +53,18 @@ pub(super) fn render_system_prompt_card(
             .flex()
             .gap_2()
             .child(
-                primary_button("save-system-prompt", "Save", colors)
+                primary_svg_icon_button("save-system-prompt", UiIcon::Save, colors, scale_factor)
                     .on_click(cx.listener(|this, _, _, cx| this.save_system_prompt(cx))),
             )
             .child(
-                button("cancel-system-prompt", "Cancel", colors)
-                    .on_click(cx.listener(|this, _, _, cx| this.cancel_system_prompt_edit(cx))),
+                large_svg_icon_button(
+                    "cancel-system-prompt",
+                    UiIcon::Close,
+                    IconTone::Muted,
+                    colors,
+                    scale_factor,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.cancel_system_prompt_edit(cx))),
             )
             .into_any_element(),
     };

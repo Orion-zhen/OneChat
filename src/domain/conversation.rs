@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{GenerationConfig, Model, Timestamp, new_id, now_timestamp};
+use super::{GenerationConfig, Model, Provider, Timestamp, new_id, now_timestamp};
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -98,12 +98,34 @@ impl MessageStatus {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct Message {
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct UserMessage {
     pub id: String,
-    pub conversation_id: String,
+    pub content: String,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+}
+
+impl UserMessage {
+    pub fn new(content: impl Into<String>) -> Self {
+        let now = now_timestamp();
+        Self {
+            id: new_id("message"),
+            content: content.into(),
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct AssistantResponse {
+    pub id: String,
+    pub model_id: String,
+    pub model_name: String,
+    pub provider_id: String,
+    pub provider_name: String,
     pub request_id: Option<String>,
-    pub role: MessageRole,
     pub status: MessageStatus,
     pub content: String,
     pub thinking: String,
@@ -111,23 +133,64 @@ pub struct Message {
     pub updated_at: Timestamp,
 }
 
-impl Message {
-    pub fn new(
-        conversation_id: impl Into<String>,
-        role: MessageRole,
-        content: impl Into<String>,
-    ) -> Self {
+impl AssistantResponse {
+    pub fn new(model: &Model, provider: &Provider) -> Self {
         let now = now_timestamp();
         Self {
-            id: new_id("message"),
-            conversation_id: conversation_id.into(),
+            id: new_id("response"),
+            model_id: model.id.clone(),
+            model_name: model.display_name.clone(),
+            provider_id: provider.id.clone(),
+            provider_name: provider.name.clone(),
             request_id: None,
-            role,
             status: MessageStatus::Completed,
-            content: content.into(),
+            content: String::new(),
             thinking: String::new(),
             created_at: now,
             updated_at: now,
         }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct TurnGenerationSettings {
+    pub system_prompt: String,
+    pub config: GenerationConfig,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct Turn {
+    pub id: String,
+    pub parent_response_id: Option<String>,
+    pub user: UserMessage,
+    pub responses: Vec<AssistantResponse>,
+    pub continuation_response_id: Option<String>,
+    pub generation: TurnGenerationSettings,
+}
+
+impl Turn {
+    pub fn new(
+        conversation: &Conversation,
+        parent_response_id: Option<String>,
+        prompt: impl Into<String>,
+        response: AssistantResponse,
+    ) -> Self {
+        Self {
+            id: new_id("turn"),
+            parent_response_id,
+            user: UserMessage::new(prompt),
+            continuation_response_id: Some(response.id.clone()),
+            responses: vec![response],
+            generation: TurnGenerationSettings {
+                system_prompt: conversation.system_prompt.content.clone(),
+                config: conversation.generation_config.clone(),
+            },
+        }
+    }
+
+    pub fn response(&self, response_id: &str) -> Option<&AssistantResponse> {
+        self.responses
+            .iter()
+            .find(|response| response.id == response_id)
     }
 }

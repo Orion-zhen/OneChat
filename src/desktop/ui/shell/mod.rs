@@ -15,7 +15,7 @@ use gpui::{
 
 use super::{
     components::{
-        IconTone, UiIcon, button, button_base, compact_button, destructive_button, icon_button,
+        IconTone, UiIcon, button_base, compact_button, destructive_button, icon_button,
         large_svg_icon_button, primary_button, primary_button_base, primary_svg_icon_button,
         svg_icon, svg_icon_button,
     },
@@ -107,7 +107,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         && (app.navigation.inspector_open || inspector_progress > 0.0))
         .then(|| {
             translated_x(
-                inspector::render(app, colors, cx),
+                inspector::render(app, colors, scale_factor, cx),
                 px(340.0 * (1.0 - inspector_progress)),
             )
         });
@@ -123,7 +123,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         .overlays
         .destructive_action
         .as_ref()
-        .map(|action| render_destructive_confirmation(action, colors, cx));
+        .map(|action| render_destructive_confirmation(action, colors, scale_factor, cx));
     let error = app.data.error.clone().map(|message| {
         div()
             .absolute()
