@@ -13,12 +13,15 @@ pub(super) fn read_jsonc<T: DeserializeOwned>(path: &Path) -> Result<T> {
 }
 
 pub(super) fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
+    let mut contents = serde_json::to_string_pretty(value)?;
+    contents.push('\n');
+    write_text(path, &contents)
+}
+
+pub(super) fn write_text(path: &Path, contents: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let mut contents = serde_json::to_string_pretty(value)?;
-    contents.push('\n');
-
     let file_name = path
         .file_name()
         .and_then(|name| name.to_str())

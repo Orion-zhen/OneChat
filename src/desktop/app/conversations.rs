@@ -35,17 +35,25 @@ impl OneChat {
             cx.notify();
             return;
         }
-        let conversation = Conversation::new(
-            "New conversation",
-            Some(&model),
-            &self.data.snapshot.settings.default_system_prompt,
-        );
+        let conversation = Conversation::new("New conversation", Some(&model), "");
         let id = conversation.id.clone();
         let mut settings = self.data.snapshot.settings.clone();
         settings.current_conversation_id = Some(id);
+        let default_prompt_name = settings
+            .default_system_prompt_preset
+            .clone()
+            .filter(|name| self.prompt_preset(name).is_some());
         self.navigation.pending_focus = Some(PendingFocus::Composer);
         self.mutate_and_reload(
             move |storage| {
+                let mut conversation = conversation;
+                conversation.system_prompt = default_prompt_name
+                    .as_deref()
+                    .map(|name| storage.load_prompt_preset(name))
+                    .transpose()?
+                    .flatten()
+                    .map(|preset| preset.content)
+                    .unwrap_or_default();
                 storage.insert_conversation(&conversation)?;
                 storage.save_settings(&settings)
             },
@@ -196,6 +204,7 @@ impl OneChat {
             DestructiveAction::DeleteConversation { id } => self.delete_conversation(id, cx),
             DestructiveAction::DeleteProvider { id } => self.delete_provider(id, cx),
             DestructiveAction::DeleteModel { id } => self.delete_model(id, cx),
+            DestructiveAction::DeletePromptPreset { name } => self.delete_prompt_preset(name, cx),
             DestructiveAction::ClearContext { conversation_id } => {
                 self.clear_current_context(conversation_id, cx)
             }

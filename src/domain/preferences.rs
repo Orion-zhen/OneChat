@@ -23,7 +23,7 @@ pub struct AppSettings {
     pub auto_title_enabled: bool,
     pub sidebar_collapsed: bool,
     pub theme: Theme,
-    pub default_system_prompt: String,
+    pub default_system_prompt_preset: Option<String>,
     pub title_generation_system_prompt: String,
     pub message_width_ratio: f32,
 }
@@ -44,7 +44,7 @@ impl Default for AppSettings {
             auto_title_enabled: true,
             sidebar_collapsed: false,
             theme: Theme::default(),
-            default_system_prompt: String::new(),
+            default_system_prompt_preset: None,
             title_generation_system_prompt: DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT.into(),
             message_width_ratio: DEFAULT_MESSAGE_WIDTH_RATIO,
         }

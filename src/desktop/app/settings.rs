@@ -38,15 +38,25 @@ impl OneChat {
         section: SettingsSection,
         cx: &mut Context<Self>,
     ) {
+        let reload_prompts = section == SettingsSection::SystemPrompts;
         if self.settings_ui.section == section {
+            if reload_prompts {
+                self.reload_snapshot(cx);
+            }
             return;
         }
         self.settings_ui.section = section;
         self.settings_ui.default_model_menu = None;
+        self.settings_ui.default_prompt_menu_open = false;
+        self.settings_ui.viewed_prompt_preset = None;
         self.settings_ui.provider_editor = None;
         self.settings_ui.model_editor = None;
-        self.settings_ui.prompt_editor = None;
+        self.settings_ui.prompt_preset_editor = None;
+        self.settings_ui.title_prompt_editor = None;
         self.settings_ui.form_error = None;
+        if reload_prompts {
+            self.reload_snapshot(cx);
+        }
         cx.notify();
     }
 
@@ -101,62 +111,192 @@ impl OneChat {
         cx.notify();
     }
 
-    pub(crate) fn begin_edit_settings_prompt(
+    pub(crate) fn toggle_default_prompt_menu(&mut self, cx: &mut Context<Self>) {
+        self.settings_ui.default_prompt_menu_open = !self.settings_ui.default_prompt_menu_open;
+        cx.notify();
+    }
+
+    pub(crate) fn select_default_prompt(&mut self, name: Option<String>, cx: &mut Context<Self>) {
+        if name
+            .as_deref()
+            .is_some_and(|name| self.prompt_preset(name).is_none())
+        {
+            return;
+        }
+        self.settings_ui.default_prompt_menu_open = false;
+        if self.data.snapshot.settings.default_system_prompt_preset == name {
+            cx.notify();
+            return;
+        }
+        self.data.snapshot.settings.default_system_prompt_preset = name;
+        self.save_settings(cx);
+        cx.notify();
+    }
+
+    pub(crate) fn view_prompt_preset(&mut self, name: String, cx: &mut Context<Self>) {
+        if self.prompt_preset(&name).is_none() {
+            return;
+        }
+        self.settings_ui.viewed_prompt_preset = Some(name);
+        cx.notify();
+    }
+
+    pub(crate) fn close_prompt_preset_view(&mut self, cx: &mut Context<Self>) {
+        self.settings_ui.viewed_prompt_preset = None;
+        cx.notify();
+    }
+
+    pub(crate) fn begin_add_prompt_preset(&mut self, cx: &mut Context<Self>) {
+        self.begin_prompt_preset_edit(None, cx);
+    }
+
+    pub(crate) fn begin_edit_prompt_preset(&mut self, name: String, cx: &mut Context<Self>) {
+        let Some(preset) = self.prompt_preset(&name).cloned() else {
+            return;
+        };
+        self.begin_prompt_preset_edit(Some(preset), cx);
+    }
+
+    fn begin_prompt_preset_edit(
         &mut self,
-        kind: SettingsPromptKind,
+        preset: Option<SystemPromptPreset>,
         cx: &mut Context<Self>,
     ) {
-        let (content, placeholder) = match kind {
-            SettingsPromptKind::ConversationDefault => (
-                self.data.snapshot.settings.default_system_prompt.clone(),
-                "Copied into each new conversation",
-            ),
-            SettingsPromptKind::TitleGeneration => (
+        let editor = PromptPresetEditor::new(preset, cx);
+        for input in [editor.name.clone(), editor.content.clone()] {
+            cx.subscribe(&input, |this, _, event, cx| {
+                if matches!(event, ComposerEvent::Cancel) {
+                    this.cancel_prompt_preset_edit(cx);
+                }
+            })
+            .detach();
+        }
+        self.settings_ui.viewed_prompt_preset = None;
+        self.settings_ui.prompt_preset_editor = Some(editor);
+        self.settings_ui.form_error = None;
+        self.navigation.pending_focus = Some(PendingFocus::SettingsPrompt);
+        cx.notify();
+    }
+
+    pub(crate) fn cancel_prompt_preset_edit(&mut self, cx: &mut Context<Self>) {
+        self.settings_ui.prompt_preset_editor = None;
+        self.settings_ui.form_error = None;
+        cx.notify();
+    }
+
+    pub(crate) fn save_prompt_preset(&mut self, cx: &mut Context<Self>) {
+        let Some(editor) = self.settings_ui.prompt_preset_editor.as_ref() else {
+            return;
+        };
+        let preset = match editor.build(cx) {
+            Ok(preset) => preset,
+            Err(error) => {
+                self.settings_ui.form_error = Some(error);
+                cx.notify();
+                return;
+            }
+        };
+        let original_name = editor.original_name().map(str::to_string);
+        if original_name.as_deref() != Some(preset.name.as_str())
+            && self.prompt_preset(&preset.name).is_some()
+        {
+            self.settings_ui.form_error = Some(format!(
+                "A prompt preset named {} already exists.",
+                preset.name
+            ));
+            cx.notify();
+            return;
+        }
+        let mut settings = self.data.snapshot.settings.clone();
+        if let Some(original_name) = original_name.as_deref()
+            && settings.default_system_prompt_preset.as_deref() == Some(original_name)
+        {
+            settings.default_system_prompt_preset = Some(preset.name.clone());
+        }
+        self.data.snapshot.settings = settings.clone();
+        self.settings_ui.prompt_preset_editor = None;
+        self.settings_ui.form_error = None;
+        self.mutate_and_reload(
+            move |storage| {
+                if let Some(original_name) = original_name {
+                    storage.update_prompt_preset(&original_name, &preset)?;
+                } else {
+                    storage.insert_prompt_preset(&preset)?;
+                }
+                storage.save_settings(&settings)
+            },
+            cx,
+        );
+    }
+
+    pub(crate) fn request_delete_prompt_preset(&mut self, name: String, cx: &mut Context<Self>) {
+        self.overlays.destructive_action = Some(DestructiveAction::DeletePromptPreset { name });
+        cx.notify();
+    }
+
+    pub(crate) fn delete_prompt_preset(&mut self, name: String, cx: &mut Context<Self>) {
+        let mut settings = self.data.snapshot.settings.clone();
+        if settings.default_system_prompt_preset.as_deref() == Some(&name) {
+            settings.default_system_prompt_preset = None;
+        }
+        self.data.snapshot.settings = settings.clone();
+        self.settings_ui.viewed_prompt_preset = None;
+        self.settings_ui.prompt_preset_editor = None;
+        self.mutate_and_reload(
+            move |storage| {
+                storage.delete_prompt_preset(&name)?;
+                storage.save_settings(&settings)
+            },
+            cx,
+        );
+    }
+
+    pub(crate) fn reload_prompt_presets(&mut self, cx: &mut Context<Self>) {
+        self.settings_ui.default_prompt_menu_open = false;
+        self.settings_ui.viewed_prompt_preset = None;
+        self.reload_snapshot(cx);
+    }
+
+    pub(crate) fn begin_edit_title_prompt(&mut self, cx: &mut Context<Self>) {
+        let input = cx.new(|cx| {
+            Composer::multiline(
                 self.data
                     .snapshot
                     .settings
                     .title_generation_system_prompt
                     .clone(),
                 "Used to generate automatic conversation titles",
-            ),
-        };
-        let input = cx.new(|cx| Composer::multiline(content, placeholder, cx));
+                cx,
+            )
+        });
         cx.subscribe(&input, |this, _, event, cx| {
             if matches!(event, ComposerEvent::Cancel) {
-                this.cancel_settings_prompt_edit(cx);
+                this.cancel_title_prompt_edit(cx);
             }
         })
         .detach();
-        self.settings_ui.prompt_editor = Some(SettingsPromptEditor { kind, input });
+        self.settings_ui.title_prompt_editor = Some(input);
         self.navigation.pending_focus = Some(PendingFocus::SettingsPrompt);
         cx.notify();
     }
 
-    pub(crate) fn cancel_settings_prompt_edit(&mut self, cx: &mut Context<Self>) {
-        self.settings_ui.prompt_editor = None;
+    pub(crate) fn cancel_title_prompt_edit(&mut self, cx: &mut Context<Self>) {
+        self.settings_ui.title_prompt_editor = None;
         cx.notify();
     }
 
-    pub(crate) fn save_settings_prompt(&mut self, cx: &mut Context<Self>) {
-        let Some(editor) = self.settings_ui.prompt_editor.as_ref() else {
+    pub(crate) fn save_title_prompt(&mut self, cx: &mut Context<Self>) {
+        let Some(editor) = self.settings_ui.title_prompt_editor.as_ref() else {
             return;
         };
-        let kind = editor.kind;
-        let content = editor.input.read(cx).text().trim().to_string();
-        if kind == SettingsPromptKind::TitleGeneration && content.is_empty() {
+        let content = editor.read(cx).text().trim().to_string();
+        if content.is_empty() {
             self.data.error = Some("The title generation prompt cannot be empty.".into());
             cx.notify();
             return;
         }
-        match kind {
-            SettingsPromptKind::ConversationDefault => {
-                self.data.snapshot.settings.default_system_prompt = content;
-            }
-            SettingsPromptKind::TitleGeneration => {
-                self.data.snapshot.settings.title_generation_system_prompt = content;
-            }
-        }
-        self.settings_ui.prompt_editor = None;
+        self.data.snapshot.settings.title_generation_system_prompt = content;
+        self.settings_ui.title_prompt_editor = None;
         self.save_settings(cx);
         cx.notify();
     }
@@ -164,14 +304,7 @@ impl OneChat {
     pub(crate) fn reset_title_generation_prompt(&mut self, cx: &mut Context<Self>) {
         self.data.snapshot.settings.title_generation_system_prompt =
             DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT.into();
-        if self
-            .settings_ui
-            .prompt_editor
-            .as_ref()
-            .is_some_and(|editor| editor.kind == SettingsPromptKind::TitleGeneration)
-        {
-            self.settings_ui.prompt_editor = None;
-        }
+        self.settings_ui.title_prompt_editor = None;
         self.save_settings(cx);
         cx.notify();
     }

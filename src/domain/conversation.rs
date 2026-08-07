@@ -2,21 +2,6 @@ use serde::{Deserialize, Serialize};
 
 use super::{GenerationConfig, Model, Provider, Timestamp, new_id, now_timestamp};
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SystemPromptSource {
-    #[default]
-    None,
-    FromDefault,
-    Custom,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Serialize)]
-pub struct SystemPrompt {
-    pub content: String,
-    pub source: SystemPromptSource,
-}
-
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AutoTitleState {
@@ -31,7 +16,7 @@ pub struct Conversation {
     pub id: String,
     pub title: String,
     pub model_id: Option<String>,
-    pub system_prompt: SystemPrompt,
+    pub system_prompt: String,
     pub generation_config: GenerationConfig,
     pub auto_title_state: AutoTitleState,
     pub pinned: bool,
@@ -40,25 +25,14 @@ pub struct Conversation {
 }
 
 impl Conversation {
-    pub fn new(
-        title: impl Into<String>,
-        model: Option<&Model>,
-        default_system_prompt: &str,
-    ) -> Self {
+    pub fn new(title: impl Into<String>, model: Option<&Model>, system_prompt: &str) -> Self {
         let now = now_timestamp();
-        let prompt = default_system_prompt.trim().to_string();
+        let system_prompt = system_prompt.trim().to_string();
         Self {
             id: new_id("conversation"),
             title: title.into(),
             model_id: model.map(|model| model.id.clone()),
-            system_prompt: SystemPrompt {
-                source: if prompt.is_empty() {
-                    SystemPromptSource::None
-                } else {
-                    SystemPromptSource::FromDefault
-                },
-                content: prompt,
-            },
+            system_prompt,
             generation_config: GenerationConfig::default(),
             auto_title_state: AutoTitleState::Pending,
             pinned: false,
@@ -164,12 +138,6 @@ impl AssistantResponse {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-pub struct TurnGenerationSettings {
-    pub system_prompt: String,
-    pub config: GenerationConfig,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Turn {
     pub id: String,
     pub parent_response_id: Option<String>,
@@ -177,7 +145,7 @@ pub struct Turn {
     pub user: UserMessage,
     pub responses: Vec<AssistantResponse>,
     pub continuation_response_id: Option<String>,
-    pub generation: TurnGenerationSettings,
+    pub generation_config: GenerationConfig,
 }
 
 impl Turn {
@@ -194,10 +162,7 @@ impl Turn {
             user: UserMessage::new(prompt),
             continuation_response_id: Some(response.id.clone()),
             responses: vec![response],
-            generation: TurnGenerationSettings {
-                system_prompt: conversation.system_prompt.content.clone(),
-                config: conversation.generation_config.clone(),
-            },
+            generation_config: conversation.generation_config.clone(),
         }
     }
 

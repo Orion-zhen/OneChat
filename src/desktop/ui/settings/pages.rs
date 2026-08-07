@@ -511,24 +511,130 @@ pub(super) fn system_prompts_page(
     scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    let conversation_prompt = settings_prompt_content(
-        app,
-        SettingsPromptKind::ConversationDefault,
-        "Default Prompt",
-        "New conversations start without a System Prompt.",
-        colors,
-        scale_factor,
-        cx,
+    let preset_count = app.data.snapshot.prompt_presets.len();
+    let preset_count_label = format!(
+        "{preset_count} {}",
+        if preset_count == 1 {
+            "preset"
+        } else {
+            "presets"
+        }
     );
-    let title_prompt = settings_prompt_content(
-        app,
-        SettingsPromptKind::TitleGeneration,
-        "Title Prompt",
-        "",
-        colors,
-        scale_factor,
-        cx,
-    );
+
+    let conversation_default = div()
+        .p_5()
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap_6()
+        .child(
+            div()
+                .min_w_0()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child("Conversation default"),
+                        )
+                        .child(prompt_badge("New chats", false, colors)),
+                )
+                .child(
+                    div()
+                        .pt_1()
+                        .text_size(px(12.0))
+                        .line_height(px(18.0))
+                        .text_color(colors.muted)
+                        .child("Choose the preset copied into each new conversation."),
+                ),
+        )
+        .child(default_prompt_select(app, colors, scale_factor, cx));
+
+    let conversation_prompt = stretching_column()
+        .rounded_xl()
+        .border_1()
+        .border_color(colors.border)
+        .bg(colors.panel)
+        .child(conversation_default);
+
+    let title_prompt = stretching_column()
+        .rounded_xl()
+        .border_1()
+        .border_color(colors.border)
+        .bg(colors.panel)
+        .p_5()
+        .child(title_prompt_content(app, colors, scale_factor, cx));
+
+    let prompt_library_header = div()
+        .pb_4()
+        .flex()
+        .items_start()
+        .justify_between()
+        .gap_4()
+        .child(
+            div()
+                .min_w_0()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            div()
+                                .text_sm()
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child("Prompt library"),
+                        )
+                        .child(prompt_badge(preset_count_label, false, colors)),
+                )
+                .child(
+                    div()
+                        .pt_1()
+                        .text_size(px(12.0))
+                        .line_height(px(18.0))
+                        .text_color(colors.muted)
+                        .child("Reusable Markdown prompts for conversations."),
+                ),
+        )
+        .child(
+            div()
+                .flex_none()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    large_svg_icon_button(
+                        "reload-prompt-presets",
+                        UiIcon::Regenerate,
+                        IconTone::Muted,
+                        colors,
+                        scale_factor,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.reload_prompt_presets(cx))),
+                )
+                .child(
+                    primary_svg_icon_button(
+                        "add-prompt-preset",
+                        UiIcon::Plus,
+                        colors,
+                        scale_factor,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.begin_add_prompt_preset(cx))),
+                ),
+        );
+
+    let prompt_library = stretching_column()
+        .rounded_xl()
+        .border_1()
+        .border_color(colors.border)
+        .bg(colors.panel)
+        .p_5()
+        .child(prompt_library_header)
+        .child(prompt_presets_content(app, colors, scale_factor, cx));
 
     detail_page(
         div()
@@ -537,59 +643,528 @@ pub(super) fn system_prompts_page(
             .gap_6()
             .child(page_header(
                 "System Prompts",
-                "Configure instructions for conversations and automatic titles.",
+                "Set the instructions used in conversations and automatic titles.",
                 colors,
             ))
-            .child(section(
-                "Conversation Default",
-                Some(
-                    "Copied into new conversations; existing conversations keep their own prompt.",
-                ),
-                conversation_prompt,
-                colors,
-            ))
-            .child(section(
-                "Title Generation",
-                Some("Used after the first completed response; changes apply to future titles."),
-                title_prompt,
-                colors,
-            )),
+            .child(conversation_prompt)
+            .child(title_prompt)
+            .child(prompt_library),
     )
 }
 
-fn settings_prompt_content(
+fn prompt_badge(label: impl Into<SharedString>, accent: bool, colors: Colors) -> AnyElement {
+    div()
+        .flex_none()
+        .rounded_full()
+        .bg(if accent {
+            colors.accent_soft
+        } else {
+            colors.raised
+        })
+        .px_2()
+        .py_1()
+        .text_size(px(10.0))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(if accent { colors.accent } else { colors.muted })
+        .child(label.into())
+        .into_any_element()
+}
+
+fn stretching_column() -> Div {
+    let mut column = div().flex().flex_col();
+    column.style().align_items = Some(AlignItems::Stretch);
+    column
+}
+
+fn default_prompt_select(
     app: &OneChat,
-    kind: SettingsPromptKind,
-    title: &'static str,
-    empty_message: &'static str,
     colors: Colors,
     scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    let key = match kind {
-        SettingsPromptKind::ConversationDefault => "default",
-        SettingsPromptKind::TitleGeneration => "title-generation",
-    };
-    let prompt = match kind {
-        SettingsPromptKind::ConversationDefault => {
-            app.data.snapshot.settings.default_system_prompt.trim()
-        }
-        SettingsPromptKind::TitleGeneration => app
-            .data
-            .snapshot
-            .settings
-            .title_generation_system_prompt
-            .trim(),
-    };
-    let customized = kind == SettingsPromptKind::TitleGeneration
-        && prompt != DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT;
+    let selected_name = app.settings().default_system_prompt_preset.as_deref();
+    let label = selected_name.map_or_else(
+        || "No System Prompt".to_string(),
+        |name| {
+            if app.prompt_preset(name).is_some() {
+                name.to_string()
+            } else {
+                format!("Missing · {name}")
+            }
+        },
+    );
+    let none_selected = selected_name.is_none();
+    let mut options = div()
+        .id("default-prompt-options")
+        .occlude()
+        .absolute()
+        .top(px(40.0))
+        .left_0()
+        .right_0()
+        .max_h(px(320.0))
+        .overflow_y_scroll()
+        .rounded_lg()
+        .border_1()
+        .border_color(colors.border)
+        .bg(colors.panel)
+        .p_1()
+        .flex()
+        .flex_col()
+        .shadow_lg()
+        .child(
+            div()
+                .id("default-prompt-none")
+                .w_full()
+                .px_3()
+                .py_2()
+                .rounded_md()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_3()
+                .bg(if none_selected {
+                    colors.accent_soft
+                } else {
+                    colors.panel
+                })
+                .cursor_pointer()
+                .hover(move |style| style.bg(colors.hover))
+                .on_click(cx.listener(|this, _, _, cx| this.select_default_prompt(None, cx)))
+                .child(
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("No System Prompt"),
+                )
+                .children(none_selected.then(|| div().text_color(colors.accent).child("✓"))),
+        );
 
-    if let Some(editor) = app
+    for preset in &app.data.snapshot.prompt_presets {
+        let name = preset.name.clone();
+        let selected = selected_name == Some(preset.name.as_str());
+        options = options.child(
+            div()
+                .id(SharedString::from(format!(
+                    "default-prompt-{}",
+                    preset.name
+                )))
+                .w_full()
+                .px_3()
+                .py_2()
+                .rounded_md()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_3()
+                .bg(if selected {
+                    colors.accent_soft
+                } else {
+                    colors.panel
+                })
+                .cursor_pointer()
+                .hover(move |style| style.bg(colors.hover))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.select_default_prompt(Some(name.clone()), cx)
+                }))
+                .child(
+                    div()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .text_sm()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(preset.name.clone()),
+                )
+                .children(selected.then(|| div().text_color(colors.accent).child("✓"))),
+        );
+    }
+
+    let select = div()
+        .id("default-prompt-select")
+        .w_full()
+        .h(px(36.0))
+        .px_3()
+        .rounded_lg()
+        .border_1()
+        .border_color(colors.border)
+        .bg(colors.raised)
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap_3()
+        .text_sm()
+        .cursor_pointer()
+        .hover(move |style| style.bg(colors.hover))
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_default_prompt_menu(cx)))
+        .child(
+            div()
+                .min_w_0()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .child(label),
+        )
+        .child(svg_icon(
+            if app.settings_ui.default_prompt_menu_open {
+                UiIcon::ChevronUp
+            } else {
+                UiIcon::ChevronDown
+            },
+            IconTone::Muted,
+            colors,
+            scale_factor,
+            14.0,
+        ));
+
+    div()
+        .relative()
+        .w(px(300.0))
+        .flex_none()
+        .child(select)
+        .children(
+            app.settings_ui
+                .default_prompt_menu_open
+                .then(|| deferred(options).priority(1)),
+        )
+        .into_any_element()
+}
+
+fn prompt_presets_content(
+    app: &OneChat,
+    colors: Colors,
+    scale_factor: f32,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    if app.data.snapshot.prompt_presets.is_empty() {
+        return div()
+            .rounded_lg()
+            .bg(colors.raised)
+            .px_4()
+            .py_5()
+            .flex()
+            .flex_col()
+            .items_center()
+            .text_center()
+            .child(
+                div()
+                    .text_sm()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child("No presets yet"),
+            )
+            .child(
+                div()
+                    .pt_1()
+                    .text_size(px(12.0))
+                    .text_color(colors.muted)
+                    .child("Create a reusable prompt to get started."),
+            )
+            .into_any_element();
+    }
+
+    let mut cards = div().flex().flex_wrap().gap_3();
+    for preset in &app.data.snapshot.prompt_presets {
+        let view_name = preset.name.clone();
+        let edit_name = preset.name.clone();
+        let delete_name = preset.name.clone();
+        let default =
+            app.settings().default_system_prompt_preset.as_deref() == Some(preset.name.as_str());
+        cards = cards.child(
+            div()
+                .id(SharedString::from(format!(
+                    "prompt-preset-card-{}",
+                    preset.name
+                )))
+                .w(px(350.0))
+                .max_w_full()
+                .min_h(px(132.0))
+                .rounded_lg()
+                .border_1()
+                .border_color(colors.border)
+                .bg(colors.raised)
+                .p_4()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .gap_2()
+                        .child(
+                            div()
+                                .min_w_0()
+                                .flex_1()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .min_w_0()
+                                        .overflow_hidden()
+                                        .whitespace_nowrap()
+                                        .text_ellipsis()
+                                        .text_sm()
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .child(preset.name.clone()),
+                                )
+                                .children(default.then(|| prompt_badge("Default", true, colors))),
+                        )
+                        .child(
+                            div()
+                                .flex_none()
+                                .flex()
+                                .items_center()
+                                .gap_1()
+                                .child(
+                                    svg_icon_button(
+                                        SharedString::from(format!("view-prompt-{}", preset.name)),
+                                        UiIcon::Eye,
+                                        IconTone::Muted,
+                                        colors,
+                                        scale_factor,
+                                    )
+                                    .on_click(cx.listener(
+                                        move |this, _, _, cx| {
+                                            this.view_prompt_preset(view_name.clone(), cx)
+                                        },
+                                    )),
+                                )
+                                .child(
+                                    svg_icon_button(
+                                        SharedString::from(format!("edit-prompt-{}", preset.name)),
+                                        UiIcon::Pencil,
+                                        IconTone::Muted,
+                                        colors,
+                                        scale_factor,
+                                    )
+                                    .on_click(cx.listener(
+                                        move |this, _, _, cx| {
+                                            this.begin_edit_prompt_preset(edit_name.clone(), cx)
+                                        },
+                                    )),
+                                )
+                                .child(
+                                    svg_icon_button(
+                                        SharedString::from(format!(
+                                            "delete-prompt-{}",
+                                            preset.name
+                                        )),
+                                        UiIcon::Trash,
+                                        IconTone::Danger,
+                                        colors,
+                                        scale_factor,
+                                    )
+                                    .on_click(cx.listener(
+                                        move |this, _, _, cx| {
+                                            this.request_delete_prompt_preset(
+                                                delete_name.clone(),
+                                                cx,
+                                            )
+                                        },
+                                    )),
+                                ),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .max_h(px(54.0))
+                        .overflow_hidden()
+                        .text_size(px(12.0))
+                        .line_height(px(18.0))
+                        .text_color(colors.muted)
+                        .child(prompt_preview(&preset.content)),
+                ),
+        );
+    }
+    cards.into_any_element()
+}
+
+pub(crate) fn prompt_preset_panel(
+    app: &OneChat,
+    colors: Colors,
+    scale_factor: f32,
+    cx: &mut Context<OneChat>,
+) -> Div {
+    if let Some(editor) = &app.settings_ui.prompt_preset_editor {
+        let title = if editor.original_name().is_some() {
+            "Edit prompt preset"
+        } else {
+            "New prompt preset"
+        };
+        let actions = div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(
+                large_svg_icon_button(
+                    "cancel-prompt-preset",
+                    UiIcon::Close,
+                    IconTone::Muted,
+                    colors,
+                    scale_factor,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.cancel_prompt_preset_edit(cx))),
+            )
+            .child(
+                primary_svg_icon_button("save-prompt-preset", UiIcon::Save, colors, scale_factor)
+                    .on_click(cx.listener(|this, _, _, cx| this.save_prompt_preset(cx))),
+            );
+        let body = stretching_column()
+            .gap_4()
+            .child(field("Name", editor.name.clone(), colors))
+            .child(field("Prompt", editor.content.clone(), colors))
+            .children(
+                app.settings_ui
+                    .form_error
+                    .as_deref()
+                    .map(|error| error_banner(error, colors)),
+            );
+        return prompt_preset_modal(title, actions, body, colors);
+    }
+
+    let preset = app
         .settings_ui
-        .prompt_editor
-        .as_ref()
-        .filter(|editor| editor.kind == kind)
-    {
+        .viewed_prompt_preset
+        .as_deref()
+        .and_then(|name| app.prompt_preset(name))
+        .expect("prompt preset panel requires a viewed preset or editor");
+    let actions = div().flex_none().child(
+        large_svg_icon_button(
+            "close-prompt-preset-view",
+            UiIcon::Close,
+            IconTone::Muted,
+            colors,
+            scale_factor,
+        )
+        .on_click(cx.listener(|this, _, _, cx| this.close_prompt_preset_view(cx))),
+    );
+    let body = stretching_column()
+        .gap_4()
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(colors.muted)
+                        .child("Name"),
+                )
+                .child(
+                    div()
+                        .rounded_lg()
+                        .border_1()
+                        .border_color(colors.border)
+                        .bg(colors.raised)
+                        .p_3()
+                        .text_sm()
+                        .child(preset.name.clone()),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .text_color(colors.muted)
+                        .child("Prompt"),
+                )
+                .child(
+                    div()
+                        .id("viewed-prompt-content")
+                        .min_h(px(240.0))
+                        .max_h(px(420.0))
+                        .overflow_y_scroll()
+                        .rounded_lg()
+                        .border_1()
+                        .border_color(colors.border)
+                        .bg(colors.raised)
+                        .p_3()
+                        .whitespace_normal()
+                        .text_sm()
+                        .line_height(px(22.0))
+                        .child(preset.content.clone()),
+                ),
+        );
+    prompt_preset_modal("View prompt preset", actions, body, colors)
+}
+
+fn prompt_preset_modal(title: &str, actions: Div, body: Div, colors: Colors) -> Div {
+    stretching_column()
+        .w_full()
+        .max_w(px(680.0))
+        .rounded_xl()
+        .border_1()
+        .border_color(colors.border)
+        .bg(colors.panel)
+        .shadow_lg()
+        .p_5()
+        .gap_4()
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_4()
+                .child(
+                    div()
+                        .text_lg()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(title.to_string()),
+                )
+                .child(actions),
+        )
+        .child(body)
+}
+
+fn title_prompt_content(
+    app: &OneChat,
+    colors: Colors,
+    scale_factor: f32,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    let prompt = app.settings().title_generation_system_prompt.trim();
+    let customized = prompt != DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT;
+    let heading = div()
+        .flex()
+        .items_start()
+        .justify_between()
+        .gap_4()
+        .child(
+            div()
+                .min_w_0()
+                .child(
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("Title generation"),
+                )
+                .child(
+                    div()
+                        .pt_1()
+                        .text_size(px(12.0))
+                        .line_height(px(18.0))
+                        .text_color(colors.muted)
+                        .child("Instructions used after the first completed response."),
+                ),
+        )
+        .child(prompt_badge(
+            if customized { "Customized" } else { "Built-in" },
+            customized,
+            colors,
+        ));
+
+    if let Some(editor) = &app.settings_ui.title_prompt_editor {
         let mut actions = div().flex().justify_end().gap_2();
         if customized {
             actions = actions.child(
@@ -601,37 +1176,45 @@ fn settings_prompt_content(
                 .on_click(cx.listener(|this, _, _, cx| this.reset_title_generation_prompt(cx))),
             );
         }
-        actions = actions
-            .child(
-                large_svg_icon_button(
-                    SharedString::from(format!("cancel-{key}-system-prompt")),
-                    UiIcon::Close,
-                    IconTone::Muted,
-                    colors,
-                    scale_factor,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.cancel_settings_prompt_edit(cx))),
-            )
-            .child(
-                primary_svg_icon_button(
-                    SharedString::from(format!("save-{key}-system-prompt")),
-                    UiIcon::Save,
-                    colors,
-                    scale_factor,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.save_settings_prompt(cx))),
-            );
-        return div()
-            .flex()
-            .flex_col()
+        return stretching_column()
             .gap_4()
-            .child(editor.input.clone())
-            .child(actions)
+            .child(heading)
+            .child(
+                stretching_column()
+                    .rounded_lg()
+                    .bg(colors.raised)
+                    .p_4()
+                    .gap_4()
+                    .child(editor.clone())
+                    .child(
+                        actions
+                            .child(
+                                large_svg_icon_button(
+                                    "cancel-title-generation-system-prompt",
+                                    UiIcon::Close,
+                                    IconTone::Muted,
+                                    colors,
+                                    scale_factor,
+                                )
+                                .on_click(
+                                    cx.listener(|this, _, _, cx| this.cancel_title_prompt_edit(cx)),
+                                ),
+                            )
+                            .child(
+                                primary_svg_icon_button(
+                                    "save-title-generation-system-prompt",
+                                    UiIcon::Save,
+                                    colors,
+                                    scale_factor,
+                                )
+                                .on_click(cx.listener(|this, _, _, cx| this.save_title_prompt(cx))),
+                            ),
+                    ),
+            )
             .into_any_element();
     }
 
-    let kind_for_edit = kind;
-    let mut actions = div().flex().items_center().gap_2();
+    let mut actions = div().flex_none().flex().items_center().gap_2();
     if customized {
         actions = actions.child(
             button("reset-title-generation-prompt", "Reset to Default", colors)
@@ -639,44 +1222,46 @@ fn settings_prompt_content(
         );
     }
     actions = actions.child(
-        button(
-            SharedString::from(format!("edit-{key}-system-prompt")),
-            "Edit",
+        svg_icon_button(
+            "edit-title-generation-system-prompt",
+            UiIcon::Pencil,
+            IconTone::Muted,
             colors,
+            scale_factor,
         )
-        .on_click(
-            cx.listener(move |this, _, _, cx| this.begin_edit_settings_prompt(kind_for_edit, cx)),
-        ),
+        .on_click(cx.listener(|this, _, _, cx| this.begin_edit_title_prompt(cx))),
     );
 
-    div()
-        .flex()
-        .items_start()
-        .justify_between()
-        .gap_5()
+    let preview = if prompt.is_empty() {
+        "No title instructions.".to_string()
+    } else {
+        prompt_preview(prompt)
+    };
+
+    stretching_column()
+        .gap_4()
+        .child(heading)
         .child(
             div()
-                .min_w_0()
-                .flex_1()
+                .rounded_lg()
+                .bg(colors.raised)
+                .p_4()
+                .flex()
+                .items_start()
+                .justify_between()
+                .gap_5()
                 .child(
                     div()
-                        .text_sm()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(title),
-                )
-                .child(
-                    div()
-                        .pt_1()
+                        .min_w_0()
+                        .flex_1()
+                        .max_h(px(54.0))
+                        .overflow_hidden()
                         .text_size(px(12.0))
                         .line_height(px(18.0))
                         .text_color(colors.muted)
-                        .child(if prompt.is_empty() {
-                            empty_message.to_string()
-                        } else {
-                            prompt_preview(prompt)
-                        }),
-                ),
+                        .child(preview),
+                )
+                .child(actions),
         )
-        .child(actions)
         .into_any_element()
 }

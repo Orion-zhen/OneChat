@@ -10,11 +10,7 @@ pub(super) fn render_system_prompt_card(
     let conversation = app
         .current_conversation()
         .expect("system prompt card requires a conversation");
-    let source = match conversation.system_prompt.source {
-        SystemPromptSource::None => "None",
-        SystemPromptSource::FromDefault => "Default",
-        SystemPromptSource::Custom => "Custom",
-    };
+    let source = app.system_prompt_label(&conversation.system_prompt);
     let actions = match app.chat.system_prompt_mode {
         SystemPromptMode::Compact => div()
             .flex()
@@ -74,13 +70,13 @@ pub(super) fn render_system_prompt_card(
             .text_sm()
             .line_height(px(21.0))
             .text_color(colors.muted)
-            .child(prompt_preview(&conversation.system_prompt.content))
+            .child(prompt_preview(&conversation.system_prompt))
             .into_any_element(),
         SystemPromptMode::Expanded => div()
             .text_sm()
             .line_height(px(22.0))
             .whitespace_normal()
-            .child(conversation.system_prompt.content.clone())
+            .child(conversation.system_prompt.clone())
             .into_any_element(),
         SystemPromptMode::Editing => app
             .chat

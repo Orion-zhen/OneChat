@@ -6,6 +6,7 @@ impl Storage {
     pub(super) fn load_snapshot_locked(&self) -> Result<StorageSnapshot> {
         let mut settings = self.read_settings()?;
         let files = self.read_conversations()?;
+        let prompt_presets = self.read_prompt_presets()?;
         let mut settings_changed = false;
         if settings
             .app
@@ -83,6 +84,7 @@ impl Storage {
         Ok(StorageSnapshot {
             providers,
             models,
+            prompt_presets,
             conversations,
             current_turns,
             current_requests,

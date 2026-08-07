@@ -58,6 +58,13 @@ OneChat stores plain, editable JSONC/JSON files instead of a database. App setti
 - macOS and Linux: `~/.config/onechat/settings.jsonc`
 - Windows: `%APPDATA%\OneChat\settings.jsonc`
 
+Reusable system prompt presets are plain Markdown files under:
+
+- macOS and Linux: `~/.config/onechat/prompts/*.md`
+- Windows: `%APPDATA%\OneChat\prompts\*.md`
+
+The Markdown extension is for editor convenience; OneChat sends each file as plain text without parsing it.
+
 Each conversation, including its messages and request history, has one JSON file under:
 
 - macOS: `~/Library/Application Support/OneChat/conversations/`

@@ -18,7 +18,7 @@ use super::{
 };
 use crate::{
     desktop::app::OneChat,
-    domain::{Conversation, GenerationConfig, Model, RequestStatus, SystemPromptSource},
+    domain::{Conversation, GenerationConfig, Model, RequestStatus},
 };
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -221,16 +221,12 @@ fn render_context(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> A
     let Some(conversation) = app.current_conversation() else {
         return notice("Select a conversation to inspect its context.", colors);
     };
-    let prompt = if conversation.system_prompt.content.trim().is_empty() {
+    let prompt = if conversation.system_prompt.trim().is_empty() {
         "None".to_string()
     } else {
-        conversation.system_prompt.content.clone()
+        conversation.system_prompt.clone()
     };
-    let source = match conversation.system_prompt.source {
-        SystemPromptSource::None => "None",
-        SystemPromptSource::FromDefault => "From default snapshot",
-        SystemPromptSource::Custom => "Custom",
-    };
+    let source = app.system_prompt_label(&conversation.system_prompt);
     let estimated_tokens = estimate_context_tokens(app);
 
     div()
@@ -238,7 +234,7 @@ fn render_context(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> A
         .flex_col()
         .gap_3()
         .child(inspector_field("System Prompt", &prompt, colors))
-        .child(inspector_field("Prompt source", source, colors))
+        .child(inspector_field("Prompt source", &source, colors))
         .child(inspector_field(
             "Messages",
             &app.current_context_messages().len().to_string(),
@@ -386,7 +382,7 @@ pub(crate) fn capability_summary(model: &Model) -> String {
 fn estimate_context_tokens(app: &OneChat) -> usize {
     let characters = app
         .current_conversation()
-        .map(|conversation| conversation.system_prompt.content.chars().count())
+        .map(|conversation| conversation.system_prompt.chars().count())
         .unwrap_or_default()
         + app
             .current_context_messages()

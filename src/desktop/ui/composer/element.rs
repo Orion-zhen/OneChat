@@ -122,7 +122,7 @@ impl Element for TextElement {
                     bounds.left() + cursor_position.x,
                     bounds.top() + cursor_position.y,
                 ),
-                size(px(1.5), line_height),
+                size(px(2.0), line_height),
             ),
             palette.cursor,
         );
@@ -145,7 +145,10 @@ impl Element for TextElement {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let focus_handle = self.input.read(cx).focus_handle.clone();
+        let (focus_handle, cursor_visible) = {
+            let input = self.input.read(cx);
+            (input.focus_handle.clone(), input.cursor_visible)
+        };
         window.handle_input(
             &focus_handle,
             ElementInputHandler::new(bounds, self.input.clone()),
@@ -165,7 +168,7 @@ impl Element for TextElement {
                 cx,
             );
         }
-        if focus_handle.is_focused(window) {
+        if focus_handle.is_focused(window) && cursor_visible {
             window.paint_quad(prepaint.cursor.clone());
         }
 

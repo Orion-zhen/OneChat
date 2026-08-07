@@ -49,14 +49,14 @@ impl PreparedGeneration {
             response,
             provider,
             model,
-            &conversation.system_prompt.content,
+            &conversation.system_prompt,
             &messages,
         );
         let response = response.clone();
         let provider_request = provider_request(
             provider,
             model,
-            &conversation.system_prompt.content,
+            &conversation.system_prompt,
             &conversation.generation_config,
             messages,
         );
@@ -69,7 +69,7 @@ impl PreparedGeneration {
     }
 
     pub fn additional(
-        conversation_id: &str,
+        conversation: &Conversation,
         provider: &Provider,
         model: &Model,
         turns: &[Turn],
@@ -78,19 +78,19 @@ impl PreparedGeneration {
         let messages = history_for_turn(turns, turn);
         let mut response = AssistantResponse::new(model, provider);
         let request_info = prepare_response(
-            conversation_id,
+            &conversation.id,
             &turn.id,
             &mut response,
             provider,
             model,
-            &turn.generation.system_prompt,
+            &conversation.system_prompt,
             &messages,
         );
         let provider_request = provider_request(
             provider,
             model,
-            &turn.generation.system_prompt,
-            &turn.generation.config,
+            &conversation.system_prompt,
+            &turn.generation_config,
             messages,
         );
         Self {
@@ -104,7 +104,7 @@ impl PreparedGeneration {
     }
 
     pub fn regenerate(
-        conversation_id: &str,
+        conversation: &Conversation,
         provider: &Provider,
         model: &Model,
         turns: &[Turn],
@@ -114,19 +114,19 @@ impl PreparedGeneration {
         let messages = history_for_turn(turns, turn);
         let mut response = previous_response.clone();
         let request_info = prepare_response(
-            conversation_id,
+            &conversation.id,
             &turn.id,
             &mut response,
             provider,
             model,
-            &turn.generation.system_prompt,
+            &conversation.system_prompt,
             &messages,
         );
         let provider_request = provider_request(
             provider,
             model,
-            &turn.generation.system_prompt,
-            &turn.generation.config,
+            &conversation.system_prompt,
+            &turn.generation_config,
             messages,
         );
         Self {

@@ -42,6 +42,7 @@ impl OneChat {
         self.navigation.page = page;
         self.overlays.command_palette_open = false;
         self.overlays.model_picker_open = false;
+        self.overlays.prompt_picker_open = false;
         self.overlays.response_model_turn_id = None;
         self.settings_ui.default_model_menu = None;
         cx.notify();
@@ -49,6 +50,7 @@ impl OneChat {
 
     pub(crate) fn open_command_palette(&mut self, cx: &mut Context<Self>) {
         self.overlays.model_picker_open = false;
+        self.overlays.prompt_picker_open = false;
         self.overlays.response_model_turn_id = None;
         self.overlays.command_palette_open = true;
         self.overlays.command_selection = 0;
@@ -136,17 +138,26 @@ impl OneChat {
         } else if self.settings_ui.default_model_menu.is_some() {
             self.settings_ui.default_model_menu = None;
             cx.notify();
+        } else if self.settings_ui.default_prompt_menu_open {
+            self.settings_ui.default_prompt_menu_open = false;
+            cx.notify();
         } else if let Some(editor) = &mut self.settings_ui.provider_editor
             && editor.kind_menu_open
         {
             editor.kind_menu_open = false;
             cx.notify();
+        } else if self.settings_ui.prompt_preset_editor.is_some() {
+            self.cancel_prompt_preset_edit(cx);
+        } else if self.settings_ui.viewed_prompt_preset.is_some() {
+            self.close_prompt_preset_view(cx);
         } else if self.overlays.destructive_action.is_some() {
             self.cancel_destructive_action(cx);
         } else if self.overlays.command_palette_open {
             self.close_command_palette(cx);
         } else if self.overlays.model_picker_open {
             self.close_model_picker(cx);
+        } else if self.overlays.prompt_picker_open {
+            self.close_prompt_picker(cx);
         }
     }
 
@@ -189,6 +200,7 @@ impl OneChat {
 
     pub(crate) fn open_model_picker(&mut self, cx: &mut Context<Self>) {
         self.overlays.command_palette_open = false;
+        self.overlays.prompt_picker_open = false;
         self.overlays.response_model_turn_id = None;
         self.overlays.model_picker_open = true;
         self.overlays
@@ -204,6 +216,7 @@ impl OneChat {
             return;
         }
         self.overlays.command_palette_open = false;
+        self.overlays.prompt_picker_open = false;
         self.overlays.response_model_turn_id = Some(turn_id);
         self.overlays.model_picker_open = true;
         self.overlays
@@ -218,6 +231,67 @@ impl OneChat {
         self.overlays.model_picker_open = false;
         self.overlays.response_model_turn_id = None;
         self.navigation.pending_focus = Some(PendingFocus::Composer);
+        cx.notify();
+    }
+
+    pub(crate) fn open_prompt_picker(&mut self, cx: &mut Context<Self>) {
+        if self.current_conversation().is_none() || self.is_current_generating() {
+            return;
+        }
+        self.overlays.command_palette_open = false;
+        self.overlays.model_picker_open = false;
+        self.overlays.response_model_turn_id = None;
+        self.overlays.prompt_picker_open = true;
+        self.reload_snapshot(cx);
+        cx.notify();
+    }
+
+    pub(crate) fn close_prompt_picker(&mut self, cx: &mut Context<Self>) {
+        self.overlays.prompt_picker_open = false;
+        self.navigation.pending_focus = Some(PendingFocus::Composer);
+        cx.notify();
+    }
+
+    pub(crate) fn select_system_prompt_preset(
+        &mut self,
+        name: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.is_current_generating() {
+            return;
+        }
+        let Some(mut conversation) = self.current_conversation().cloned() else {
+            return;
+        };
+        self.overlays.prompt_picker_open = false;
+        self.navigation.pending_focus = Some(PendingFocus::Composer);
+        self.mutate_and_reload(
+            move |storage| {
+                let content = match name {
+                    Some(name) => storage
+                        .load_prompt_preset(&name)?
+                        .map(|preset| preset.content)
+                        .ok_or_else(|| {
+                            StorageError::InvalidData(format!("prompt preset not found: {name}"))
+                        })?,
+                    None => String::new(),
+                };
+                if conversation.system_prompt != content {
+                    conversation.system_prompt = content;
+                    conversation.updated_at = now_timestamp();
+                    storage.update_conversation(&conversation)?;
+                }
+                Ok(())
+            },
+            cx,
+        );
+    }
+
+    pub(crate) fn open_prompt_settings(&mut self, cx: &mut Context<Self>) {
+        self.overlays.prompt_picker_open = false;
+        self.navigation.page = Page::Settings;
+        self.settings_ui.section = SettingsSection::SystemPrompts;
+        self.reload_snapshot(cx);
         cx.notify();
     }
 

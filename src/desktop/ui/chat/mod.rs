@@ -31,7 +31,7 @@ use crate::{
     desktop::app::{COLLAPSED_THINKING_HEIGHT, OneChat, SystemPromptMode},
     domain::{
         AssistantResponse, MAX_MESSAGE_WIDTH_RATIO, MIN_MESSAGE_WIDTH_RATIO, MessageStatus,
-        RequestInfo, SystemPromptSource, Turn,
+        RequestInfo, Turn,
     },
 };
 
@@ -50,7 +50,7 @@ pub(crate) fn render(
         .expect("conversation page requires a current conversation");
     let message_max_width =
         message_max_width(available_width, app.settings().message_width_ratio());
-    let has_system_prompt = !conversation.system_prompt.content.trim().is_empty();
+    let has_system_prompt = !conversation.system_prompt.trim().is_empty();
     let editing_system_prompt = app.chat.system_prompt_mode == SystemPromptMode::Editing;
     let text_selection = app.chat.text_selection.clone();
     text_selection.begin_frame();

@@ -3,7 +3,7 @@ mod pickers;
 mod sidebar;
 
 use dialogs::{animated_overlay, render_destructive_confirmation};
-use pickers::{render_command_palette, render_model_picker};
+use pickers::{render_command_palette, render_model_picker, render_prompt_picker};
 use sidebar::{COLLAPSED_SIDEBAR_WIDTH, EXPANDED_SIDEBAR_WIDTH, render_sidebar};
 
 use std::time::Duration;
@@ -80,9 +80,10 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
             PendingFocus::SystemPrompt => app.chat.system_prompt_editor.clone(),
             PendingFocus::SettingsPrompt => app
                 .settings_ui
-                .prompt_editor
+                .prompt_preset_editor
                 .as_ref()
-                .map(|editor| editor.input.clone()),
+                .map(|editor| editor.focus_input())
+                .or_else(|| app.settings_ui.title_prompt_editor.clone()),
             PendingFocus::MessageEditor => app.active_message_editor(),
             PendingFocus::Composer if app.navigation.page == Page::Chat => {
                 Some(app.chat.composer.clone())
@@ -133,6 +134,20 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         .overlays
         .model_picker_open
         .then(|| render_model_picker(app, colors, cx));
+    let prompt_picker = app
+        .overlays
+        .prompt_picker_open
+        .then(|| render_prompt_picker(app, colors, cx));
+    let prompt_preset_panel = (app.settings_ui.prompt_preset_editor.is_some()
+        || app.settings_ui.viewed_prompt_preset.is_some())
+    .then(|| {
+        animated_overlay(
+            settings::prompt_preset_panel(app, colors, scale_factor, cx),
+            colors,
+            "prompt-preset-backdrop",
+            "prompt-preset-panel",
+        )
+    });
     let destructive_confirmation = app
         .overlays
         .destructive_action
@@ -182,6 +197,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         .on_action(cx.listener(|this, _: &NewConversation, _, cx| {
             this.overlays.command_palette_open = false;
             this.overlays.model_picker_open = false;
+            this.overlays.prompt_picker_open = false;
             this.create_conversation(cx);
         }))
         .on_action(cx.listener(|this, _: &ShowCommandPalette, _, cx| this.open_command_palette(cx)))
@@ -215,6 +231,8 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         )
         .children(command_palette)
         .children(model_picker)
+        .children(prompt_picker)
+        .children(prompt_preset_panel)
         .children(destructive_confirmation)
         .into_any_element()
 }
@@ -281,6 +299,10 @@ fn render_top_bar(
     let model_label = selected_model
         .map(|model| format!("{} · {provider_name}", model.display_name))
         .unwrap_or_else(|| "Choose Model".into());
+    let prompt_label = current_conversation
+        .map(|conversation| app.system_prompt_label(&conversation.system_prompt))
+        .unwrap_or_else(|| "None".into());
+    let can_choose_prompt = current_conversation.is_some() && !app.is_current_generating();
     let (connection, connection_color) =
         provider.map_or(("Not configured", colors.muted), |provider| {
             match app.settings_ui.connection_tests.get(&provider.id) {
@@ -362,6 +384,36 @@ fn render_top_bar(
                             14.0,
                         ))
                         .on_click(cx.listener(|this, _, _, cx| this.open_model_picker(cx))),
+                )
+                .child(
+                    button_base("open-prompt-picker", colors)
+                        .max_w(px(220.0))
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .when(app.overlays.prompt_picker_open, |element| {
+                            element.bg(colors.accent_soft)
+                        })
+                        .when(can_choose_prompt, |element| {
+                            element
+                                .on_click(cx.listener(|this, _, _, cx| this.open_prompt_picker(cx)))
+                        })
+                        .when(!can_choose_prompt, |element| element.opacity(0.5))
+                        .child(
+                            div()
+                                .min_w_0()
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .text_ellipsis()
+                                .child(format!("Prompt · {prompt_label}")),
+                        )
+                        .child(svg_icon(
+                            UiIcon::ChevronDown,
+                            IconTone::Muted,
+                            colors,
+                            scale_factor,
+                            14.0,
+                        )),
                 )
                 .child(
                     compact_button("open-command-palette", shortcut_label("K"), colors)

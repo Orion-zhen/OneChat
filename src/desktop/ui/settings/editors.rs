@@ -10,6 +10,58 @@ pub(crate) enum SettingsSection {
     NewProvider,
 }
 
+pub struct PromptPresetEditor {
+    original_name: Option<String>,
+    pub name: Entity<Composer>,
+    pub content: Entity<Composer>,
+}
+
+impl PromptPresetEditor {
+    pub fn new(preset: Option<SystemPromptPreset>, cx: &mut Context<OneChat>) -> Self {
+        let original_name = preset.as_ref().map(|preset| preset.name.clone());
+        let preset = preset.unwrap_or_else(|| SystemPromptPreset::new("", ""));
+        Self {
+            original_name,
+            name: cx.new(|cx| Composer::single_line(preset.name, "Preset name", cx)),
+            content: cx.new(|cx| {
+                Composer::multiline(
+                    preset.content,
+                    "Describe how the assistant should respond",
+                    cx,
+                )
+                .height_range(px(240.0), px(420.0))
+            }),
+        }
+    }
+
+    pub fn original_name(&self) -> Option<&str> {
+        self.original_name.as_deref()
+    }
+
+    pub fn focus_input(&self) -> Entity<Composer> {
+        if self.original_name.is_some() {
+            self.content.clone()
+        } else {
+            self.name.clone()
+        }
+    }
+
+    pub fn build(&self, cx: &App) -> Result<SystemPromptPreset, String> {
+        let preset =
+            SystemPromptPreset::new(self.name.read(cx).text(), self.content.read(cx).text());
+        if preset.name.is_empty() {
+            return Err("Prompt preset name is required.".into());
+        }
+        if preset.name.starts_with('.') || preset.name.contains('/') {
+            return Err("Prompt preset name cannot start with a dot or contain a slash.".into());
+        }
+        if preset.content.is_empty() {
+            return Err("Prompt preset content is required.".into());
+        }
+        Ok(preset)
+    }
+}
+
 pub struct ProviderEditor {
     original: Option<Provider>,
     pub kind: ProviderKind,

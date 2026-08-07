@@ -3,7 +3,14 @@ use super::*;
 impl Render for Composer {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let palette = InputPalette::for_inherited_text(window.text_style().color);
+        let focused = self.focus_handle.is_focused(window);
+        if self.cursor_focused != focused {
+            self.cursor_focused = focused;
+            self.restart_cursor_blink(cx);
+        }
         let scroll_handle = self.scroll_handle.clone();
+        let min_height = self.min_height;
+        let max_height = self.max_height;
         div()
             .w_full()
             .min_w_0()
@@ -13,7 +20,7 @@ impl Render for Composer {
             .when(self.prominent, |element| element.rounded_xl())
             .when(!self.prominent, |element| element.rounded_lg())
             .border_1()
-            .border_color(if self.focus_handle.is_focused(window) {
+            .border_color(if focused {
                 palette.focused_border
             } else {
                 palette.border
@@ -63,11 +70,8 @@ impl Render for Composer {
                 div()
                     .id("composer-input-scroll")
                     .w_full()
-                    .max_h(if self.single_line {
-                        px(24.0)
-                    } else {
-                        px(192.0)
-                    })
+                    .min_h(min_height)
+                    .max_h(max_height)
                     .overflow_y_scroll()
                     .track_scroll(&self.scroll_handle)
                     .line_height(px(24.0))

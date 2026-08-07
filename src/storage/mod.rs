@@ -1,6 +1,7 @@
 mod catalog;
 mod codec;
 mod conversation;
+mod prompt;
 mod snapshot;
 
 use std::{
@@ -11,7 +12,9 @@ use std::{
     sync::{Mutex, MutexGuard},
 };
 
-use crate::domain::{AppSettings, Conversation, Model, Provider, RequestInfo, Turn};
+use crate::domain::{
+    AppSettings, Conversation, Model, Provider, RequestInfo, SystemPromptPreset, Turn,
+};
 use catalog::SettingsFile;
 use codec::write_json;
 
@@ -57,6 +60,7 @@ impl From<serde_json::Error> for StorageError {
 pub struct StorageSnapshot {
     pub providers: Vec<Provider>,
     pub models: Vec<Model>,
+    pub prompt_presets: Vec<SystemPromptPreset>,
     pub conversations: Vec<Conversation>,
     pub current_turns: Vec<Turn>,
     pub current_requests: Vec<RequestInfo>,
@@ -67,6 +71,7 @@ pub struct StorageSnapshot {
 pub struct Storage {
     settings_path: PathBuf,
     conversations_dir: PathBuf,
+    prompts_dir: PathBuf,
     access: Mutex<()>,
 }
 
@@ -81,14 +86,20 @@ impl Storage {
     pub fn open(settings_path: impl Into<PathBuf>, state_dir: impl Into<PathBuf>) -> Result<Self> {
         let settings_path = settings_path.into();
         let conversations_dir = state_dir.into().join("conversations");
+        let prompts_dir = settings_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join("prompts");
         if let Some(parent) = settings_path.parent() {
             fs::create_dir_all(parent)?;
         }
         fs::create_dir_all(&conversations_dir)?;
+        fs::create_dir_all(&prompts_dir)?;
 
         let storage = Self {
             settings_path,
             conversations_dir,
+            prompts_dir,
             access: Mutex::new(()),
         };
         if !storage.settings_path.exists() {
@@ -103,6 +114,10 @@ impl Storage {
 
     pub fn conversations_dir(&self) -> &Path {
         &self.conversations_dir
+    }
+
+    pub fn prompts_dir(&self) -> &Path {
+        &self.prompts_dir
     }
 
     pub fn load_startup_snapshot(&self) -> Result<StorageSnapshot> {
@@ -240,6 +255,9 @@ mod tests {
         storage.insert_model(&model).unwrap();
         let conversation = Conversation::new("Conversation", Some(&model), "Be concise");
         storage.insert_conversation(&conversation).unwrap();
+        storage
+            .insert_prompt_preset(&SystemPromptPreset::new("Default", "Default prompt"))
+            .unwrap();
         let settings = AppSettings {
             current_conversation_id: Some(conversation.id.clone()),
             primary_model_id: Some(model.id.clone()),
@@ -247,7 +265,7 @@ mod tests {
             auto_title_enabled: true,
             sidebar_collapsed: true,
             theme: Theme::Dark,
-            default_system_prompt: "Default prompt".into(),
+            default_system_prompt_preset: Some("Default".into()),
             title_generation_system_prompt: "Generate a title".into(),
             message_width_ratio: 0.85,
         };
@@ -288,7 +306,7 @@ mod tests {
             r#"{
                 // Settings remain easy to edit by hand.
                 "theme": "dark",
-                "default_system_prompt": "Be concise",
+                "default_system_prompt_preset": "Concise",
                 "providers": [],
                 "models": [],
             }"#,
@@ -299,11 +317,68 @@ mod tests {
         assert_eq!(snapshot.settings.theme, Theme::Dark);
         assert_eq!(snapshot.settings.primary_model_id, None);
         assert!(snapshot.settings.auto_title_enabled);
-        assert_eq!(snapshot.settings.default_system_prompt, "Be concise");
+        assert_eq!(
+            snapshot.settings.default_system_prompt_preset.as_deref(),
+            Some("Concise")
+        );
         assert_eq!(
             snapshot.settings.message_width_ratio,
             crate::domain::DEFAULT_MESSAGE_WIDTH_RATIO
         );
+    }
+
+    #[test]
+    fn prompt_presets_are_independent_markdown_files() {
+        let test = TestStorage::new();
+        let preset = SystemPromptPreset::new("Code Reviewer", "  Review carefully.  ");
+
+        test.storage.insert_prompt_preset(&preset).unwrap();
+        let path = test.storage.prompts_dir().join("Code Reviewer.md");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "Review carefully.\n");
+        assert_eq!(
+            test.storage.load_snapshot().unwrap().prompt_presets,
+            vec![SystemPromptPreset::new(
+                "Code Reviewer",
+                "Review carefully."
+            )]
+        );
+
+        fs::write(&path, "Updated externally.\n").unwrap();
+        assert_eq!(
+            test.storage.load_snapshot().unwrap().prompt_presets[0].content,
+            "Updated externally."
+        );
+
+        test.storage
+            .update_prompt_preset(
+                "Code Reviewer",
+                &SystemPromptPreset::new("Reviewer", "Updated in OneChat."),
+            )
+            .unwrap();
+        assert!(!path.exists());
+        assert_eq!(
+            fs::read_to_string(test.storage.prompts_dir().join("Reviewer.md")).unwrap(),
+            "Updated in OneChat.\n"
+        );
+
+        test.storage.delete_prompt_preset("Reviewer").unwrap();
+        assert!(
+            test.storage
+                .load_snapshot()
+                .unwrap()
+                .prompt_presets
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn prompt_preset_names_cannot_escape_the_prompt_directory() {
+        let test = TestStorage::new();
+        let error = test
+            .storage
+            .insert_prompt_preset(&SystemPromptPreset::new("../outside", "Prompt"))
+            .unwrap_err();
+        assert_eq!(error.to_string(), "invalid prompt preset name: ../outside");
     }
 
     #[test]

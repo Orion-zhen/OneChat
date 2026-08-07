@@ -21,12 +21,15 @@ impl OneChat {
     }
 
     pub(crate) fn begin_edit_system_prompt(&mut self, cx: &mut Context<Self>) {
+        if self.is_current_generating() {
+            return;
+        }
         let Some(conversation) = self.current_conversation() else {
             return;
         };
         let editor = cx.new(|cx| {
             Composer::multiline(
-                conversation.system_prompt.content.clone(),
+                conversation.system_prompt.clone(),
                 "Describe how the assistant should respond",
                 cx,
             )
@@ -51,6 +54,9 @@ impl OneChat {
     }
 
     pub(crate) fn save_system_prompt(&mut self, cx: &mut Context<Self>) {
+        if self.is_current_generating() {
+            return;
+        }
         let Some(editor) = self.chat.system_prompt_editor.as_ref() else {
             return;
         };
@@ -58,8 +64,7 @@ impl OneChat {
         let Some(mut conversation) = self.current_conversation().cloned() else {
             return;
         };
-        conversation.system_prompt.content = content;
-        conversation.system_prompt.source = SystemPromptSource::Custom;
+        conversation.system_prompt = content;
         conversation.updated_at = now_timestamp();
         self.chat.system_prompt_editor = None;
         self.chat.system_prompt_mode = SystemPromptMode::Compact;
@@ -73,7 +78,7 @@ impl OneChat {
     pub(crate) fn copy_system_prompt(&mut self, cx: &mut Context<Self>) {
         let Some(content) = self
             .current_conversation()
-            .map(|conversation| conversation.system_prompt.content.clone())
+            .map(|conversation| conversation.system_prompt.clone())
             .filter(|content| !content.trim().is_empty())
         else {
             return;

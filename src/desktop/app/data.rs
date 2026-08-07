@@ -183,6 +183,7 @@ impl OneChat {
         self.chat.system_prompt_editor = None;
         self.overlays.command_palette_open = false;
         self.overlays.model_picker_open = false;
+        self.overlays.prompt_picker_open = false;
         self.chat.selected_request_id = None;
         self.chat.visible_response_ids.clear();
         self.overlays.response_model_turn_id = None;
@@ -231,6 +232,21 @@ impl OneChat {
                 .entry(response.id.clone())
                 .or_default();
         }
+    }
+
+    pub(super) fn reload_snapshot(&mut self, cx: &mut Context<Self>) {
+        let previous = std::mem::replace(&mut self.data.storage_task, Task::ready(()));
+        let storage = self.services.storage.clone();
+        self.data.storage_task = cx.spawn(async move |this, cx| {
+            previous.await;
+            let result = cx
+                .background_spawn(async move { storage.load_snapshot() })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.apply_snapshot(result, cx);
+                cx.notify();
+            });
+        });
     }
 
     pub(super) fn mutate_and_reload<F>(&mut self, operation: F, cx: &mut Context<Self>)
@@ -295,6 +311,40 @@ impl OneChat {
             .conversations
             .iter()
             .find(|conversation| conversation.id == id)
+    }
+
+    pub(crate) fn prompt_preset(&self, name: &str) -> Option<&SystemPromptPreset> {
+        self.data
+            .snapshot
+            .prompt_presets
+            .iter()
+            .find(|preset| preset.name == name)
+    }
+
+    pub(crate) fn prompt_preset_for_content(&self, content: &str) -> Option<&SystemPromptPreset> {
+        let content = content.trim();
+        self.settings()
+            .default_system_prompt_preset
+            .as_deref()
+            .and_then(|name| self.prompt_preset(name))
+            .filter(|preset| preset.content == content)
+            .or_else(|| {
+                self.data
+                    .snapshot
+                    .prompt_presets
+                    .iter()
+                    .find(|preset| preset.content == content)
+            })
+    }
+
+    pub(crate) fn system_prompt_label(&self, content: &str) -> String {
+        if content.trim().is_empty() {
+            "None".into()
+        } else {
+            self.prompt_preset_for_content(content)
+                .map(|preset| preset.name.clone())
+                .unwrap_or_else(|| "Custom".into())
+        }
     }
 
     pub(crate) fn primary_model(&self) -> Option<&Model> {

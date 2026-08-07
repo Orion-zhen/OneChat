@@ -84,6 +84,7 @@ pub(crate) fn compact_button(
 pub(crate) enum UiIcon {
     Copy,
     Fork,
+    Eye,
     Pencil,
     Regenerate,
     Info,
@@ -236,6 +237,9 @@ fn svg_icon_at_size(icon: UiIcon, color: &str, scale_factor: f32, size: f32) -> 
         }
         UiIcon::Fork => {
             r#"<circle cx="12" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><path d="M6 9a6 6 0 0 0 6 6"/><path d="M18 9a6 6 0 0 1-6 6"/>"#
+        }
+        UiIcon::Eye => {
+            r#"<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>"#
         }
         UiIcon::Pencil => {
             r#"<path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L8 18l-4 1 1-4Z"/><path d="m15 5 3 3"/>"#

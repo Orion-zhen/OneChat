@@ -3,12 +3,14 @@ mod conversation;
 mod generation;
 mod id;
 mod preferences;
+mod prompt;
 
 pub use catalog::*;
 pub use conversation::*;
 pub use generation::*;
 pub use id::*;
 pub use preferences::*;
+pub use prompt::*;
 
 #[cfg(test)]
 mod tests {
@@ -21,17 +23,12 @@ mod tests {
     }
 
     #[test]
-    fn new_conversations_snapshot_the_default_system_prompt() {
+    fn new_conversations_trim_their_system_prompt() {
         let conversation = Conversation::new("Prompted", None, "  Be concise.  ");
-        assert_eq!(conversation.system_prompt.content, "Be concise.");
-        assert_eq!(
-            conversation.system_prompt.source,
-            SystemPromptSource::FromDefault
-        );
+        assert_eq!(conversation.system_prompt, "Be concise.");
 
         let empty = Conversation::new("Empty", None, "   ");
-        assert!(empty.system_prompt.content.is_empty());
-        assert_eq!(empty.system_prompt.source, SystemPromptSource::None);
+        assert!(empty.system_prompt.is_empty());
     }
 
     #[test]

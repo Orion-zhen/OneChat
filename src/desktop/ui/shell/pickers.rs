@@ -300,6 +300,188 @@ pub(super) fn render_model_picker(
     animated_overlay(panel, colors, "model-picker-backdrop", "model-picker-panel")
 }
 
+pub(super) fn render_prompt_picker(
+    app: &OneChat,
+    colors: Colors,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    let current_prompt = app
+        .current_conversation()
+        .map(|conversation| conversation.system_prompt.as_str())
+        .unwrap_or_default();
+    let none_selected = current_prompt.trim().is_empty();
+    let mut prompts = div()
+        .id("prompt-picker-list")
+        .min_h_0()
+        .flex_1()
+        .overflow_y_scroll()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(
+            div()
+                .id("pick-prompt-none")
+                .rounded_lg()
+                .bg(if none_selected {
+                    colors.accent_soft
+                } else {
+                    colors.panel
+                })
+                .px_3()
+                .py_3()
+                .flex()
+                .items_center()
+                .justify_between()
+                .cursor_pointer()
+                .hover(move |style| style.bg(colors.hover))
+                .on_click(cx.listener(|this, _, _, cx| this.select_system_prompt_preset(None, cx)))
+                .child(
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("No System Prompt"),
+                )
+                .children(none_selected.then(|| div().text_color(colors.accent).child("✓"))),
+        );
+
+    for preset in &app.data.snapshot.prompt_presets {
+        let name = preset.name.clone();
+        let selected = !none_selected && preset.content == current_prompt;
+        let default =
+            app.settings().default_system_prompt_preset.as_deref() == Some(preset.name.as_str());
+        prompts = prompts.child(
+            div()
+                .id(SharedString::from(format!("pick-prompt-{}", preset.name)))
+                .rounded_lg()
+                .bg(if selected {
+                    colors.accent_soft
+                } else {
+                    colors.panel
+                })
+                .px_3()
+                .py_3()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_3()
+                .cursor_pointer()
+                .hover(move |style| style.bg(colors.hover))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.select_system_prompt_preset(Some(name.clone()), cx)
+                }))
+                .child(
+                    div()
+                        .min_w_0()
+                        .child(
+                            div()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .overflow_hidden()
+                                        .whitespace_nowrap()
+                                        .text_ellipsis()
+                                        .text_sm()
+                                        .font_weight(FontWeight::SEMIBOLD)
+                                        .child(preset.name.clone()),
+                                )
+                                .children(default.then(|| {
+                                    div()
+                                        .rounded_full()
+                                        .bg(colors.accent_soft)
+                                        .px_2()
+                                        .py_1()
+                                        .text_size(px(10.0))
+                                        .text_color(colors.accent)
+                                        .child("Default")
+                                })),
+                        )
+                        .child(
+                            div()
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .text_ellipsis()
+                                .text_size(px(11.0))
+                                .text_color(colors.muted)
+                                .child(prompt_excerpt(&preset.content)),
+                        ),
+                )
+                .children(selected.then(|| div().flex_none().text_color(colors.accent).child("✓"))),
+        );
+    }
+
+    let panel = div()
+        .w_full()
+        .max_w(px(560.0))
+        .max_h(px(640.0))
+        .rounded_xl()
+        .border_1()
+        .border_color(colors.border)
+        .bg(colors.panel)
+        .shadow_lg()
+        .p_3()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .child(
+            div()
+                .px_1()
+                .pt_1()
+                .flex()
+                .items_center()
+                .justify_between()
+                .child(
+                    div()
+                        .text_lg()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("Choose System Prompt"),
+                )
+                .child(
+                    icon_button("close-prompt-picker", "×", colors)
+                        .on_click(cx.listener(|this, _, _, cx| this.close_prompt_picker(cx))),
+                ),
+        )
+        .child(prompts)
+        .child(
+            div()
+                .px_1()
+                .flex()
+                .items_center()
+                .justify_between()
+                .child(
+                    compact_button("manage-prompt-presets", "Manage Prompts…", colors)
+                        .on_click(cx.listener(|this, _, _, cx| this.open_prompt_settings(cx))),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(colors.muted)
+                        .child("Esc Close"),
+                ),
+        );
+    animated_overlay(
+        panel,
+        colors,
+        "prompt-picker-backdrop",
+        "prompt-picker-panel",
+    )
+}
+
+fn prompt_excerpt(prompt: &str) -> String {
+    const MAX_CHARACTERS: usize = 100;
+    let prompt = prompt.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut characters = prompt.chars();
+    let excerpt = characters.by_ref().take(MAX_CHARACTERS).collect::<String>();
+    if characters.next().is_some() {
+        format!("{excerpt}…")
+    } else if excerpt.is_empty() {
+        "Empty prompt".into()
+    } else {
+        excerpt
+    }
+}
+
 fn notice_row(message: &str, colors: Colors) -> AnyElement {
     div()
         .rounded_lg()

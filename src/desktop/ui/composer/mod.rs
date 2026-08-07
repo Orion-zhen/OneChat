@@ -8,13 +8,13 @@ use editor::{EditorState, range_from_utf16_in};
 use element::TextElement;
 use layout::{InputLayout, text_runs};
 
-use std::{cell::RefCell, ops::Range, rc::Rc};
+use std::{cell::RefCell, ops::Range, rc::Rc, time::Duration};
 
 use gpui::{
     App, AvailableSpace, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId,
     ElementInputHandler, Entity, EntityInputHandler, EventEmitter, FocusHandle, Focusable,
     GlobalElementId, Hsla, KeyBinding, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, PaintQuad, Pixels, Point, Rgba, SharedString, Style, TextAlign, TextRun,
+    MouseUpEvent, PaintQuad, Pixels, Point, Rgba, SharedString, Style, Task, TextAlign, TextRun,
     UTF16Selection, UnderlineStyle, Window, WrappedLine, actions, div, fill, point, prelude::*, px,
     relative, rgb, rgba, size,
 };
@@ -156,6 +156,11 @@ pub struct Composer {
     read_only: bool,
     picker_navigation: bool,
     prominent: bool,
+    min_height: Pixels,
+    max_height: Pixels,
+    cursor_focused: bool,
+    cursor_visible: bool,
+    _cursor_blink_task: Task<()>,
 }
 
 impl Composer {
@@ -212,7 +217,18 @@ impl Composer {
             read_only,
             picker_navigation,
             prominent: clear_on_submit,
+            min_height: px(24.0),
+            max_height: if single_line { px(24.0) } else { px(192.0) },
+            cursor_focused: false,
+            cursor_visible: true,
+            _cursor_blink_task: Task::ready(()),
         }
+    }
+
+    pub fn height_range(mut self, min_height: Pixels, max_height: Pixels) -> Self {
+        self.min_height = min_height;
+        self.max_height = max_height;
+        self
     }
 
     pub fn focus_handle(&self, _: &App) -> FocusHandle {
@@ -244,18 +260,51 @@ impl Composer {
 
     fn changed(&mut self, cx: &mut Context<Self>) {
         self.scroll_handle.scroll_to_bottom();
+        self.restart_cursor_blink(cx);
         cx.emit(ComposerEvent::Changed(self.editor.text.clone()));
         cx.notify();
     }
 
     fn move_to(&mut self, offset: usize, cx: &mut Context<Self>) {
         self.editor.move_to(offset);
+        self.restart_cursor_blink(cx);
         cx.notify();
     }
 
     fn select_to(&mut self, offset: usize, cx: &mut Context<Self>) {
         self.editor.select_to(offset);
+        self.restart_cursor_blink(cx);
         cx.notify();
+    }
+
+    fn restart_cursor_blink(&mut self, cx: &mut Context<Self>) {
+        const INTERVAL: Duration = Duration::from_millis(500);
+
+        self.cursor_visible = true;
+        if !self.cursor_focused {
+            self._cursor_blink_task = Task::ready(());
+            return;
+        }
+
+        let executor = cx.background_executor().clone();
+        self._cursor_blink_task = cx.spawn(async move |this, cx| {
+            loop {
+                executor.timer(INTERVAL).await;
+                let active = this
+                    .update(cx, |this, cx| {
+                        if !this.cursor_focused {
+                            return false;
+                        }
+                        this.cursor_visible = !this.cursor_visible;
+                        cx.notify();
+                        true
+                    })
+                    .unwrap_or(false);
+                if !active {
+                    break;
+                }
+            }
+        });
     }
 
     fn left(&mut self, _: &Left, _: &mut Window, cx: &mut Context<Self>) {
@@ -331,6 +380,7 @@ impl Composer {
     fn select_all(&mut self, _: &SelectAll, _: &mut Window, cx: &mut Context<Self>) {
         self.editor.selection = 0..self.editor.text.len();
         self.editor.selection_reversed = false;
+        self.restart_cursor_blink(cx);
         cx.notify();
     }
 

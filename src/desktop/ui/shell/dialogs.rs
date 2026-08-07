@@ -10,6 +10,7 @@ pub(super) fn render_destructive_confirmation(
         DestructiveAction::DeleteConversation { .. } => "Delete Conversation?",
         DestructiveAction::DeleteProvider { .. } => "Delete Provider?",
         DestructiveAction::DeleteModel { .. } => "Delete Model?",
+        DestructiveAction::DeletePromptPreset { .. } => "Delete Prompt Preset?",
         DestructiveAction::ClearContext { .. } => "Clear Conversation?",
     };
     let panel = div()

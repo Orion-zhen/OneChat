@@ -98,7 +98,7 @@ impl OneChat {
             return;
         }
         let prepared = PreparedGeneration::additional(
-            &conversation.id,
+            &conversation,
             &provider,
             &model,
             &self.data.snapshot.current_turns,
@@ -161,7 +161,7 @@ impl OneChat {
             }
         };
         let prepared = PreparedGeneration::regenerate(
-            &conversation.id,
+            &conversation,
             &provider,
             &model,
             &self.data.snapshot.current_turns,

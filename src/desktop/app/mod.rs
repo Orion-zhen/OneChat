@@ -37,19 +37,19 @@ use crate::{
         composer::{Composer, ComposerEvent, PickerDirection},
         inspector::{GenerationConfigEditor, GenerationParameter, InspectorTab},
         selectable_text::TextSelection,
-        settings::{Capability, ModelEditor, ProviderEditor, SettingsSection},
+        settings::{Capability, ModelEditor, PromptPresetEditor, ProviderEditor, SettingsSection},
         shell,
         stream::follow_after_scroll,
     },
     domain::{
         AppSettings, AssistantResponse, AutoTitleState, ChatMessage, Conversation,
         DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, MessageStatus, Model, Provider, ProviderKind,
-        RequestInfo, SystemPromptSource, Theme, Turn, active_turns, new_id, now_timestamp,
+        RequestInfo, SystemPromptPreset, Theme, Turn, active_turns, new_id, now_timestamp,
         user_branches,
     },
     markdown::MarkdownDocument,
     providers::{self, AvailableModel},
-    storage::{Storage, StorageResult, StorageSnapshot},
+    storage::{Storage, StorageError, StorageResult, StorageSnapshot},
 };
 
 #[derive(Clone, Debug)]
@@ -64,6 +64,7 @@ pub(crate) enum DestructiveAction {
     DeleteConversation { id: String },
     DeleteProvider { id: String },
     DeleteModel { id: String },
+    DeletePromptPreset { name: String },
     ClearContext { conversation_id: String },
 }
 
@@ -137,17 +138,6 @@ impl TitleTransition {
 pub(crate) enum DefaultModelRole {
     Primary,
     TitleGeneration,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum SettingsPromptKind {
-    ConversationDefault,
-    TitleGeneration,
-}
-
-pub(crate) struct SettingsPromptEditor {
-    pub(crate) kind: SettingsPromptKind,
-    pub(crate) input: Entity<Composer>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -334,6 +324,7 @@ impl OneChat {
                 command_selection: 0,
                 command_scroll: ScrollHandle::new(),
                 model_picker_open: false,
+                prompt_picker_open: false,
                 response_model_turn_id: None,
                 destructive_action: None,
                 model_query: String::new(),
@@ -370,7 +361,10 @@ impl OneChat {
                 section: SettingsSection::default(),
                 message_width_dragging: false,
                 default_model_menu: None,
-                prompt_editor: None,
+                default_prompt_menu_open: false,
+                viewed_prompt_preset: None,
+                prompt_preset_editor: None,
+                title_prompt_editor: None,
                 connection_tests: BTreeMap::new(),
                 provider_editor: None,
                 model_editor: None,

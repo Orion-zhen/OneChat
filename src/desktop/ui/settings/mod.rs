@@ -5,10 +5,11 @@ mod pages;
 mod providers;
 
 pub(crate) use editors::{
-    Capability, ModelEditor, ModelFetchStatus, ProviderEditor, SettingsSection,
+    Capability, ModelEditor, ModelFetchStatus, PromptPresetEditor, ProviderEditor, SettingsSection,
 };
 use forms::{model_form, provider_form};
 use navigation::settings_sidebar;
+pub(crate) use pages::prompt_preset_panel;
 use pages::{default_models_page, general_page, system_prompts_page};
 #[cfg(test)]
 use providers::model_capability_summary;
@@ -17,7 +18,7 @@ use providers::{new_provider_page, provider_page};
 use std::collections::BTreeMap;
 
 use gpui::{
-    AnyElement, App, Bounds, Context, Div, ElementId, Entity, FontWeight, MouseButton,
+    AlignItems, AnyElement, App, Bounds, Context, Div, ElementId, Entity, FontWeight, MouseButton,
     MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, SharedString, Stateful, canvas, deferred,
     div, prelude::*, px, rgba,
 };
@@ -31,10 +32,10 @@ use super::{
     theme::Colors,
 };
 use crate::{
-    desktop::app::{ConnectionTestStatus, DefaultModelRole, OneChat, SettingsPromptKind},
+    desktop::app::{ConnectionTestStatus, DefaultModelRole, OneChat},
     domain::{
         DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, MAX_MESSAGE_WIDTH_RATIO, MIN_MESSAGE_WIDTH_RATIO,
-        Model, ModelCapabilities, Provider, ProviderKind, Theme, now_timestamp,
+        Model, ModelCapabilities, Provider, ProviderKind, SystemPromptPreset, Theme, now_timestamp,
     },
     providers::AvailableModel,
 };

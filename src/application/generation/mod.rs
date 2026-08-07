@@ -59,7 +59,7 @@ mod tests {
         let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
         let model = Model::new(&provider.id, "gpt-test", "GPT Test");
         let other = Model::new(&provider.id, "other", "Other");
-        let conversation = Conversation::new("Test", Some(&model), "");
+        let mut conversation = Conversation::new("Test", Some(&model), "Original prompt");
 
         let first = PreparedGeneration::new(
             &conversation,
@@ -89,9 +89,11 @@ mod tests {
         };
         let turn_two = *turn_two;
         let turns = vec![turn_one, turn_two.clone()];
+        conversation.system_prompt = "Current prompt".into();
         let alternate =
-            PreparedGeneration::additional(&conversation.id, &provider, &other, &turns, &turn_two);
+            PreparedGeneration::additional(&conversation, &provider, &other, &turns, &turn_two);
 
+        assert_eq!(alternate.provider_request.system_prompt, "Current prompt");
         assert_eq!(
             alternate
                 .provider_request
@@ -165,14 +167,15 @@ mod tests {
     fn regeneration_reuses_the_response_id() {
         let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
         let model = Model::new(&provider.id, "gpt-test", "GPT Test");
-        let conversation = Conversation::new("Test", Some(&model), "");
+        let mut conversation = Conversation::new("Test", Some(&model), "Original prompt");
         let mut previous = response(&provider, &model);
         previous.content = "Old answer".into();
         previous.thinking = "Old thinking".into();
         let turn = Turn::new(&conversation, None, "Question", previous.clone());
+        conversation.system_prompt = "Current prompt".into();
 
         let prepared = PreparedGeneration::regenerate(
-            &conversation.id,
+            &conversation,
             &provider,
             &model,
             std::slice::from_ref(&turn),
@@ -180,6 +183,7 @@ mod tests {
             &previous,
         );
 
+        assert_eq!(prepared.provider_request.system_prompt, "Current prompt");
         assert_eq!(prepared.response.id, previous.id);
         assert_eq!(prepared.response.status, MessageStatus::Streaming);
         assert!(prepared.response.content.is_empty());
