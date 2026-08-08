@@ -10,15 +10,41 @@ use gpui::{
 use gpui_component::{ActiveTheme as _, ThemeMode};
 
 use super::selectable_text::{SelectableText, TextSelection, selection_color};
+use super::typography::MessageTypography;
 use crate::markdown::{
     Block, Formula, Inline, MarkdownDocument, TableAlignment, render_formula_cached,
 };
+
+#[derive(Clone, Copy)]
+struct InlineMetrics {
+    size: f32,
+    line_height: f32,
+}
+
+impl InlineMetrics {
+    fn new(size: f32, line_height: f32) -> Self {
+        Self { size, line_height }
+    }
+
+    fn code_size(self) -> f32 {
+        self.size - 1.0
+    }
+
+    fn code_line_height(self) -> f32 {
+        self.code_size() + 8.0
+    }
+
+    fn formula_scale(self) -> f32 {
+        self.size / crate::domain::DEFAULT_MESSAGE_FONT_SIZE
+    }
+}
 
 pub(crate) fn render(
     document: &MarkdownDocument,
     message_id: &str,
     selection: &TextSelection,
     scale_factor: f32,
+    typography: MessageTypography,
     cx: &App,
 ) -> AnyElement {
     let mut text_index = 0;
@@ -28,6 +54,7 @@ pub(crate) fn render(
         &mut text_index,
         selection,
         scale_factor,
+        typography,
         cx,
     )
 }
@@ -36,11 +63,13 @@ pub(crate) fn render_plain(
     source: &str,
     message_id: &str,
     selection: &TextSelection,
+    typography: MessageTypography,
     cx: &App,
 ) -> AnyElement {
     div()
         .whitespace_normal()
-        .line_height(px(24.0))
+        .text_size(px(typography.body_size))
+        .line_height(px(typography.body_line_height))
         .child(selectable(message_id, 0, source.to_string(), selection, cx))
         .text_color(cx.theme().foreground)
         .into_any_element()
@@ -52,6 +81,7 @@ fn render_blocks(
     text_index: &mut usize,
     selection: &TextSelection,
     scale_factor: f32,
+    typography: MessageTypography,
     cx: &App,
 ) -> AnyElement {
     div()
@@ -59,11 +89,19 @@ fn render_blocks(
         .flex()
         .flex_col()
         .gap_3()
-        .children(
-            blocks.iter().map(|block| {
-                render_block(block, message_id, text_index, selection, scale_factor, cx)
-            }),
-        )
+        .text_size(px(typography.body_size))
+        .line_height(px(typography.body_line_height))
+        .children(blocks.iter().map(|block| {
+            render_block(
+                block,
+                message_id,
+                text_index,
+                selection,
+                scale_factor,
+                typography,
+                cx,
+            )
+        }))
         .into_any_element()
 }
 
@@ -73,6 +111,7 @@ fn render_block(
     text_index: &mut usize,
     selection: &TextSelection,
     scale_factor: f32,
+    typography: MessageTypography,
     cx: &App,
 ) -> AnyElement {
     match block {
@@ -82,17 +121,13 @@ fn render_block(
             text_index,
             selection,
             scale_factor,
+            InlineMetrics::new(typography.body_size, typography.body_line_height),
             cx,
-            false,
         ),
         Block::Heading(level, inlines) => div()
             .pt(if *level <= 2 { px(8.0) } else { px(4.0) })
-            .text_size(match level {
-                1 => px(24.0),
-                2 => px(21.0),
-                3 => px(18.0),
-                _ => px(16.0),
-            })
+            .text_size(px(typography.heading_size(*level)))
+            .line_height(px(typography.heading_line_height(*level)))
             .font_weight(FontWeight::SEMIBOLD)
             .child(render_inlines(
                 inlines,
@@ -100,8 +135,11 @@ fn render_block(
                 text_index,
                 selection,
                 scale_factor,
+                InlineMetrics::new(
+                    typography.heading_size(*level),
+                    typography.heading_line_height(*level),
+                ),
                 cx,
-                false,
             ))
             .into_any_element(),
         Block::Quote(blocks) => div()
@@ -117,6 +155,7 @@ fn render_block(
                 text_index,
                 selection,
                 scale_factor,
+                typography,
                 cx,
             ))
             .into_any_element(),
@@ -152,6 +191,7 @@ fn render_block(
                         text_index,
                         selection,
                         scale_factor,
+                        typography,
                         cx,
                     )))
             }))
@@ -172,7 +212,8 @@ fn render_block(
                     .py_2()
                     .border_b_1()
                     .border_color(cx.theme().border)
-                    .text_xs()
+                    .text_size(px(typography.micro_size))
+                    .line_height(px(typography.micro_line_height))
                     .text_color(cx.theme().muted_foreground)
                     .child(selectable(
                         message_id,
@@ -193,7 +234,8 @@ fn render_block(
                     .overflow_scroll()
                     .p_3()
                     .font(super::theme::code_font(cx))
-                    .text_sm()
+                    .text_size(px(typography.code_size))
+                    .line_height(px(typography.code_line_height))
                     .whitespace_nowrap()
                     .child(
                         selectable(
@@ -220,7 +262,12 @@ fn render_block(
                     ),
             )
             .into_any_element(),
-        Block::Formula(formula) => render_formula_element(formula, scale_factor, cx),
+        Block::Formula(formula) => render_formula_element(
+            formula,
+            scale_factor,
+            InlineMetrics::new(typography.body_size, typography.body_line_height),
+            cx,
+        ),
         Block::Table {
             alignments,
             header,
@@ -235,6 +282,7 @@ fn render_block(
             text_index,
             selection,
             scale_factor,
+            typography,
             cx,
         ),
         Block::Rule => div()
@@ -252,15 +300,16 @@ fn render_inlines(
     text_index: &mut usize,
     selection: &TextSelection,
     scale_factor: f32,
+    metrics: InlineMetrics,
     cx: &App,
-    table_cell: bool,
 ) -> AnyElement {
     div()
         .w_full()
         .flex()
         .flex_wrap()
         .items_baseline()
-        .line_height(px(if table_cell { 21.0 } else { 24.0 }))
+        .text_size(px(metrics.size))
+        .line_height(px(metrics.line_height))
         .children(inlines.iter().map(|inline| match inline {
             Inline::Text { content, style } => {
                 let content = content.clone();
@@ -278,7 +327,7 @@ fn render_inlines(
                             .bg(cx.theme().muted)
                             .px_1()
                             .font(super::theme::code_font(cx))
-                            .text_sm()
+                            .text_size(px(metrics.code_size()))
                     })
                     .when(style.link, |element| element.text_color(cx.theme().primary))
                     .child(selectable(
@@ -290,18 +339,24 @@ fn render_inlines(
                     ))
                     .into_any_element()
             }
-            Inline::Formula(formula) => render_formula_element(formula, scale_factor, cx),
+            Inline::Formula(formula) => render_formula_element(formula, scale_factor, metrics, cx),
             Inline::Break => div().w_full().h(px(1.0)).into_any_element(),
         }))
         .into_any_element()
 }
 
-fn render_formula_element(formula: &Formula, scale_factor: f32, cx: &App) -> AnyElement {
+fn render_formula_element(
+    formula: &Formula,
+    scale_factor: f32,
+    metrics: InlineMetrics,
+    cx: &App,
+) -> AnyElement {
     match render_formula_cached(
         &formula.source,
         formula.display,
         cx.theme().mode == ThemeMode::Dark,
         scale_factor,
+        metrics.formula_scale(),
     ) {
         Ok(rendered) => {
             let image =
@@ -329,7 +384,9 @@ fn render_formula_element(formula: &Formula, scale_factor: f32, cx: &App) -> Any
             .bg(cx.theme().muted)
             .px_2()
             .py_1()
-            .text_sm()
+            .font(super::theme::code_font(cx))
+            .text_size(px(metrics.code_size()))
+            .line_height(px(metrics.code_line_height()))
             .text_color(cx.theme().danger)
             .child(format!("{} · {error}", formula.source))
             .into_any_element(),
@@ -348,6 +405,7 @@ fn render_table(
     text_index: &mut usize,
     selection: &TextSelection,
     scale_factor: f32,
+    typography: MessageTypography,
     cx: &App,
 ) -> AnyElement {
     let columns = table
@@ -389,8 +447,11 @@ fn render_table(
                             text_index,
                             selection,
                             scale_factor,
+                            InlineMetrics::new(
+                                typography.body_size,
+                                typography.table_line_height(),
+                            ),
                             cx,
-                            true,
                         )
                     }))
             }))

@@ -86,6 +86,24 @@ fn danger_icon_action(
 }
 
 pub(crate) fn sync_controls(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>) {
+    let message_font_size = app.settings().message_font_size();
+    if (app
+        .settings_ui
+        .message_font_size_slider
+        .read(cx)
+        .value()
+        .start()
+        - message_font_size)
+        .abs()
+        > f32::EPSILON
+    {
+        app.settings_ui
+            .message_font_size_slider
+            .update(cx, |slider, cx| {
+                slider.set_value(message_font_size, window, cx)
+            });
+    }
+
     let opacity = app.settings().background_opacity();
     if (app
         .settings_ui
@@ -515,6 +533,44 @@ fn section_with_actions(
 }
 
 fn setting_row(title: &str, detail: &str, control: impl IntoElement, cx: &App) -> AnyElement {
+    setting_row_content(title, Some(detail), None, control, cx)
+}
+
+fn setting_row_with_preview(
+    title: &str,
+    preview: impl IntoElement,
+    control: impl IntoElement,
+    cx: &App,
+) -> AnyElement {
+    setting_row_content(title, None, Some(preview.into_any_element()), control, cx)
+}
+
+fn setting_row_content(
+    title: &str,
+    detail: Option<&str>,
+    preview: Option<AnyElement>,
+    control: impl IntoElement,
+    cx: &App,
+) -> AnyElement {
+    let label = div()
+        .min_w_0()
+        .flex_1()
+        .child(
+            div()
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(title.to_string()),
+        )
+        .children(detail.map(|detail| {
+            div()
+                .pt_1()
+                .text_size(px(12.0))
+                .line_height(px(18.0))
+                .text_color(cx.theme().muted_foreground)
+                .child(detail.to_string())
+        }))
+        .children(preview);
+
     div()
         .w_full()
         .min_h(px(68.0))
@@ -526,25 +582,7 @@ fn setting_row(title: &str, detail: &str, control: impl IntoElement, cx: &App) -
         .items_center()
         .justify_between()
         .gap_5()
-        .child(
-            div()
-                .min_w_0()
-                .flex_1()
-                .child(
-                    div()
-                        .text_sm()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(title.to_string()),
-                )
-                .child(
-                    div()
-                        .pt_1()
-                        .text_size(px(12.0))
-                        .line_height(px(18.0))
-                        .text_color(cx.theme().muted_foreground)
-                        .child(detail.to_string()),
-                ),
-        )
+        .child(label)
         .child(div().flex_none().child(control))
         .into_any_element()
 }

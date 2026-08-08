@@ -428,6 +428,27 @@ impl OneChat {
         )
         .detach();
 
+        let message_font_size_slider = cx.new(|_| {
+            SliderState::new()
+                .min(crate::domain::MIN_MESSAGE_FONT_SIZE)
+                .max(crate::domain::MAX_MESSAGE_FONT_SIZE)
+                .step(1.0)
+                .default_value(AppSettings::default().message_font_size())
+        });
+        cx.subscribe(
+            &message_font_size_slider,
+            |this, _, event: &SliderEvent, cx| match event {
+                SliderEvent::Change(value) => {
+                    this.update_message_font_size(value.start(), cx);
+                }
+                SliderEvent::Release(value) => {
+                    this.update_message_font_size(value.start(), cx);
+                    this.save_settings(cx);
+                }
+            },
+        )
+        .detach();
+
         let background_opacity_slider = cx.new(|_| {
             SliderState::new()
                 .min(crate::domain::MIN_BACKGROUND_OPACITY)
@@ -586,6 +607,7 @@ impl OneChat {
                 section: SettingsSection::default(),
                 ui_font_select,
                 code_font_select,
+                message_font_size_slider,
                 background_opacity_slider,
                 message_width_slider,
                 primary_model_select,

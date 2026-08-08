@@ -3,6 +3,7 @@ use super::*;
 pub(super) fn render_composer(
     app: &OneChat,
     message_max_width: f32,
+    typography: MessageTypography,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let generating = app.is_current_generating();
@@ -65,8 +66,8 @@ pub(super) fn render_composer(
                 .pl_4()
                 .pr(px(56.0))
                 .py(px(12.0))
-                .text_size(px(15.0))
-                .line_height(px(24.0)),
+                .text_size(px(typography.body_size))
+                .line_height(px(typography.body_line_height)),
         )
         .child(action);
 

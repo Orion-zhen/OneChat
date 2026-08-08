@@ -3,6 +3,7 @@ use super::*;
 pub(super) fn render_system_prompt_card(
     app: &OneChat,
     message_max_width: f32,
+    typography: MessageTypography,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let conversation = app
@@ -97,14 +98,14 @@ pub(super) fn render_system_prompt_card(
     };
     let content = match app.chat.system_prompt_mode {
         SystemPromptMode::Compact => div()
-            .text_sm()
-            .line_height(px(21.0))
+            .text_size(px(typography.secondary_size))
+            .line_height(px(typography.secondary_line_height))
             .text_color(cx.theme().muted_foreground)
             .child(prompt_preview(&conversation.system_prompt))
             .into_any_element(),
         SystemPromptMode::Expanded => div()
-            .text_sm()
-            .line_height(px(22.0))
+            .text_size(px(typography.secondary_size))
+            .line_height(px(typography.secondary_line_height))
             .whitespace_normal()
             .child(conversation.system_prompt.clone())
             .into_any_element(),
@@ -125,14 +126,15 @@ pub(super) fn render_system_prompt_card(
                         Input::new(editor)
                             .aria_label("System prompt")
                             .bg(cx.theme().muted)
-                            .text_size(px(15.0))
-                            .line_height(px(22.0)),
+                            .text_size(px(typography.secondary_size))
+                            .line_height(px(typography.secondary_line_height)),
                     )
                     .into_any_element()
             })
             .unwrap_or_else(|| {
                 div()
-                    .text_sm()
+                    .text_size(px(typography.metadata_size))
+                    .line_height(px(typography.metadata_line_height))
                     .text_color(cx.theme().muted_foreground)
                     .child("Opening editor…")
                     .into_any_element()
@@ -173,13 +175,13 @@ pub(super) fn render_system_prompt_card(
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .text_size(px(11.0))
                                 .text_color(cx.theme().primary)
                                 .child(render_icon(AppIcon::Command, IconTone::Accent, 13.0, cx)),
                         )
                         .child(
                             div()
-                                .text_sm()
+                                .text_size(px(typography.metadata_size))
+                                .line_height(px(typography.metadata_line_height))
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .child("System Prompt"),
                         )
@@ -189,7 +191,8 @@ pub(super) fn render_system_prompt_card(
                                 .bg(cx.theme().accent)
                                 .px_2()
                                 .py_1()
-                                .text_size(px(10.0))
+                                .text_size(px(typography.micro_size))
+                                .line_height(px(typography.micro_line_height))
                                 .text_color(cx.theme().primary)
                                 .child(source),
                         ),

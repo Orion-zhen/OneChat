@@ -23,8 +23,9 @@ pub fn render_formula_cached(
     display: bool,
     dark: bool,
     scale_factor: f32,
+    font_scale: f32,
 ) -> Result<FormulaImage, String> {
-    type FormulaKey = (String, bool, bool, u32);
+    type FormulaKey = (String, bool, bool, u32, u32);
     static CACHE: OnceLock<Mutex<HashMap<FormulaKey, Result<FormulaImage, String>>>> =
         OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
@@ -33,7 +34,18 @@ pub fn render_formula_cached(
     } else {
         MIN_FORMULA_SCALE
     };
-    let key = (source.to_string(), display, dark, raster_scale.to_bits());
+    let font_scale = if font_scale.is_finite() {
+        font_scale.max(0.1)
+    } else {
+        1.0
+    };
+    let key = (
+        source.to_string(),
+        display,
+        dark,
+        raster_scale.to_bits(),
+        font_scale.to_bits(),
+    );
     if let Some(cached) = cache
         .lock()
         .unwrap_or_else(|error| error.into_inner())
@@ -43,7 +55,7 @@ pub fn render_formula_cached(
     }
 
     let rendered = catch_unwind(AssertUnwindSafe(|| {
-        render_formula_svg(source, display, dark, raster_scale)
+        render_formula_svg(source, display, dark, raster_scale, font_scale)
     }))
     .map_err(|_| "Formula renderer stopped unexpectedly".to_string())
     .and_then(|result| result);
@@ -59,6 +71,7 @@ fn render_formula_svg(
     display: bool,
     dark: bool,
     raster_scale: f32,
+    font_scale: f32,
 ) -> Result<FormulaImage, String> {
     if source.is_empty() {
         return Err("Formula is empty".into());
@@ -75,8 +88,9 @@ fn render_formula_svg(
     };
     let layout = layout(&ast, &layout_options);
     let display_list = to_display_list(&layout);
-    let font_size = if display { 22.0 } else { 17.0 };
-    let padding = if display { 6.0 } else { 2.0 };
+    let font_scale = f64::from(font_scale);
+    let font_size = (if display { 22.0 } else { 17.0 }) * font_scale;
+    let padding = (if display { 6.0 } else { 2.0 }) * font_scale;
     let raster_scale = f64::from(raster_scale);
     let options = SvgOptions {
         font_size: font_size * raster_scale,

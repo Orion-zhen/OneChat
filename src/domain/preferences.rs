@@ -12,6 +12,9 @@ pub enum Theme {
 pub const DEFAULT_MESSAGE_WIDTH_RATIO: f32 = 0.7;
 pub const MIN_MESSAGE_WIDTH_RATIO: f32 = 0.5;
 pub const MAX_MESSAGE_WIDTH_RATIO: f32 = 1.0;
+pub const DEFAULT_MESSAGE_FONT_SIZE: f32 = 16.0;
+pub const MIN_MESSAGE_FONT_SIZE: f32 = 13.0;
+pub const MAX_MESSAGE_FONT_SIZE: f32 = 22.0;
 pub const DEFAULT_BACKGROUND_OPACITY: f32 = 0.5;
 pub const MIN_BACKGROUND_OPACITY: f32 = 0.0;
 pub const MAX_BACKGROUND_OPACITY: f32 = 1.0;
@@ -52,6 +55,7 @@ pub struct AppSettings {
     pub code_font_families: Vec<String>,
     pub default_system_prompt_preset: Option<String>,
     pub title_generation_system_prompt: String,
+    pub message_font_size: f32,
     pub message_width_ratio: f32,
     pub background_opacity: f32,
 }
@@ -70,6 +74,11 @@ impl AppSettings {
     pub fn message_width_ratio(&self) -> f32 {
         self.message_width_ratio
             .clamp(MIN_MESSAGE_WIDTH_RATIO, MAX_MESSAGE_WIDTH_RATIO)
+    }
+
+    pub fn message_font_size(&self) -> f32 {
+        self.message_font_size
+            .clamp(MIN_MESSAGE_FONT_SIZE, MAX_MESSAGE_FONT_SIZE)
     }
 
     pub fn background_opacity(&self) -> f32 {
@@ -91,6 +100,7 @@ impl Default for AppSettings {
             code_font_families: vec![DEFAULT_CODE_FONT_FAMILY.into()],
             default_system_prompt_preset: None,
             title_generation_system_prompt: DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT.into(),
+            message_font_size: DEFAULT_MESSAGE_FONT_SIZE,
             message_width_ratio: DEFAULT_MESSAGE_WIDTH_RATIO,
             background_opacity: DEFAULT_BACKGROUND_OPACITY,
         }

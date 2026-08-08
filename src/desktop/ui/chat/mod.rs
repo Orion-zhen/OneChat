@@ -28,6 +28,7 @@ use super::{
     markdown,
     motion::translated_y,
     selectable_text::{SelectableText, selection_color},
+    typography::MessageTypography,
 };
 use crate::{
     desktop::app::{COLLAPSED_THINKING_HEIGHT, OneChat, SystemPromptMode},
@@ -40,14 +41,19 @@ use crate::{
 const MESSAGE_MIN_WIDTH: f32 = 780.0;
 const MESSAGE_LIST_HORIZONTAL_PADDING: f32 = 48.0;
 
-fn response_tab_button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Button {
+fn response_tab_button(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    typography: MessageTypography,
+) -> Button {
     Button::new(id)
         .label(label)
-        .h(px(24.0))
+        .h(px(typography.metadata_line_height + 6.0))
         .px_2()
         .rounded(px(8.0))
         .ghost()
-        .text_size(px(12.0))
+        .text_size(px(typography.metadata_size))
+        .line_height(px(typography.metadata_line_height))
         .font_weight(FontWeight::SEMIBOLD)
 }
 
@@ -113,6 +119,7 @@ pub(crate) fn render(
         .expect("conversation page requires a current conversation");
     let message_max_width =
         message_max_width(available_width, app.settings().message_width_ratio());
+    let typography = MessageTypography::new(app.settings().message_font_size());
     let has_system_prompt = !conversation.system_prompt.trim().is_empty();
     let editing_system_prompt = app.chat.system_prompt_mode == SystemPromptMode::Editing;
     let text_selection = app.chat.text_selection.clone();
@@ -147,14 +154,21 @@ pub(crate) fn render(
         .pb_6()
         .children(
             (has_system_prompt || editing_system_prompt)
-                .then(|| render_system_prompt_card(app, message_max_width, cx)),
+                .then(|| render_system_prompt_card(app, message_max_width, typography, cx)),
         );
 
     if app.current_turns().is_empty() {
         messages = messages.child(render_empty_conversation(app, cx));
     } else {
         for turn in app.current_turns() {
-            messages = messages.child(render_turn(app, turn, message_max_width, scale_factor, cx));
+            messages = messages.child(render_turn(
+                app,
+                turn,
+                message_max_width,
+                scale_factor,
+                typography,
+                cx,
+            ));
         }
     }
 
@@ -244,7 +258,7 @@ pub(crate) fn render(
         .flex()
         .flex_col()
         .child(message_area)
-        .child(render_composer(app, message_max_width, cx))
+        .child(render_composer(app, message_max_width, typography, cx))
         .into_any_element()
 }
 
@@ -313,13 +327,29 @@ mod tests {
 
     #[test]
     fn user_editor_expands_for_its_longest_line_before_wrapping() {
-        assert_eq!(user_editor_width("给我写一首现代诗", 585.0), 184.0);
-        assert_eq!(user_editor_width("short\n给我写一首现代诗", 585.0), 184.0);
+        assert_eq!(user_editor_width("给我写一首现代诗", 585.0, 15.0), 184.0);
+        assert_eq!(
+            user_editor_width("short\n给我写一首现代诗", 585.0, 15.0),
+            184.0
+        );
     }
 
     #[test]
     fn user_editor_still_wraps_at_the_user_message_limit() {
-        assert_eq!(user_editor_width(&"字".repeat(100), 585.0), 585.0);
+        assert_eq!(user_editor_width(&"字".repeat(100), 585.0, 15.0), 585.0);
+    }
+
+    #[test]
+    fn user_editor_measurement_tracks_message_font_size() {
+        assert_eq!(
+            user_editor_width(
+                "给我写一首现代诗",
+                585.0,
+                crate::domain::DEFAULT_MESSAGE_FONT_SIZE
+            ),
+            192.0
+        );
+        assert_eq!(user_editor_width("给我写一首现代诗", 585.0, 22.0), 240.0);
     }
 
     #[test]

@@ -74,7 +74,8 @@ $$\frac{1}{2}$$
                 _ => None,
             })
             .unwrap();
-        let rendered = render_formula_cached(&formula.source, formula.display, false, 1.0).unwrap();
+        let rendered =
+            render_formula_cached(&formula.source, formula.display, false, 1.0, 1.0).unwrap();
         let svg = std::str::from_utf8(&rendered.svg).unwrap();
         assert!(svg.contains("<path"));
         assert!(!svg.contains("<text"));
@@ -99,11 +100,11 @@ $$\frac{1}{2}$$
             .collect::<Vec<_>>();
         assert_eq!(formulas.len(), 2);
         assert!(formulas.iter().all(|formula| {
-            render_formula_cached(&formula.source, formula.display, false, 2.0).is_ok()
+            render_formula_cached(&formula.source, formula.display, false, 2.0, 1.0).is_ok()
         }));
 
         let invalid = formula(r"\not-a-real-command{", true);
-        assert!(render_formula_cached(&invalid.source, invalid.display, false, 2.0).is_err());
+        assert!(render_formula_cached(&invalid.source, invalid.display, false, 2.0, 1.0).is_err());
     }
 
     #[test]
@@ -123,8 +124,8 @@ $$\frac{1}{2}$$
             (size[0], size[1])
         }
 
-        let light = render_formula_cached("x^2", false, false, 1.0).unwrap();
-        let dark = render_formula_cached("x^2", false, true, 3.0).unwrap();
+        let light = render_formula_cached("x^2", false, false, 1.0, 1.0).unwrap();
+        let dark = render_formula_cached("x^2", false, true, 3.0, 1.0).unwrap();
         let light_svg = std::str::from_utf8(&light.svg).unwrap();
         let dark_svg = std::str::from_utf8(&dark.svg).unwrap();
         let light_view_box = view_box_size(&light);
@@ -137,6 +138,17 @@ $$\frac{1}{2}$$
         assert!((light_view_box.1 / light.height - 2.0).abs() < 0.01);
         assert!((dark_view_box.0 / dark.width - 3.0).abs() < 0.01);
         assert!((dark_view_box.1 / dark.height - 3.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn formula_logical_size_tracks_message_font_size() {
+        for display in [false, true] {
+            let normal = render_formula_cached("x^2", display, false, 2.0, 1.0).unwrap();
+            let large = render_formula_cached("x^2", display, false, 2.0, 1.5).unwrap();
+
+            assert!((large.width / normal.width - 1.5).abs() < 0.01);
+            assert!((large.height / normal.height - 1.5).abs() < 0.01);
+        }
     }
 
     #[test]

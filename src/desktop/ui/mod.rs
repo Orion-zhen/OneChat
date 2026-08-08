@@ -8,6 +8,7 @@ pub mod settings;
 pub mod shell;
 pub mod stream;
 pub mod theme;
+pub(crate) mod typography;
 
 use std::borrow::Cow;
 

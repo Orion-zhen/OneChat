@@ -89,6 +89,15 @@ impl OneChat {
         cx.notify();
     }
 
+    pub(crate) fn update_message_font_size(&mut self, size: f32, cx: &mut Context<Self>) {
+        let size = rounded_message_font_size(size);
+        if (self.data.snapshot.settings.message_font_size - size).abs() < f32::EPSILON {
+            return;
+        }
+        self.data.snapshot.settings.message_font_size = size;
+        cx.notify();
+    }
+
     pub(crate) fn toggle_auto_title_enabled(&mut self, cx: &mut Context<Self>) {
         self.data.snapshot.settings.auto_title_enabled =
             !self.data.snapshot.settings.auto_title_enabled;
@@ -796,9 +805,19 @@ fn rounded_message_width_ratio(ratio: f32) -> f32 {
     (ratio * 100.0).round() / 100.0
 }
 
+fn rounded_message_font_size(size: f32) -> f32 {
+    size.clamp(
+        crate::domain::MIN_MESSAGE_FONT_SIZE,
+        crate::domain::MAX_MESSAGE_FONT_SIZE,
+    )
+    .round()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{rounded_background_opacity, rounded_message_width_ratio};
+    use super::{
+        rounded_background_opacity, rounded_message_font_size, rounded_message_width_ratio,
+    };
 
     #[test]
     fn background_opacity_is_clamped_and_rounded_to_slider_step() {
@@ -814,5 +833,13 @@ mod tests {
         assert_eq!(rounded_message_width_ratio(0.736), 0.74);
         assert_eq!(rounded_message_width_ratio(0.1), 0.5);
         assert_eq!(rounded_message_width_ratio(1.5), 1.0);
+    }
+
+    #[test]
+    fn message_font_size_is_clamped_and_rounded_to_whole_pixels() {
+        assert_eq!(rounded_message_font_size(14.4), 14.0);
+        assert_eq!(rounded_message_font_size(14.6), 15.0);
+        assert_eq!(rounded_message_font_size(5.0), 13.0);
+        assert_eq!(rounded_message_font_size(30.0), 22.0);
     }
 }

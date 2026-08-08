@@ -5,13 +5,15 @@ use unicode_segmentation::UnicodeSegmentation;
 const USER_MESSAGE_WIDTH_RATIO: f32 = 0.75;
 const USER_EDITOR_MIN_WIDTH: f32 = 160.0;
 const USER_EDITOR_HORIZONTAL_CHROME: f32 = 64.0;
+const USER_EDITOR_MEASUREMENT_FONT_SIZE: f32 = 15.0;
 
-pub(super) fn user_editor_width(content: &str, max_width: f32) -> f32 {
+pub(super) fn user_editor_width(content: &str, max_width: f32, font_size: f32) -> f32 {
+    let text_scale = font_size / USER_EDITOR_MEASUREMENT_FONT_SIZE;
     let text_width = content
         .lines()
         .map(|line| {
             line.graphemes(true)
-                .map(|grapheme| if grapheme.is_ascii() { 8.0 } else { 15.0 })
+                .map(|grapheme| (if grapheme.is_ascii() { 8.0 } else { 15.0 }) * text_scale)
                 .sum::<f32>()
         })
         .fold(0.0, f32::max);
@@ -25,6 +27,7 @@ pub(super) fn render_turn(
     turn: &Turn,
     message_max_width: f32,
     scale_factor: f32,
+    typography: MessageTypography,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let response = app.visible_response(turn);
@@ -32,9 +35,23 @@ pub(super) fn render_turn(
         .id(SharedString::from(format!("turn-{}", turn.id)))
         .relative()
         .w_full()
-        .child(render_user_message(app, turn, message_max_width, cx))
+        .child(render_user_message(
+            app,
+            turn,
+            message_max_width,
+            typography,
+            cx,
+        ))
         .children(response.map(|response| {
-            render_assistant_message(app, turn, response, message_max_width, scale_factor, cx)
+            render_assistant_message(
+                app,
+                turn,
+                response,
+                message_max_width,
+                scale_factor,
+                typography,
+                cx,
+            )
         }))
         .with_animation(
             SharedString::from(format!("turn-appear-{}", turn.id)),
@@ -51,6 +68,7 @@ fn render_user_message(
     app: &OneChat,
     turn: &Turn,
     message_max_width: f32,
+    typography: MessageTypography,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let user_message_max_width = message_max_width * USER_MESSAGE_WIDTH_RATIO;
@@ -72,7 +90,11 @@ fn render_user_message(
     let content = if let Some(editor) = editor {
         let save_id = turn.id.clone();
         let save_on_mouse_down_id = save_id.clone();
-        let width = user_editor_width(&editor.read(cx).value(), user_message_max_width);
+        let width = user_editor_width(
+            &editor.read(cx).value(),
+            user_message_max_width,
+            typography.body_size,
+        );
         div()
             .w(px(width))
             .rounded(px(18.0))
@@ -96,8 +118,8 @@ fn render_user_message(
                         Input::new(&editor)
                             .aria_label("Edit user message")
                             .bg(cx.theme().muted)
-                            .text_size(px(15.0))
-                            .line_height(px(24.0)),
+                            .text_size(px(typography.body_size))
+                            .line_height(px(typography.body_line_height)),
                     ),
             )
             .child(
@@ -151,7 +173,8 @@ fn render_user_message(
             .py_3()
             .text_color(cx.theme().primary_foreground)
             .whitespace_normal()
-            .line_height(px(23.0))
+            .text_size(px(typography.body_size))
+            .line_height(px(typography.body_line_height))
             .child(SelectableText::new(
                 SharedString::from(format!("user-message-content-{}", turn.user.id)),
                 turn.user.content.clone(),
@@ -193,7 +216,8 @@ fn render_user_message(
             .child(
                 div()
                     .px_1()
-                    .text_size(px(11.0))
+                    .text_size(px(typography.micro_size))
+                    .line_height(px(typography.micro_line_height))
                     .text_color(cx.theme().muted_foreground)
                     .child(format!("{}/{}", branch_index + 1, branches.len())),
             )
@@ -298,6 +322,7 @@ fn render_assistant_message(
     message: &AssistantResponse,
     message_max_width: f32,
     scale_factor: f32,
+    typography: MessageTypography,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let request = app.request_for_response(message);
@@ -333,8 +358,8 @@ fn render_assistant_message(
                         Input::new(&editor)
                             .aria_label("Edit assistant response")
                             .bg(cx.theme().muted)
-                            .text_size(px(15.0))
-                            .line_height(px(24.0)),
+                            .text_size(px(typography.body_size))
+                            .line_height(px(typography.body_line_height)),
                     ),
             )
             .child(
@@ -384,6 +409,8 @@ fn render_assistant_message(
             .flex()
             .items_center()
             .gap_2()
+            .text_size(px(typography.metadata_size))
+            .line_height(px(typography.metadata_line_height))
             .text_color(cx.theme().muted_foreground)
             .child(div().size(px(7.0)).rounded_full().bg(cx.theme().primary))
             .child(if message.thinking.is_empty() {
@@ -398,10 +425,17 @@ fn render_assistant_message(
             &message.id,
             &app.chat.text_selection,
             scale_factor,
+            typography,
             cx,
         )
     } else {
-        markdown::render_plain(&message.content, &message.id, &app.chat.text_selection, cx)
+        markdown::render_plain(
+            &message.content,
+            &message.id,
+            &app.chat.text_selection,
+            typography,
+            cx,
+        )
     };
 
     let latest = app.is_latest_turn(&turn.id);
@@ -582,6 +616,7 @@ fn render_assistant_message(
                 response_tab_button(
                     SharedString::from(format!("response-tab-{}", response.id)),
                     label,
+                    typography,
                 )
                 .selected(selected)
                 .flex()
@@ -609,7 +644,8 @@ fn render_assistant_message(
         tabs.into_any_element()
     } else {
         div()
-            .text_size(px(12.0))
+            .text_size(px(typography.metadata_size))
+            .line_height(px(typography.metadata_line_height))
             .font_weight(FontWeight::SEMIBOLD)
             .text_color(cx.theme().muted_foreground)
             .child(assistant_label)
@@ -629,14 +665,13 @@ fn render_assistant_message(
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_size(px(11.0))
                 .text_color(cx.theme().primary)
                 .child(render_icon(AppIcon::Sparkles, IconTone::Accent, 13.0, cx)),
         )
         .child(header_content)
         .children(
             (!multiple_responses && !matches!(message.status, MessageStatus::Completed))
-                .then(|| status_badge(message.status, cx)),
+                .then(|| status_badge(message.status, typography, cx)),
         );
     let stats = request.map(format_message_stats).unwrap_or_default();
     div()
@@ -650,10 +685,10 @@ fn render_assistant_message(
         .w_full()
         .max_w(px(message_max_width))
         .child(header)
-        .children(render_reasoning(app, message, request, cx))
+        .children(render_reasoning(app, message, request, typography, cx))
         .child(content)
         .children(render_error_card(
-            app, message, request, latest, generating, cx,
+            app, message, request, latest, generating, typography, cx,
         ))
         .child(
             div()
@@ -669,7 +704,8 @@ fn render_assistant_message(
                         .min_w_0()
                         .flex_1()
                         .text_right()
-                        .text_size(px(11.0))
+                        .text_size(px(typography.micro_size))
+                        .line_height(px(typography.micro_line_height))
                         .text_color(cx.theme().muted_foreground)
                         .child(stats)
                 })),
@@ -681,6 +717,7 @@ fn render_reasoning(
     app: &OneChat,
     message: &AssistantResponse,
     request: Option<&RequestInfo>,
+    typography: MessageTypography,
     cx: &mut Context<OneChat>,
 ) -> Option<AnyElement> {
     if message.thinking.is_empty() {
@@ -708,7 +745,8 @@ fn render_reasoning(
                 .flex()
                 .items_center()
                 .gap_1()
-                .text_size(px(10.0))
+                .text_size(px(typography.micro_size))
+                .line_height(px(typography.micro_line_height))
                 .text_color(if live {
                     cx.theme().primary
                 } else {
@@ -833,8 +871,8 @@ fn render_reasoning(
             .rounded_xl()
             .bg(cx.theme().muted)
             .p_4()
-            .text_sm()
-            .line_height(px(22.0))
+            .text_size(px(typography.secondary_size))
+            .line_height(px(typography.secondary_line_height))
             .text_color(cx.theme().muted_foreground)
             .child(
                 div()
@@ -845,7 +883,8 @@ fn render_reasoning(
                     .gap_3()
                     .child(
                         div()
-                            .text_size(px(11.0))
+                            .text_size(px(typography.micro_size))
+                            .line_height(px(typography.micro_line_height))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("REASONING"),
                     )
@@ -896,7 +935,7 @@ pub(super) fn format_message_stats(request: &RequestInfo) -> String {
     stats.join("  ·  ")
 }
 
-fn status_badge(status: MessageStatus, cx: &App) -> AnyElement {
+fn status_badge(status: MessageStatus, typography: MessageTypography, cx: &App) -> AnyElement {
     let label = match status {
         MessageStatus::Pending => "Sending",
         MessageStatus::Streaming => "Writing",
@@ -919,7 +958,8 @@ fn status_badge(status: MessageStatus, cx: &App) -> AnyElement {
         })
         .px_2()
         .py_1()
-        .text_size(px(11.0))
+        .text_size(px(typography.micro_size))
+        .line_height(px(typography.micro_line_height))
         .text_color(if danger {
             cx.theme().danger
         } else {
@@ -935,6 +975,7 @@ fn render_error_card(
     request: Option<&RequestInfo>,
     latest: bool,
     generating: bool,
+    typography: MessageTypography,
     cx: &mut Context<OneChat>,
 ) -> Option<AnyElement> {
     if !matches!(
@@ -970,14 +1011,16 @@ fn render_error_card(
             .gap_2()
             .child(
                 div()
-                    .text_sm()
+                    .text_size(px(typography.metadata_size))
+                    .line_height(px(typography.metadata_line_height))
                     .font_weight(FontWeight::SEMIBOLD)
                     .text_color(cx.theme().danger)
                     .child(summary),
             )
             .children(expanded.then(|| {
                 div()
-                    .text_sm()
+                    .text_size(px(typography.metadata_size))
+                    .line_height(px(typography.metadata_line_height))
                     .text_color(cx.theme().muted_foreground)
                     .child(
                         detail

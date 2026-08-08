@@ -12,17 +12,24 @@ pub(super) fn general_page(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEleme
             cx,
         ))
         .child(setting_divider(cx))
-        .child(setting_row(
+        .child(setting_row_with_preview(
             "Interface Font",
-            "The first font is primary; missing glyphs fall back in order.",
+            font_preview(FontRole::Ui, cx),
             font_stack_editor(app, FontRole::Ui, cx),
             cx,
         ))
         .child(setting_divider(cx))
-        .child(setting_row(
+        .child(setting_row_with_preview(
             "Code Font",
-            "Used by code blocks and inline code with the same fallback rules.",
+            font_preview(FontRole::Code, cx),
             font_stack_editor(app, FontRole::Code, cx),
+            cx,
+        ))
+        .child(setting_divider(cx))
+        .child(setting_row(
+            "Message Size",
+            "Conversation text size; code stays one pixel smaller.",
+            message_font_size_slider(app, cx),
             cx,
         ))
         .child(setting_divider(cx))
@@ -196,15 +203,6 @@ fn font_stack_editor(app: &OneChat, role: FontRole, cx: &mut Context<OneChat>) -
                         .child(remove),
                 )
         }));
-    let preview_font = match role {
-        FontRole::Ui => crate::desktop::ui::theme::ui_font(cx),
-        FontRole::Code => crate::desktop::ui::theme::code_font(cx),
-    };
-    let preview = match role {
-        FontRole::Ui => "The quick brown fox · 中文字体预览",
-        FontRole::Code => "let fallback = \"中文\";",
-    };
-
     div()
         .w(px(340.0))
         .flex()
@@ -223,18 +221,26 @@ fn font_stack_editor(app: &OneChat, role: FontRole, cx: &mut Context<OneChat>) -
                 .menu_max_h(px(300.0))
                 .w_full(),
         )
-        .child(
-            div()
-                .w_full()
-                .rounded(px(9.0))
-                .bg(cx.theme().transparent)
-                .px_3()
-                .py_2()
-                .font(preview_font)
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child(preview),
-        )
+        .into_any_element()
+}
+
+fn font_preview(role: FontRole, cx: &App) -> AnyElement {
+    let (font, text) = match role {
+        FontRole::Ui => (
+            crate::desktop::ui::theme::ui_font(cx),
+            "The quick brown fox · 中文字体预览",
+        ),
+        FontRole::Code => (
+            crate::desktop::ui::theme::code_font(cx),
+            "let fallback = \"中文\";",
+        ),
+    };
+    div()
+        .pt_3()
+        .font(font)
+        .text_sm()
+        .text_color(cx.theme().muted_foreground)
+        .child(text)
         .into_any_element()
 }
 
@@ -252,6 +258,30 @@ fn message_width_slider(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement 
         app.settings().message_width_ratio(),
         cx,
     )
+}
+
+fn message_font_size_slider(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
+    div()
+        .w(px(236.0))
+        .flex_none()
+        .flex()
+        .items_center()
+        .gap_3()
+        .child(
+            Slider::new(&app.settings_ui.message_font_size_slider)
+                .w(px(180.0))
+                .bg(cx.theme().primary),
+        )
+        .child(
+            div()
+                .w(px(42.0))
+                .flex_none()
+                .text_right()
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(format!("{:.0} px", app.settings().message_font_size())),
+        )
+        .into_any_element()
 }
 
 fn percentage_slider(

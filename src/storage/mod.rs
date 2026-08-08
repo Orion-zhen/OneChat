@@ -269,6 +269,7 @@ mod tests {
             code_font_families: vec!["Maple Mono".into(), "PingFang SC".into()],
             default_system_prompt_preset: Some("Default".into()),
             title_generation_system_prompt: "Generate a title".into(),
+            message_font_size: 18.0,
             message_width_ratio: 0.85,
             background_opacity: 0.65,
         };
@@ -327,6 +328,10 @@ mod tests {
         assert_eq!(
             snapshot.settings.message_width_ratio,
             crate::domain::DEFAULT_MESSAGE_WIDTH_RATIO
+        );
+        assert_eq!(
+            snapshot.settings.message_font_size,
+            crate::domain::DEFAULT_MESSAGE_FONT_SIZE
         );
         assert_eq!(
             snapshot.settings.background_opacity,
