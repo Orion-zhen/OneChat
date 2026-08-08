@@ -1,2 +1,2 @@
-data: {"error":{"message":"unsupported parameter: temperature"}}
+data: {"type":"error","error":{"message":"unsupported parameter: temperature","type":"invalid_request_error","code":"unsupported_parameter"}}
 

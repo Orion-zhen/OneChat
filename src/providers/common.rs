@@ -71,7 +71,7 @@ pub(crate) fn sdk_base_url(provider: &Provider) -> Result<String, GenerationErro
     let mut base = base.trim_end_matches('/');
     match provider.kind {
         ProviderKind::OpenAi | ProviderKind::OpenAiCompatible => {
-            for suffix in ["/chat/completions", "/models"] {
+            for suffix in ["/responses", "/chat/completions", "/models"] {
                 if let Some(root) = base.strip_suffix(suffix) {
                     base = root;
                     break;

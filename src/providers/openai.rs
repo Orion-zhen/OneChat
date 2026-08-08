@@ -2,7 +2,7 @@ use async_channel::Sender;
 use futures_util::StreamExt;
 use rig_core::{
     client::{CompletionClient, VerifyClient},
-    completion::{CompletionModel, GetTokenUsage},
+    completion::{CompletionModel, CompletionRequest, GetTokenUsage},
     providers::openai as rig_openai,
     streaming::StreamedAssistantContent,
 };
@@ -17,7 +17,7 @@ use crate::{
     },
 };
 
-type OpenAiClient = rig_openai::CompletionsClient<reqwest::Client>;
+type OpenAiClient = rig_openai::Client<reqwest::Client>;
 
 pub async fn test_connection(provider: &Provider) -> Result<(), GenerationError> {
     build_client(provider)?
@@ -36,11 +36,40 @@ pub async fn stream(
     }
 
     let client = build_client(&request.provider)?;
-    let model = client.completion_model(request.model.remote_id.clone());
+    let model_id = request.model.remote_id.clone();
     let sdk_request = sdk_request(&request, additional_parameters(&request))?;
+    match request.provider.kind {
+        crate::domain::ProviderKind::OpenAi => {
+            stream_model(
+                client.completion_model(model_id),
+                sdk_request,
+                events,
+                cancellation,
+            )
+            .await
+        }
+        crate::domain::ProviderKind::OpenAiCompatible => {
+            stream_model(
+                client.completions_api().completion_model(model_id),
+                sdk_request,
+                events,
+                cancellation,
+            )
+            .await
+        }
+        _ => unreachable!("openai::stream called for a non-OpenAI provider"),
+    }
+}
+
+async fn stream_model<M: CompletionModel>(
+    model: M,
+    request: CompletionRequest,
+    events: &Sender<GenerationEvent>,
+    cancellation: CancellationToken,
+) -> Result<(), GenerationError> {
     let mut response = tokio::select! {
         _ = cancellation.cancelled() => return Err(GenerationError::cancelled()),
-        response = model.stream(sdk_request) => response.map_err(|error| sdk_completion_error(error, false))?,
+        response = model.stream(request) => response.map_err(|error| sdk_completion_error(error, false))?,
     };
 
     events
@@ -179,7 +208,6 @@ fn build_client(provider: &Provider) -> Result<OpenAiClient, GenerationError> {
         .http_headers(sdk_headers(provider)?)
         .http_client(sdk_http_client(provider)?)
         .build()
-        .map(|client| client.completions_api())
         .map_err(|error| {
             GenerationError::new(
                 GenerationErrorKind::UnsupportedParameter,
@@ -210,7 +238,10 @@ mod tests {
                 top_k: Some(40),
                 seed: Some(7),
                 extra: Map::from_iter([
-                    ("reasoning_effort".into(), json!("high")),
+                    (
+                        "reasoning".into(),
+                        json!({ "effort": "high", "summary": "auto" }),
+                    ),
                     ("top_k".into(), json!(999)),
                 ]),
                 ..GenerationConfig::default()
@@ -231,7 +262,7 @@ mod tests {
         assert_eq!(sdk_request.temperature, Some(0.2));
         assert_eq!(parameters["seed"], 7);
         assert!(parameters.get("top_k").is_none());
-        assert_eq!(parameters["reasoning_effort"], "high");
+        assert_eq!(parameters["reasoning"]["effort"], "high");
         assert_eq!(sdk_request.preamble.as_deref(), Some("Be concise"));
     }
 
@@ -252,6 +283,10 @@ mod tests {
         assert_eq!(sdk_base_url(&provider).unwrap(), "http://localhost:8080/v1");
         provider.endpoint = "http://localhost:8080/v1/models".into();
         assert_eq!(sdk_base_url(&provider).unwrap(), "http://localhost:8080/v1");
+
+        provider.kind = ProviderKind::OpenAi;
+        provider.endpoint = "http://localhost:8080/v1/responses".into();
+        assert_eq!(sdk_base_url(&provider).unwrap(), "http://localhost:8080/v1");
     }
 
     #[tokio::test]
@@ -268,15 +303,18 @@ mod tests {
         stream(request, &sender, CancellationToken::new())
             .await
             .unwrap();
-        let body = request_json(&captured.await.unwrap());
+        let captured = captured.await.unwrap();
+        assert!(captured.starts_with("POST /v1/responses "));
+        let body = request_json(&captured);
         assert_eq!(body["model"], "gpt-test");
-        assert_eq!(body["messages"][0]["role"], "system");
+        assert_eq!(body["instructions"], "Be concise");
+        assert_eq!(body["input"][0]["role"], "user");
         assert_eq!(body["temperature"], 0.2);
-        assert_eq!(body["seed"], 7);
-        assert_eq!(body["reasoning_effort"], "high");
+        assert_eq!(body["reasoning"]["effort"], "high");
+        assert_eq!(body["reasoning"]["summary"], "auto");
+        assert!(body.get("seed").is_none());
         assert!(body.get("top_k").is_none());
         assert_eq!(body["stream"], true);
-        assert_eq!(body["stream_options"]["include_usage"], true);
 
         let mut events = Vec::new();
         while let Ok(event) = receiver.try_recv() {
@@ -291,6 +329,42 @@ mod tests {
                 estimated: false,
             }))
         );
+        assert_eq!(events.last(), Some(&GenerationEvent::Completed));
+    }
+
+    #[tokio::test]
+    async fn openai_compatible_keeps_chat_completions_api() {
+        use crate::providers::test_support::{fragmented, request_json, server};
+
+        let fixture = include_str!("../../tests/fixtures/openai_chat_completions_success.sse");
+        let (endpoint, captured) =
+            server("200 OK", "text/event-stream", fragmented(fixture, 9)).await;
+        let mut request = request();
+        request.provider.kind = ProviderKind::OpenAiCompatible;
+        request.provider.endpoint = format!("{endpoint}/v1");
+        request.config.extra = Map::from_iter([
+            ("reasoning_effort".into(), json!("high")),
+            ("top_k".into(), json!(999)),
+        ]);
+        let (sender, receiver) = async_channel::unbounded();
+
+        stream(request, &sender, CancellationToken::new())
+            .await
+            .unwrap();
+        let captured = captured.await.unwrap();
+        assert!(captured.starts_with("POST /v1/chat/completions "));
+        let body = request_json(&captured);
+        assert_eq!(body["messages"][0]["role"], "system");
+        assert_eq!(body["seed"], 7);
+        assert_eq!(body["reasoning_effort"], "high");
+        assert_eq!(body["stream_options"]["include_usage"], true);
+
+        let mut events = Vec::new();
+        while let Ok(event) = receiver.try_recv() {
+            events.push(event);
+        }
+        assert!(events.contains(&GenerationEvent::ThinkingDelta("Think".into())));
+        assert!(events.contains(&GenerationEvent::TextDelta("Hi".into())));
         assert_eq!(events.last(), Some(&GenerationEvent::Completed));
     }
 
