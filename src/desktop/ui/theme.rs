@@ -1,8 +1,9 @@
 use std::rc::Rc;
 
-use gpui::{App, Font, FontFallbacks, Global, SharedString, Window, WindowAppearance, font};
+use gpui::{App, Font, FontFallbacks, Global, Hsla, SharedString, Window, WindowAppearance, font};
 use gpui_component::{
     Theme as ComponentTheme, ThemeConfig, ThemeConfigColors, ThemeMode as ComponentThemeMode,
+    scroll::ScrollbarShow,
 };
 
 use crate::domain::{
@@ -40,6 +41,7 @@ struct Palette {
     toolbar: &'static str,
     panel: &'static str,
     raised: &'static str,
+    secondary: &'static str,
     hover: &'static str,
     text: &'static str,
     muted: &'static str,
@@ -58,6 +60,7 @@ const DARK: Palette = Palette {
     toolbar: "#1D1D1FDC",
     panel: "#2C2C2EEC",
     raised: "#FFFFFF10",
+    secondary: "#FFFFFF10",
     hover: "#FFFFFF18",
     text: "#F5F5F7",
     muted: "#A1A1AA",
@@ -75,11 +78,12 @@ const LIGHT: Palette = Palette {
     sidebar: "#EBEBF0DC",
     toolbar: "#F7F7F8DC",
     panel: "#FFFFFFEC",
-    raised: "#76768012",
-    hover: "#7676801A",
+    raised: "#FFFFFF52",
+    secondary: "#3C3C4324",
+    hover: "#3C3C4324",
     text: "#1D1D1F",
-    muted: "#6E6E73",
-    border: "#3C3C4318",
+    muted: "#48484A",
+    border: "#3C3C4330",
     accent: "#007AFF",
     accent_soft: "#007AFF1F",
     on_accent: "#FFFFFF",
@@ -113,7 +117,7 @@ fn component_config(mode: ComponentThemeMode) -> Rc<ThemeConfig> {
         primary_active: palette.accent,
         primary_hover: palette.accent,
         primary_foreground: palette.on_accent,
-        secondary: palette.raised,
+        secondary: palette.secondary,
         secondary_active: palette.hover,
         secondary_hover: palette.hover,
         secondary_foreground: palette.text,
@@ -196,6 +200,7 @@ pub(crate) fn init(cx: &mut App) {
         &light
     });
     theme.list.active_highlight = false;
+    theme.scrollbar_show = ScrollbarShow::Always;
     cx.set_global(app_fonts(&[], &[]));
 }
 
@@ -233,6 +238,26 @@ pub(crate) fn component_mode(theme: Theme, appearance: WindowAppearance) -> Comp
     }
 }
 
+fn glass_alpha(mode: ComponentThemeMode, intensity: f32) -> f32 {
+    let intensity = intensity.clamp(0.0, 1.0);
+    if mode.is_dark() {
+        intensity
+    } else {
+        0.76 + intensity * 0.19
+    }
+}
+
+pub(crate) fn window_background(
+    theme: Theme,
+    appearance: WindowAppearance,
+    intensity: f32,
+    cx: &App,
+) -> Hsla {
+    ComponentTheme::global(cx)
+        .background
+        .alpha(glass_alpha(component_mode(theme, appearance), intensity))
+}
+
 pub(crate) fn sync_component_theme(
     theme: Theme,
     applied_mode: &mut Option<ComponentThemeMode>,
@@ -251,7 +276,7 @@ pub(crate) fn sync_component_theme(
 #[cfg(test)]
 mod tests {
     use gpui::{Hsla, Rgba};
-    use gpui_component::{Theme as ComponentTheme, ThemeMode, try_parse_color};
+    use gpui_component::{Colorize as _, Theme as ComponentTheme, ThemeMode, try_parse_color};
 
     use super::*;
 
@@ -262,6 +287,65 @@ mod tests {
         assert!((actual.g - expected.g).abs() < 0.0001);
         assert!((actual.b - expected.b).abs() < 0.0001);
         assert!((actual.a - expected.a).abs() < 0.0001);
+    }
+
+    fn linear_channel(channel: f32) -> f32 {
+        if channel <= 0.04045 {
+            channel / 12.92
+        } else {
+            ((channel + 0.055) / 1.055).powf(2.4)
+        }
+    }
+
+    fn luminance(color: Rgba) -> f32 {
+        0.2126 * linear_channel(color.r)
+            + 0.7152 * linear_channel(color.g)
+            + 0.0722 * linear_channel(color.b)
+    }
+
+    fn contrast_ratio(first: Rgba, second: Rgba) -> f32 {
+        let first = luminance(first);
+        let second = luminance(second);
+        (first.max(second) + 0.05) / (first.min(second) + 0.05)
+    }
+
+    fn composite(foreground: Rgba, background: Rgba) -> Rgba {
+        Rgba {
+            r: foreground.r * foreground.a + background.r * (1.0 - foreground.a),
+            g: foreground.g * foreground.a + background.g * (1.0 - foreground.a),
+            b: foreground.b * foreground.a + background.b * (1.0 - foreground.a),
+            a: 1.0,
+        }
+    }
+
+    fn assert_visible_over_light_glass(surface: Rgba) {
+        let canvas: Rgba = try_parse_color(LIGHT.canvas).unwrap().into();
+        let desktops = [
+            Rgba {
+                r: 0.0,
+                g: 0.0,
+                b: 0.0,
+                a: 1.0,
+            },
+            Rgba {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+                a: 1.0,
+            },
+        ];
+
+        for intensity in [0.0, 1.0] {
+            let canvas = Rgba {
+                a: glass_alpha(ThemeMode::Light, intensity),
+                ..canvas
+            };
+            for desktop in desktops {
+                let background = composite(canvas, desktop);
+                let surface = composite(surface, background);
+                assert!(contrast_ratio(background, surface) >= 1.15);
+            }
+        }
     }
 
     #[test]
@@ -289,6 +373,10 @@ mod tests {
                 try_parse_color(colors.selection.as_deref().unwrap()).unwrap(),
                 palette.accent_soft,
             );
+            assert_color(
+                try_parse_color(colors.secondary.as_deref().unwrap()).unwrap(),
+                palette.secondary,
+            );
         }
     }
 
@@ -311,6 +399,49 @@ mod tests {
         assert_eq!(theme.font_size, gpui::px(14.0));
         assert_eq!(theme.radius, gpui::px(10.0));
         assert!(theme.shadow);
+    }
+
+    #[test]
+    fn light_glass_keeps_a_safe_tint_without_becoming_opaque() {
+        assert!((glass_alpha(ThemeMode::Light, 0.0) - 0.76).abs() < f32::EPSILON);
+        assert!((glass_alpha(ThemeMode::Light, 0.4) - 0.836).abs() < 0.0001);
+        assert!((glass_alpha(ThemeMode::Light, 1.0) - 0.95).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn light_glass_muted_text_stays_readable_over_a_black_desktop() {
+        let canvas: Rgba = try_parse_color(LIGHT.canvas).unwrap().into();
+        let muted: Rgba = try_parse_color(LIGHT.muted).unwrap().into();
+        let alpha = glass_alpha(ThemeMode::Light, 0.0);
+        let background = Rgba {
+            r: canvas.r * alpha,
+            g: canvas.g * alpha,
+            b: canvas.b * alpha,
+            a: 1.0,
+        };
+
+        assert!(contrast_ratio(muted, background) >= 4.5);
+    }
+
+    #[test]
+    fn light_hover_stays_visible_across_glass_and_desktop_extremes() {
+        let hover: Rgba = try_parse_color(LIGHT.hover).unwrap().into();
+        assert_visible_over_light_glass(hover);
+    }
+
+    #[test]
+    fn light_ghost_button_hover_uses_a_visible_secondary_surface() {
+        let mut theme = ComponentTheme::default();
+        theme.apply_config(&component_config(ThemeMode::Light));
+        assert_color(theme.secondary, LIGHT.secondary);
+
+        let ghost_hover: Rgba = theme.secondary.darken(0.1).opacity(0.8).into();
+        assert_visible_over_light_glass(ghost_hover);
+    }
+
+    #[test]
+    fn dark_glass_preserves_the_existing_opacity_behavior() {
+        assert!((glass_alpha(ThemeMode::Dark, 0.4) - 0.4).abs() < f32::EPSILON);
     }
 
     #[test]

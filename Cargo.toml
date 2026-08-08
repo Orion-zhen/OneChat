@@ -26,6 +26,7 @@ tokio = { version = "*", features = ["io-util", "macros", "net", "rt-multi-threa
 tokio-util = { version = "*", features = ["rt"] }
 two-face = "*"
 unicode-segmentation = "*"
+unicode-linebreak = "*"
 
 [profile.dev]
 opt-level = 1

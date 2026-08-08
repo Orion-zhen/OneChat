@@ -12,7 +12,7 @@ use unicode_segmentation::UnicodeSegmentation;
 pub(crate) struct TextSelection {
     focus: FocusHandle,
     state: Rc<RefCell<SelectionState>>,
-    regions: Rc<RefCell<HashMap<SharedString, TextRegion>>>,
+    regions: Rc<RefCell<HashMap<SharedString, Vec<TextRegion>>>>,
 }
 
 struct SelectionState {
@@ -40,11 +40,14 @@ impl SelectionState {
 #[derive(Clone)]
 struct TextRegion {
     layout: gpui::TextLayout,
+    source_range: Range<usize>,
+    hitbox: Hitbox,
 }
 
 pub(crate) struct SelectableText {
     id: SharedString,
     source: SharedString,
+    source_range: Range<usize>,
     text: StyledText,
     selection: TextSelection,
     selection_color: Rgba,
@@ -101,6 +104,7 @@ impl TextSelection {
         &self,
         id: SharedString,
         source: SharedString,
+        source_range: Range<usize>,
         layout: gpui::TextLayout,
         hitbox: Hitbox,
     ) {
@@ -112,7 +116,7 @@ impl TextSelection {
             hitbox.bounds.contains(&position) && hitbox.content_mask.bounds.contains(&position)
         }) {
             let position = state.pending_position.take().unwrap();
-            let offset = nearest_index(&layout, position);
+            let offset = source_range.start + nearest_index(&layout, position);
             state.active_id = Some(id.clone());
             state.source = source.clone();
             state.anchor = offset;
@@ -120,10 +124,23 @@ impl TextSelection {
             state.selecting = true;
         }
         drop(state);
-        self.regions.borrow_mut().insert(id, TextRegion { layout });
+        self.regions
+            .borrow_mut()
+            .entry(id)
+            .or_default()
+            .push(TextRegion {
+                layout,
+                source_range,
+                hitbox,
+            });
     }
 
-    fn selected_range(&self, id: &SharedString, source: &SharedString) -> Range<usize> {
+    fn selected_range(
+        &self,
+        id: &SharedString,
+        source: &SharedString,
+        source_range: &Range<usize>,
+    ) -> Range<usize> {
         let mut state = self.state.borrow_mut();
         if state.active_id.as_ref() != Some(id) {
             return 0..0;
@@ -132,7 +149,13 @@ impl TextSelection {
             state.clear();
             return 0..0;
         }
-        state.selection.clone()
+        let start = state.selection.start.max(source_range.start);
+        let end = state.selection.end.min(source_range.end);
+        if start >= end {
+            0..0
+        } else {
+            (start - source_range.start)..(end - source_range.start)
+        }
     }
 
     pub(crate) fn mouse_down(&self, event: &MouseDownEvent, window: &mut Window, cx: &mut App) {
@@ -161,10 +184,17 @@ impl TextSelection {
             }
             (state.active_id.clone(), state.anchor)
         };
-        let Some(region) = active_id.and_then(|id| self.regions.borrow().get(&id).cloned()) else {
+        let Some(regions) = active_id.and_then(|id| self.regions.borrow().get(&id).cloned()) else {
             return;
         };
-        let cursor = nearest_index(&region.layout, event.position);
+        let Some(region) = regions.iter().min_by(|left, right| {
+            distance_to_bounds(left.hitbox.bounds, event.position)
+                .total_cmp(&distance_to_bounds(right.hitbox.bounds, event.position))
+        }) else {
+            return;
+        };
+        let cursor = (region.source_range.start + nearest_index(&region.layout, event.position))
+            .min(region.source_range.end);
         self.state.borrow_mut().selection = normalized_range(anchor, cursor);
         window.refresh();
     }
@@ -221,10 +251,33 @@ impl SelectableText {
         selection_color: Rgba,
     ) -> Self {
         let source = source.into();
+        let source_range = 0..source.len();
         Self {
             id: id.into(),
             text: StyledText::new(source.clone()),
             source,
+            source_range,
+            selection,
+            selection_color,
+        }
+    }
+
+    pub(crate) fn fragment(
+        id: impl Into<SharedString>,
+        source: impl Into<SharedString>,
+        source_range: Range<usize>,
+        selection: TextSelection,
+        selection_color: Rgba,
+    ) -> Self {
+        let source = source.into();
+        let text = source
+            .get(source_range.clone())
+            .expect("selectable text fragment must be a valid source range");
+        Self {
+            id: id.into(),
+            text: StyledText::new(text.to_string()),
+            source,
+            source_range,
             selection,
             selection_color,
         }
@@ -284,12 +337,15 @@ impl Element for SelectableText {
         self.text
             .prepaint(None, inspector_id, bounds, request_state, window, cx);
         self.selection.clear_if_unfocused(window);
-        let selected_range = self.selection.selected_range(&self.id, &self.source);
+        let selected_range =
+            self.selection
+                .selected_range(&self.id, &self.source, &self.source_range);
         let hitbox = self.selection.is_collecting().then(|| {
             let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
             self.selection.register(
                 self.id.clone(),
                 self.source.clone(),
+                self.source_range.clone(),
                 self.text.layout().clone(),
                 hitbox.clone(),
             );
@@ -297,7 +353,7 @@ impl Element for SelectableText {
         });
         let selection = selection_quads(
             self.text.layout(),
-            &self.source,
+            &self.source[self.source_range.clone()],
             &selected_range,
             self.selection_color,
         );
@@ -336,6 +392,24 @@ fn nearest_index(layout: &gpui::TextLayout, position: gpui::Point<Pixels>) -> us
 
 fn normalized_range(anchor: usize, cursor: usize) -> Range<usize> {
     anchor.min(cursor)..anchor.max(cursor)
+}
+
+fn distance_to_bounds(bounds: Bounds<Pixels>, position: Point<Pixels>) -> f32 {
+    let dx = if position.x < bounds.left() {
+        (bounds.left() - position.x).into()
+    } else if position.x > bounds.right() {
+        (position.x - bounds.right()).into()
+    } else {
+        0.0
+    };
+    let dy = if position.y < bounds.top() {
+        (bounds.top() - position.y).into()
+    } else if position.y > bounds.bottom() {
+        (position.y - bounds.bottom()).into()
+    } else {
+        0.0
+    };
+    dx * dx + dy * dy
 }
 
 fn selection_quads(

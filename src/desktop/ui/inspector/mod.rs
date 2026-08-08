@@ -110,7 +110,7 @@ pub(crate) fn render(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
         .occlude()
         .top(px(8.0))
         .right(px(8.0))
-        .bottom(px(8.0))
+        .bottom(px(16.0))
         .w(px(352.0))
         .shadow_lg()
         .rounded(px(16.0))

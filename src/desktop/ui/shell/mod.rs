@@ -253,10 +253,12 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         .on_action(
             cx.listener(|this, _: &DismissOverlay, window, cx| this.dismiss_overlay(window, cx)),
         )
-        .bg(cx
-            .theme()
-            .background
-            .alpha(app.settings().background_opacity()))
+        .bg(component_theme::window_background(
+            app.theme(),
+            window.appearance(),
+            app.settings().background_opacity(),
+            cx,
+        ))
         .text_color(cx.theme().foreground)
         .text_size(px(15.0))
         .children(sidebar)

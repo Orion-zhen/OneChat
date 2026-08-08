@@ -54,7 +54,7 @@ mod tests {
             settings.title_generation_system_prompt,
             DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT
         );
-        assert_eq!(settings.background_opacity(), 0.5);
+        assert_eq!(settings.background_opacity(), 0.8);
         assert_eq!(settings.message_font_size(), DEFAULT_MESSAGE_FONT_SIZE);
         assert_eq!(settings.ui_font_families, vec![DEFAULT_UI_FONT_FAMILY]);
         assert_eq!(settings.code_font_families, vec![DEFAULT_CODE_FONT_FAMILY]);

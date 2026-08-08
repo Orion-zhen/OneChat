@@ -34,8 +34,8 @@ pub(super) fn general_page(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEleme
         ))
         .child(setting_divider(cx))
         .child(setting_row(
-            "Background Opacity",
-            "Adjust the main window transparency and glass effect.",
+            "Glass Tint",
+            "Balance the frosted background with text contrast.",
             background_opacity_slider(app, cx),
             cx,
         ))

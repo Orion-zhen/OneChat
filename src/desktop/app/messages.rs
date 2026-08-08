@@ -1,5 +1,7 @@
 use super::*;
 
+const ASSISTANT_EDITOR_MAX_ROWS: usize = 24;
+
 impl OneChat {
     pub(crate) fn show_response(
         &mut self,
@@ -192,7 +194,10 @@ impl OneChat {
             return;
         }
         let content = response.content.clone();
-        let input = cx.new(|cx| multiline_input(content, "Edit assistant response", window, cx));
+        let input = cx.new(|cx| {
+            multiline_input(content, "Edit assistant response", window, cx)
+                .auto_grow(1, ASSISTANT_EDITOR_MAX_ROWS)
+        });
         self.chat.message_editor = Some(MessageEditor {
             target: MessageEditorTarget::Assistant(response_id),
             input,
