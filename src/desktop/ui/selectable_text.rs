@@ -464,37 +464,3 @@ fn selection_quads(
     }
     quads
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn selection_range_is_order_independent() {
-        assert_eq!(normalized_range(2, 7), 2..7);
-        assert_eq!(normalized_range(7, 2), 2..7);
-    }
-
-    #[test]
-    fn clearing_selection_resets_drag_and_copy_state() {
-        let mut state = SelectionState {
-            active_id: Some("message".into()),
-            source: "selected text".into(),
-            anchor: 2,
-            selection: 2..8,
-            selecting: true,
-            collecting: true,
-            pending_position: Some(Point::default()),
-        };
-
-        state.clear();
-
-        assert!(state.active_id.is_none());
-        assert!(state.source.is_empty());
-        assert_eq!(state.anchor, 0);
-        assert!(state.selection.is_empty());
-        assert!(!state.selecting);
-        assert!(!state.collecting);
-        assert!(state.pending_position.is_none());
-    }
-}

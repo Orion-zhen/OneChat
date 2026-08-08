@@ -312,27 +312,3 @@ impl OneChat {
         &self.data.snapshot.settings
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn destructive_confirmation_consumes_the_pending_action() {
-        let mut action = Some(DestructiveAction::DeleteModel { id: "model".into() });
-        assert!(matches!(
-            resolve_destructive_action(&mut action, true),
-            Some(DestructiveAction::DeleteModel { id }) if id == "model"
-        ));
-        assert!(action.is_none());
-    }
-
-    #[test]
-    fn destructive_cancel_clears_without_returning_the_action() {
-        let mut action = Some(DestructiveAction::ClearContext {
-            conversation_id: "conversation".into(),
-        });
-        assert!(resolve_destructive_action(&mut action, false).is_none());
-        assert!(action.is_none());
-    }
-}

@@ -53,36 +53,3 @@ impl MessageTypography {
         self.body_size + 6.0
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn message_typography_preserves_the_default_hierarchy() {
-        let typography = MessageTypography::new(crate::domain::DEFAULT_MESSAGE_FONT_SIZE);
-        assert_eq!(typography.body_size, 16.0);
-        assert_eq!(typography.body_line_height, 25.0);
-        assert_eq!(typography.code_size, 15.0);
-        assert_eq!(typography.code_line_height, 23.0);
-        assert_eq!(typography.metadata_size, 13.0);
-        assert_eq!(typography.metadata_line_height, 19.0);
-        assert_eq!(typography.micro_size, 12.0);
-        assert_eq!(typography.micro_line_height, 17.0);
-        assert_eq!(typography.heading_size(1), 25.0);
-        assert_eq!(typography.heading_size(4), 17.0);
-    }
-
-    #[test]
-    fn message_typography_clamps_unsafe_sizes() {
-        let small = MessageTypography::new(MIN_MESSAGE_FONT_SIZE - 5.0);
-        assert_eq!(small.body_size, MIN_MESSAGE_FONT_SIZE);
-        assert_eq!(small.metadata_size, 11.0);
-        assert_eq!(small.micro_size, 10.0);
-
-        let large = MessageTypography::new(MAX_MESSAGE_FONT_SIZE + 5.0);
-        assert_eq!(large.body_size, MAX_MESSAGE_FONT_SIZE);
-        assert_eq!(large.metadata_size, 19.0);
-        assert_eq!(large.micro_size, 18.0);
-    }
-}

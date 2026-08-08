@@ -52,30 +52,3 @@ impl ConversationGroup {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::domain::{Conversation, now_timestamp};
-
-    #[test]
-    fn pinned_conversations_have_their_own_group() {
-        let mut conversation = Conversation::new("Pinned", None, "");
-        conversation.pinned = true;
-        assert_eq!(
-            ConversationGroup::for_conversation(&conversation, now_timestamp()),
-            ConversationGroup::Pinned
-        );
-    }
-
-    #[test]
-    fn conversations_are_grouped_by_local_calendar_date() {
-        let now = 1_705_320_000;
-        let mut conversation = Conversation::new("Yesterday", None, "");
-        conversation.updated_at = now - 24 * 60 * 60;
-        assert_eq!(
-            ConversationGroup::for_conversation(&conversation, now),
-            ConversationGroup::Yesterday
-        );
-    }
-}

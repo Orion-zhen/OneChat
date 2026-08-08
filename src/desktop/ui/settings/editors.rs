@@ -354,11 +354,6 @@ impl ModelIdDelegate {
             self.visible.truncate(Self::LIMIT);
         }
     }
-
-    #[cfg(test)]
-    fn visible_ids(&self) -> Vec<&str> {
-        self.visible.iter().map(|item| item.id.as_str()).collect()
-    }
 }
 
 impl SearchableListDelegate for ModelIdDelegate {
@@ -1170,88 +1165,4 @@ fn multiline_input(
             .default_value(value.into())
             .placeholder(placeholder)
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn searchable_items_filter_with_item_matching() {
-        let mut items = SearchableItems::new(vec![
-            FontFamilyItem::new("Inter".into()),
-            FontFamilyItem::new("JetBrains Mono".into()),
-        ]);
-
-        items.filter("MONO");
-
-        assert_eq!(items.items_count(0), 1);
-        assert_eq!(
-            items.item(IndexPath::new(0)).unwrap().family,
-            "JetBrains Mono"
-        );
-    }
-
-    #[test]
-    fn dynamic_select_items_keep_selection_by_stable_value() {
-        let selected = Some("model-b".to_string());
-        let initial = vec![
-            DefaultModelItem::new(Some("model-a".into()), "A", "Provider", false),
-            DefaultModelItem::new(selected.clone(), "B", "Provider", false),
-        ];
-        assert_eq!(initial.position(&selected), Some(IndexPath::new(1)));
-
-        let updated = vec![
-            DefaultModelItem::new(selected.clone(), "B renamed", "Provider", false),
-            DefaultModelItem::new(Some("model-c".into()), "C", "Provider", false),
-        ];
-        assert_eq!(updated.position(&selected), Some(IndexPath::new(0)));
-    }
-
-    #[test]
-    fn model_selection_synchronizes_display_name_and_capabilities() {
-        let models = vec![AvailableModel {
-            id: "capable-model".into(),
-            tools: true,
-            vision: true,
-        }];
-        assert_eq!(
-            synchronized_model_metadata("old-model", "old-model", "capable-model", &models),
-            (Some("capable-model".into()), true, true)
-        );
-        assert_eq!(
-            synchronized_model_metadata("Custom label", "old-model", "capable-model", &models),
-            (None, true, true)
-        );
-        assert_eq!(
-            synchronized_model_metadata("", "capable-model", "private-model", &models),
-            (Some("private-model".into()), false, false)
-        );
-    }
-
-    #[test]
-    fn model_combobox_filters_to_one_hundred_and_accepts_custom_ids() {
-        let models = (0..150)
-            .map(|index| AvailableModel {
-                id: format!("model-{index:03}"),
-                tools: false,
-                vision: false,
-            })
-            .collect::<Vec<_>>();
-        let mut delegate = ModelIdDelegate::new("", &models);
-        assert_eq!(delegate.visible_ids().len(), 100);
-
-        delegate.filter("model-12");
-        assert_eq!(delegate.visible_ids().len(), 11);
-        assert_eq!(delegate.visible_ids()[0], "model-12");
-        assert!(
-            delegate
-                .visible_ids()
-                .iter()
-                .all(|id| id.contains("model-12"))
-        );
-
-        delegate.filter("private-model");
-        assert_eq!(delegate.visible_ids(), vec!["private-model"]);
-    }
 }

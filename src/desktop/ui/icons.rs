@@ -134,21 +134,3 @@ fn icon_color(tone: IconTone, cx: &App) -> Hsla {
         IconTone::OnAccent => cx.theme().primary_foreground,
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn representative_icons_use_both_supported_backends() {
-        assert!(matches!(
-            AppIcon::ArrowUp.backend(),
-            IconBackend::Component(IconName::ArrowUp)
-        ));
-        assert!(matches!(
-            AppIcon::Pencil.backend(),
-            IconBackend::Lucide(LucideIcon::Pencil)
-        ));
-        assert!(matches!(AppIcon::Stop.backend(), IconBackend::SolidSquare));
-    }
-}

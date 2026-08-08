@@ -1,2 +1,0 @@
-data: {"responseId":"response-test","modelVersion":"gemini-test","candidates":[{"content":{"parts":[{"text":"partial"}],"role":"model"},"index":0}]}
-

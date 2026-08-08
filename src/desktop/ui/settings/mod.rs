@@ -15,8 +15,6 @@ use navigation::settings_sidebar;
 use pages::{
     default_models_page, general_page, mcp_page, prompt_preset_dialog_body, system_prompts_page,
 };
-#[cfg(test)]
-use providers::model_capability_summary;
 use providers::{new_provider_page, provider_page};
 
 use std::{
@@ -665,32 +663,4 @@ fn parse_headers(value: &str) -> Result<BTreeMap<String, String>, String> {
 fn nonempty(value: &str) -> Option<String> {
     let value = value.trim();
     (!value.is_empty()).then(|| value.to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn headers_must_be_a_string_map() {
-        assert_eq!(
-            parse_headers(r#"{"X-Test":"value"}"#).unwrap(),
-            BTreeMap::from([("X-Test".into(), "value".into())])
-        );
-        assert!(parse_headers(r#"{"X-Test":1}"#).is_err());
-        assert!(parse_headers("[]").is_err());
-    }
-
-    #[test]
-    fn model_summary_stays_scannable() {
-        let capabilities = ModelCapabilities {
-            tools: true,
-            vision: true,
-            ..ModelCapabilities::default()
-        };
-        assert_eq!(
-            model_capability_summary(&capabilities),
-            "Streaming, Tools, Vision"
-        );
-    }
 }

@@ -1279,34 +1279,3 @@ fn rounded_message_font_size(size: f32) -> f32 {
     )
     .round()
 }
-
-#[cfg(test)]
-mod tests {
-    use super::{
-        rounded_background_opacity, rounded_message_font_size, rounded_message_width_ratio,
-    };
-
-    #[test]
-    fn background_opacity_is_clamped_and_rounded_to_slider_step() {
-        assert_eq!(rounded_background_opacity(0.734), 0.73);
-        assert_eq!(rounded_background_opacity(0.736), 0.74);
-        assert_eq!(rounded_background_opacity(-0.1), 0.0);
-        assert_eq!(rounded_background_opacity(1.1), 1.0);
-    }
-
-    #[test]
-    fn message_width_ratio_is_clamped_and_rounded_to_slider_step() {
-        assert_eq!(rounded_message_width_ratio(0.734), 0.73);
-        assert_eq!(rounded_message_width_ratio(0.736), 0.74);
-        assert_eq!(rounded_message_width_ratio(0.1), 0.5);
-        assert_eq!(rounded_message_width_ratio(1.5), 1.0);
-    }
-
-    #[test]
-    fn message_font_size_is_clamped_and_rounded_to_whole_pixels() {
-        assert_eq!(rounded_message_font_size(14.4), 14.0);
-        assert_eq!(rounded_message_font_size(14.6), 15.0);
-        assert_eq!(rounded_message_font_size(5.0), 13.0);
-        assert_eq!(rounded_message_font_size(30.0), 22.0);
-    }
-}

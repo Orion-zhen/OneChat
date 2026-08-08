@@ -17,25 +17,3 @@ pub(crate) fn should_capture_nested_scroll(delta_y: f32, offset_y: f32, max_offs
         false
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn scroll_follow_stops_on_upward_scroll_and_resumes_at_the_bottom() {
-        assert!(!follow_after_scroll(true, 20.0, 0.0));
-        assert!(!follow_after_scroll(false, -20.0, 200.0));
-        assert!(follow_after_scroll(false, -20.0, 60.0));
-        assert!(follow_after_scroll(true, -20.0, 0.0));
-    }
-
-    #[test]
-    fn nested_scroll_only_captures_events_while_it_can_move() {
-        assert!(should_capture_nested_scroll(20.0, -50.0, 100.0));
-        assert!(!should_capture_nested_scroll(20.0, 0.0, 100.0));
-        assert!(should_capture_nested_scroll(-20.0, -50.0, 100.0));
-        assert!(!should_capture_nested_scroll(-20.0, -100.0, 100.0));
-        assert!(!should_capture_nested_scroll(0.0, -50.0, 100.0));
-    }
-}

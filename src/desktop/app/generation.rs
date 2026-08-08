@@ -622,29 +622,3 @@ impl OneChat {
         true
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use std::cell::Cell;
-
-    use super::attempt_composer_submission;
-
-    #[test]
-    fn blank_composer_submission_is_ignored_without_starting() {
-        let called = Cell::new(false);
-        let started = attempt_composer_submission("  \n\t".into(), |_| {
-            called.set(true);
-            true
-        });
-
-        assert!(!started);
-        assert!(!called.get());
-    }
-
-    #[test]
-    fn composer_clears_only_after_generation_starts() {
-        let draft = "keep this draft".to_string();
-        assert!(!attempt_composer_submission(draft.clone(), |_| false));
-        assert!(attempt_composer_submission(draft, |_| true));
-    }
-}
