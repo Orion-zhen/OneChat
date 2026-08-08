@@ -1,2 +1,2 @@
 [alias]
-package-app = "run --release --manifest-path tools/package-app/Cargo.toml --"
+package-app = "packager --release"

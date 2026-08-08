@@ -46,7 +46,13 @@ cargo check
 
 ## Package
 
-Build the release binary and package it using the current platform's native formats. Cargo builds the repository-local packaging tool automatically:
+Install the Cargo packaging subcommand once:
+
+```sh
+cargo install cargo-packager
+```
+
+Build the release binary and package it using the current platform's native formats:
 
 ```sh
 cargo package-app
