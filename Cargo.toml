@@ -1,7 +1,30 @@
 [package]
 name = "onechat"
 edition = "2024"
-description = "A minimal cross-platform LLM chat app"
+description = "Your last one chatbox app."
+
+[package.metadata.packager]
+product-name = "OneChat"
+identifier = "com.orion.onechat"
+category = "Productivity"
+out-dir = "target/release/bundle"
+before-packaging-command = "cargo build --release"
+icons = [
+    "assets/icons/macos/onechat.icns",
+    "assets/icons/windows/onechat.ico",
+    "assets/icons/linux/hicolor/*/apps/onechat.png",
+]
+
+[package.metadata.packager.macos]
+signing-identity = "-"
+
+[package.metadata.packager.dmg]
+window-size = { width = 600, height = 400 }
+app-position = { x = 180, y = 190 }
+application-folder-position = { x = 420, y = 190 }
+
+[package.metadata.packager.linux]
+generate-desktop-entry = true
 
 [dependencies]
 async-channel = "*"
