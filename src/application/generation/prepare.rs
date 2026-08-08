@@ -3,8 +3,9 @@ use std::collections::HashSet;
 use super::reducer::estimate_tokens;
 
 use crate::domain::{
-    AssistantResponse, Conversation, GenerationConfig, GenerationRequest, Message, MessageStatus,
-    Model, Provider, RequestInfo, ToolSelection, Turn, active_turns, now_timestamp,
+    AssistantResponse, Attachment, Conversation, GenerationConfig, GenerationRequest, Message,
+    MessageStatus, Model, Provider, RequestInfo, ToolSelection, Turn, UserMessage, active_turns,
+    now_timestamp,
 };
 
 #[derive(Clone)]
@@ -21,6 +22,7 @@ pub struct PreparedGeneration {
     pub request_info: RequestInfo,
     pub provider_request: GenerationRequest,
     pub tool_selection: ToolSelection,
+    pub new_attachments: Vec<Attachment>,
 }
 
 impl PreparedGeneration {
@@ -30,16 +32,17 @@ impl PreparedGeneration {
         model: &Model,
         turns: &[Turn],
         parent_response_id: Option<String>,
-        prompt: String,
-    ) -> Self {
+        user: UserMessage,
+        user_message: &dyn Fn(&UserMessage) -> Result<Message, String>,
+    ) -> Result<Self, String> {
+        let response = AssistantResponse::new(model, provider);
+        let mut turn = Turn::new(conversation, parent_response_id.clone(), user, response);
         let mut messages = parent_response_id
             .as_deref()
-            .map(|response_id| history_through_response(turns, response_id))
+            .map(|response_id| history_through_response(turns, response_id, user_message))
+            .transpose()?
             .unwrap_or_default();
-        messages.push(Message::user(prompt.clone()));
-
-        let response = AssistantResponse::new(model, provider);
-        let mut turn = Turn::new(conversation, parent_response_id, prompt, response);
+        messages.push(user_message(&turn.user)?);
         let response = &mut turn.responses[0];
         let request_info = prepare_response(
             &conversation.id,
@@ -58,13 +61,19 @@ impl PreparedGeneration {
             &conversation.generation_config,
             messages,
         );
-        Self {
+        Ok(Self {
             start: GenerationStart::NewTurn(Box::new(turn)),
             response,
             request_info,
             provider_request,
             tool_selection: conversation.tool_selection.clone(),
-        }
+            new_attachments: Vec::new(),
+        })
+    }
+
+    pub fn with_new_attachments(mut self, attachments: Vec<Attachment>) -> Self {
+        self.new_attachments = attachments;
+        self
     }
 
     pub fn additional(
@@ -73,8 +82,9 @@ impl PreparedGeneration {
         model: &Model,
         turns: &[Turn],
         turn: &Turn,
-    ) -> Self {
-        let messages = history_for_turn(turns, turn);
+        user_message: &dyn Fn(&UserMessage) -> Result<Message, String>,
+    ) -> Result<Self, String> {
+        let messages = history_for_turn_with(turns, turn, user_message)?;
         let mut response = AssistantResponse::new(model, provider);
         let request_info = prepare_response(
             &conversation.id,
@@ -92,7 +102,7 @@ impl PreparedGeneration {
             &turn.generation_config,
             messages,
         );
-        Self {
+        Ok(Self {
             start: GenerationStart::AddResponse {
                 turn_id: turn.id.clone(),
             },
@@ -100,7 +110,8 @@ impl PreparedGeneration {
             request_info,
             provider_request,
             tool_selection: conversation.tool_selection.clone(),
-        }
+            new_attachments: Vec::new(),
+        })
     }
 
     pub fn regenerate(
@@ -110,8 +121,9 @@ impl PreparedGeneration {
         turns: &[Turn],
         turn: &Turn,
         previous_response: &AssistantResponse,
-    ) -> Self {
-        let messages = history_for_turn(turns, turn);
+        user_message: &dyn Fn(&UserMessage) -> Result<Message, String>,
+    ) -> Result<Self, String> {
+        let messages = history_for_turn_with(turns, turn, user_message)?;
         let mut response = previous_response.clone();
         let request_info = prepare_response(
             &conversation.id,
@@ -129,7 +141,7 @@ impl PreparedGeneration {
             &turn.generation_config,
             messages,
         );
-        Self {
+        Ok(Self {
             start: GenerationStart::RetryResponse {
                 turn_id: turn.id.clone(),
             },
@@ -137,48 +149,69 @@ impl PreparedGeneration {
             request_info,
             provider_request,
             tool_selection: conversation.tool_selection.clone(),
-        }
+            new_attachments: Vec::new(),
+        })
     }
 }
 
 pub fn history_for_turn(turns: &[Turn], turn: &Turn) -> Vec<Message> {
+    history_for_turn_with(turns, turn, &plain_user_message).unwrap_or_default()
+}
+
+fn history_for_turn_with(
+    turns: &[Turn],
+    turn: &Turn,
+    user_message: &dyn Fn(&UserMessage) -> Result<Message, String>,
+) -> Result<Vec<Message>, String> {
     let mut messages = turn
         .parent_response_id
         .as_deref()
-        .map(|response_id| history_through_response(turns, response_id))
+        .map(|response_id| history_through_response(turns, response_id, user_message))
+        .transpose()?
         .unwrap_or_default();
-    messages.push(Message::user(turn.user.content.clone()));
-    messages
+    messages.push(user_message(&turn.user)?);
+    Ok(messages)
 }
 
 pub fn history_for_new_turn(turns: &[Turn]) -> Vec<Message> {
     active_turns(turns)
         .last()
         .and_then(|turn| turn.continuation_response_id.as_deref())
-        .map(|response_id| history_through_response(turns, response_id))
+        .and_then(|response_id| {
+            history_through_response(turns, response_id, &plain_user_message).ok()
+        })
         .unwrap_or_default()
 }
 
-fn history_through_response(turns: &[Turn], response_id: &str) -> Vec<Message> {
+fn plain_user_message(user: &UserMessage) -> Result<Message, String> {
+    Ok(Message::user(user.content.clone()))
+}
+
+fn history_through_response(
+    turns: &[Turn],
+    response_id: &str,
+    user_message: &dyn Fn(&UserMessage) -> Result<Message, String>,
+) -> Result<Vec<Message>, String> {
     fn visit(
         turns: &[Turn],
         response_id: &str,
         visited: &mut HashSet<String>,
         messages: &mut Vec<Message>,
-    ) {
+        user_message: &dyn Fn(&UserMessage) -> Result<Message, String>,
+    ) -> Result<(), String> {
         if !visited.insert(response_id.to_string()) {
-            return;
+            return Ok(());
         }
         let Some((turn, response)) = turns
             .iter()
             .find_map(|turn| turn.response(response_id).map(|response| (turn, response)))
         else {
-            return;
+            return Ok(());
         };
         if let Some(parent_id) = turn.parent_response_id.as_deref() {
-            visit(turns, parent_id, visited, messages);
+            visit(turns, parent_id, visited, messages, user_message)?;
         }
-        messages.push(Message::user(turn.user.content.clone()));
+        messages.push(user_message(&turn.user)?);
         if response.transcript.is_empty() {
             if !response.content.is_empty() {
                 messages.push(Message::assistant(response.content.clone()));
@@ -186,11 +219,18 @@ fn history_through_response(turns: &[Turn], response_id: &str) -> Vec<Message> {
         } else {
             messages.extend(response.transcript.clone());
         }
+        Ok(())
     }
 
     let mut messages = Vec::new();
-    visit(turns, response_id, &mut HashSet::new(), &mut messages);
-    messages
+    visit(
+        turns,
+        response_id,
+        &mut HashSet::new(),
+        &mut messages,
+        user_message,
+    )?;
+    Ok(messages)
 }
 
 fn prepare_response(

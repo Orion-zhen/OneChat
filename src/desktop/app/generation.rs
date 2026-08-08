@@ -6,8 +6,21 @@ enum AutoTitleUpdate {
     ClaimFailed(String),
 }
 
-fn attempt_composer_submission(prompt: String, start: impl FnOnce(String) -> bool) -> bool {
-    !prompt.trim().is_empty() && start(prompt)
+fn context_has_visual_attachments(turns: &[Turn]) -> bool {
+    active_turns(turns).iter().any(|turn| {
+        turn.user
+            .attachments
+            .iter()
+            .any(|attachment| attachment.kind != AttachmentKind::Text)
+    })
+}
+
+fn attempt_composer_submission(
+    prompt: String,
+    has_attachments: bool,
+    start: impl FnOnce(String) -> bool,
+) -> bool {
+    (!prompt.trim().is_empty() || has_attachments) && start(prompt)
 }
 
 impl OneChat {
@@ -16,15 +29,34 @@ impl OneChat {
             .is_some_and(|conversation| self.chat.generations.is_active(&conversation.id))
     }
 
+    pub(crate) fn attachment_context_supported(&self) -> bool {
+        self.current_model().is_none_or(|model| {
+            model.capabilities.vision
+                || (!context_has_visual_attachments(&self.data.snapshot.current_turns)
+                    && self
+                        .chat
+                        .attachments
+                        .iter()
+                        .all(|attachment| attachment.kind == AttachmentKind::Text))
+        })
+    }
+
     pub(crate) fn send_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let prompt = self.chat.composer.read(cx).value().to_string();
-        if !attempt_composer_submission(prompt, |prompt| self.start_generation(prompt, cx)) {
+        if self.chat.attachments_loading {
+            return;
+        }
+        if !attempt_composer_submission(prompt, !self.chat.attachments.is_empty(), |prompt| {
+            self.start_generation(prompt, cx)
+        }) {
             return;
         }
 
         self.chat.composer.update(cx, |composer, cx| {
             composer.set_value("", window, cx);
         });
+        self.chat.attachments.clear();
+        self.chat.attachment_previews.clear();
     }
 
     pub(crate) fn stop_current_generation(&mut self, cx: &mut Context<Self>) {
@@ -61,14 +93,60 @@ impl OneChat {
             cx.notify();
             return false;
         }
-        let prepared = PreparedGeneration::new(
+        if !model.capabilities.vision
+            && (context_has_visual_attachments(&self.data.snapshot.current_turns)
+                || self
+                    .chat
+                    .attachments
+                    .iter()
+                    .any(|attachment| attachment.kind != AttachmentKind::Text))
+        {
+            self.data.error = Some(
+                "The selected model only accepts text attachments, but this message or its conversation context contains an image or PDF."
+                    .into(),
+            );
+            cx.notify();
+            return false;
+        }
+        let attachments = match self
+            .services
+            .storage
+            .store_attachments(&conversation.id, &self.chat.attachments)
+        {
+            Ok(attachments) => attachments,
+            Err(error) => {
+                self.data.error = Some(format!("Could not save attachments: {error}"));
+                cx.notify();
+                return false;
+            }
+        };
+        let storage = self.services.storage.clone();
+        let conversation_id = conversation.id.clone();
+        let user_message = |user: &crate::domain::UserMessage| {
+            storage
+                .message_for_user(&conversation_id, user)
+                .map_err(|error| error.to_string())
+        };
+        let prepared = match PreparedGeneration::new(
             &conversation,
             &provider,
             &model,
             &self.data.snapshot.current_turns,
             parent_response_id,
-            prompt,
-        );
+            crate::domain::UserMessage::new(prompt, attachments.clone()),
+            &user_message,
+        ) {
+            Ok(prepared) => prepared.with_new_attachments(attachments.clone()),
+            Err(error) => {
+                let _ = self
+                    .services
+                    .storage
+                    .remove_attachments(&conversation.id, &attachments);
+                self.data.error = Some(format!("Could not prepare attachments: {error}"));
+                cx.notify();
+                return false;
+            }
+        };
         self.begin_prepared_generation(prepared, cx);
         true
     }
@@ -106,14 +184,37 @@ impl OneChat {
             cx.notify();
             return;
         }
-        let prepared = PreparedGeneration::additional(
+        if !model.capabilities.vision
+            && context_has_visual_attachments(&self.data.snapshot.current_turns)
+        {
+            self.data.error = Some(
+                "This conversation context contains an image or PDF that the selected model cannot read."
+                    .into(),
+            );
+            cx.notify();
+            return;
+        }
+        let storage = self.services.storage.clone();
+        let conversation_id = conversation.id.clone();
+        let user_message = |user: &crate::domain::UserMessage| {
+            storage
+                .message_for_user(&conversation_id, user)
+                .map_err(|error| error.to_string())
+        };
+        match PreparedGeneration::additional(
             &conversation,
             &provider,
             &model,
             &self.data.snapshot.current_turns,
             &turn,
-        );
-        self.begin_prepared_generation(prepared, cx);
+            &user_message,
+        ) {
+            Ok(prepared) => self.begin_prepared_generation(prepared, cx),
+            Err(error) => {
+                self.data.error = Some(format!("Could not load attachments: {error}"));
+                cx.notify();
+            }
+        }
     }
 
     pub(super) fn generation_target(
@@ -169,15 +270,38 @@ impl OneChat {
                 return;
             }
         };
-        let prepared = PreparedGeneration::regenerate(
+        if !model.capabilities.vision
+            && context_has_visual_attachments(&self.data.snapshot.current_turns)
+        {
+            self.data.error = Some(
+                "This conversation context contains an image or PDF that the selected model cannot read."
+                    .into(),
+            );
+            cx.notify();
+            return;
+        }
+        let storage = self.services.storage.clone();
+        let conversation_id = conversation.id.clone();
+        let user_message = |user: &crate::domain::UserMessage| {
+            storage
+                .message_for_user(&conversation_id, user)
+                .map_err(|error| error.to_string())
+        };
+        match PreparedGeneration::regenerate(
             &conversation,
             &provider,
             &model,
             &self.data.snapshot.current_turns,
             &turn,
             &response,
-        );
-        self.begin_prepared_generation(prepared, cx);
+            &user_message,
+        ) {
+            Ok(prepared) => self.begin_prepared_generation(prepared, cx),
+            Err(error) => {
+                self.data.error = Some(format!("Could not load attachments: {error}"));
+                cx.notify();
+            }
+        }
     }
 
     pub(super) fn begin_prepared_generation(
@@ -230,22 +354,29 @@ impl OneChat {
             previous.await;
             let result = cx
                 .background_spawn(async move {
-                    match &persisted.start {
+                    let persistence = match &persisted.start {
                         GenerationStart::NewTurn(turn) => {
-                            storage.begin_turn(turn, &persisted.request_info)?;
+                            storage.begin_turn(turn, &persisted.request_info)
                         }
                         GenerationStart::AddResponse { turn_id } => storage.begin_response(
                             &persisted.request_info.conversation_id,
                             turn_id,
                             &persisted.response,
                             &persisted.request_info,
-                        )?,
+                        ),
                         GenerationStart::RetryResponse { turn_id } => storage.begin_regeneration(
                             &persisted.request_info.conversation_id,
                             turn_id,
                             &persisted.response,
                             &persisted.request_info,
-                        )?,
+                        ),
+                    };
+                    if let Err(error) = persistence {
+                        let _ = storage.remove_attachments(
+                            &persisted.request_info.conversation_id,
+                            &persisted.new_attachments,
+                        );
+                        return Err(error);
                     }
                     storage.load_snapshot()
                 })

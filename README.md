@@ -73,11 +73,15 @@ Reusable system prompt presets are plain Markdown files under:
 
 The Markdown extension is for editor convenience; OneChat sends each file as plain text without parsing it.
 
-Each conversation, including its messages and request history, has one JSON file under:
+Each conversation has its own directory containing `<conversation-id>.json`, including its messages and request history:
 
-- macOS: `~/Library/Application Support/OneChat/conversations/`
-- Linux: `${XDG_STATE_HOME:-~/.local/state}/onechat/conversations/`
-- Windows: `%LOCALAPPDATA%\OneChat\conversations\`
+- macOS: `~/Library/Application Support/OneChat/conversations/<conversation-id>/`
+- Linux: `${XDG_STATE_HOME:-~/.local/state}/onechat/conversations/<conversation-id>/`
+- Windows: `%LOCALAPPDATA%\OneChat\conversations\<conversation-id>\`
+
+Attachment metadata and relative paths are stored in that JSON file. Attachment contents are stored under `attachments/` in the same conversation directory, so images and rendered PDF pages do not inflate the conversation log. Deleting or clearing a conversation removes its attachment files, and forking copies the attachments used by the forked history.
+
+Text attachments must be UTF-8 and are limited to 1 MiB. Vision models additionally accept JPEG, PNG, GIF, WebP, and PDF files, and can paste raster images directly from the clipboard into the composer. Images are limited to 10 MiB; PDFs are limited to 20 MiB and 20 pages and are rendered to one PNG image per page before being sent.
 
 The settings parser accepts JSONC comments and trailing commas. Files written by OneChat are formatted as plain JSON, which is also valid JSONC. Existing comments are not preserved when the app writes the settings file. Legacy SQLite files are neither imported nor deleted.
 

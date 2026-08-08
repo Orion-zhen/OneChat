@@ -1,3 +1,4 @@
+mod attachments;
 mod chat;
 mod conversations;
 mod data;
@@ -57,10 +58,10 @@ use crate::{
         stream::follow_after_scroll,
     },
     domain::{
-        AppSettings, AssistantResponse, AutoTitleState, Conversation,
-        DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, Message, MessageStatus, Model, Provider,
-        RequestInfo, SystemPromptPreset, Theme, ToolRef, ToolSelection, Turn, active_turns, new_id,
-        now_timestamp, user_branches,
+        AppSettings, AssistantResponse, AttachmentDraft, AttachmentDraftFile, AttachmentKind,
+        AutoTitleState, Conversation, DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, Message,
+        MessageStatus, Model, Provider, RequestInfo, SystemPromptPreset, Theme, ToolRef,
+        ToolSelection, Turn, active_turns, new_id, now_timestamp, user_branches,
     },
     markdown::MarkdownDocument,
     mcp::{McpConfig, McpManager, McpServerConfig, McpSnapshot},
@@ -622,6 +623,10 @@ impl OneChat {
                 generation_config_save_revision: 0,
                 parameter_error: None,
                 composer,
+                attachments: Vec::new(),
+                attachment_previews: HashMap::new(),
+                attachments_loading: false,
+                attachments_revision: 0,
                 generations: GenerationManager::default(),
                 markdown_documents: HashMap::new(),
                 pending_title_transitions: HashMap::new(),

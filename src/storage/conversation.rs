@@ -4,11 +4,18 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use rig_core::{
+    OneOrMany,
+    completion::Message,
+    message::{ImageMediaType, UserContent},
+};
 use serde::{Deserialize, Serialize};
 
 use crate::domain::{
-    AssistantResponse, AutoTitleState, Conversation, MessageStatus, RequestInfo, Turn,
-    active_turns, new_id, now_timestamp,
+    AssistantResponse, Attachment, AttachmentDraft, AttachmentFile, AttachmentKind, AutoTitleState,
+    Conversation, MessageStatus, RequestInfo, Turn, UserMessage, active_turns, new_id,
+    now_timestamp,
 };
 
 use super::codec::{read_jsonc, write_json};
@@ -113,23 +120,26 @@ impl Storage {
         let (turns, requests) = fork_path(&source, response_id, &conversation.id)?;
         let mut conversation = conversation.clone();
         conversation.auto_title_state = AutoTitleState::Finished;
-        self.write_conversation(&ConversationFile {
+        let file = ConversationFile {
             conversation,
             turns,
             requests,
-        })
+        };
+        self.write_conversation(&file)?;
+        if let Err(error) = self.copy_attachment_assets(source_conversation_id, &file) {
+            let _ = fs::remove_dir_all(self.conversation_dir(&file.conversation.id)?);
+            return Err(error);
+        }
+        Ok(())
     }
 
     pub fn delete_conversation(&self, id: &str) -> Result<()> {
         let _guard = self.lock()?;
-        let path = self.conversation_path(id)?;
-        match fs::remove_file(path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                Err(missing("conversation", id))
-            }
-            Err(error) => Err(error.into()),
+        if !self.conversation_path(id)?.exists() {
+            return Err(missing("conversation", id));
         }
+        fs::remove_dir_all(self.conversation_dir(id)?)?;
+        Ok(())
     }
 
     pub fn clear_conversation_context(&self, conversation_id: &str) -> Result<()> {
@@ -137,7 +147,159 @@ impl Storage {
         let mut file = self.read_conversation(conversation_id)?;
         file.turns.clear();
         file.requests.clear();
-        self.write_conversation(&file)
+        self.write_conversation(&file)?;
+        let attachments = self.conversation_dir(conversation_id)?.join("attachments");
+        match fs::remove_dir_all(attachments) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    pub fn store_attachments(
+        &self,
+        conversation_id: &str,
+        drafts: &[AttachmentDraft],
+    ) -> Result<Vec<Attachment>> {
+        let _guard = self.lock()?;
+        if !self.conversation_path(conversation_id)?.exists() {
+            return Err(missing("conversation", conversation_id));
+        }
+
+        let mut created = Vec::with_capacity(drafts.len());
+        let result = (|| {
+            let mut stored = Vec::with_capacity(drafts.len());
+            for draft in drafts {
+                validate_component("attachment id", &draft.id)?;
+                if draft.files.is_empty() {
+                    return Err(StorageError::InvalidData(format!(
+                        "attachment has no content: {}",
+                        draft.name
+                    )));
+                }
+                let directory = self
+                    .conversation_dir(conversation_id)?
+                    .join("attachments")
+                    .join(&draft.id);
+                if directory.exists() {
+                    return Err(conflict("attachment", &draft.id));
+                }
+                fs::create_dir_all(&directory)?;
+                created.push(directory.clone());
+
+                let mut files = Vec::with_capacity(draft.files.len());
+                for (index, file) in draft.files.iter().enumerate() {
+                    if file.extension.is_empty()
+                        || !file
+                            .extension
+                            .chars()
+                            .all(|character| character.is_ascii_alphanumeric())
+                    {
+                        return Err(StorageError::InvalidData(format!(
+                            "invalid attachment extension: {}",
+                            file.extension
+                        )));
+                    }
+                    let file_name = if draft.files.len() == 1 {
+                        format!("content.{}", file.extension)
+                    } else {
+                        format!("page-{:03}.{}", index + 1, file.extension)
+                    };
+                    fs::write(directory.join(&file_name), &file.bytes)?;
+                    files.push(AttachmentFile {
+                        path: format!("attachments/{}/{}", draft.id, file_name),
+                        media_type: file.media_type.to_string(),
+                    });
+                }
+                stored.push(Attachment {
+                    id: draft.id.clone(),
+                    name: draft.name.clone(),
+                    kind: draft.kind,
+                    files,
+                });
+            }
+            Ok(stored)
+        })();
+        if result.is_err() {
+            for directory in created {
+                let _ = fs::remove_dir_all(directory);
+            }
+        }
+        result
+    }
+
+    pub fn message_for_user(&self, conversation_id: &str, user: &UserMessage) -> Result<Message> {
+        let _guard = self.lock()?;
+        let mut content = Vec::new();
+        if !user.content.trim().is_empty() {
+            content.push(UserContent::text(user.content.clone()));
+        }
+        for attachment in &user.attachments {
+            match attachment.kind {
+                AttachmentKind::Text => {
+                    let Some(file) = attachment.files.first() else {
+                        return Err(StorageError::InvalidData(format!(
+                            "text attachment has no content: {}",
+                            attachment.name
+                        )));
+                    };
+                    let text =
+                        fs::read_to_string(self.attachment_path(conversation_id, &file.path)?)?;
+                    content.push(UserContent::text(format!(
+                        "<attachment name=\"{}\">\n{}\n</attachment>",
+                        attachment.name, text
+                    )));
+                }
+                AttachmentKind::Image => {
+                    let Some(file) = attachment.files.first() else {
+                        return Err(StorageError::InvalidData(format!(
+                            "image attachment has no content: {}",
+                            attachment.name
+                        )));
+                    };
+                    content.push(UserContent::text(format!(
+                        "Image attachment: {}",
+                        attachment.name
+                    )));
+                    content.push(self.image_content(conversation_id, file)?);
+                }
+                AttachmentKind::Pdf => {
+                    content.push(UserContent::text(format!(
+                        "PDF attachment: {} ({} pages)",
+                        attachment.name,
+                        attachment.files.len()
+                    )));
+                    for (index, file) in attachment.files.iter().enumerate() {
+                        content.push(UserContent::text(format!("Page {}", index + 1)));
+                        content.push(self.image_content(conversation_id, file)?);
+                    }
+                }
+            }
+        }
+        let content = OneOrMany::many(content).map_err(|_| {
+            StorageError::InvalidData("a user message must contain text or an attachment".into())
+        })?;
+        Ok(Message::User { content })
+    }
+
+    pub fn remove_attachments(
+        &self,
+        conversation_id: &str,
+        attachments: &[Attachment],
+    ) -> Result<()> {
+        let _guard = self.lock()?;
+        for attachment in attachments {
+            let path = self
+                .conversation_dir(conversation_id)?
+                .join("attachments")
+                .join(&attachment.id);
+            match fs::remove_dir_all(path) {
+                Ok(()) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(())
     }
 
     pub fn update_response(
@@ -363,16 +525,21 @@ impl Storage {
     }
 
     pub(super) fn read_conversations(&self) -> Result<Vec<ConversationFile>> {
-        let mut paths = fs::read_dir(&self.conversations_dir)?
+        let mut directories = fs::read_dir(&self.conversations_dir)?
             .map(|entry| entry.map(|entry| entry.path()))
             .collect::<std::io::Result<Vec<_>>>()?;
-        paths.retain(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "json")
-        });
-        paths.sort();
-        let mut files = Vec::with_capacity(paths.len());
-        for path in paths {
+        directories.retain(|path| path.is_dir());
+        directories.sort();
+
+        let mut files = Vec::with_capacity(directories.len());
+        for directory in directories {
+            let Some(id) = directory.file_name().and_then(|name| name.to_str()) else {
+                continue;
+            };
+            let path = directory.join(format!("{id}.json"));
+            if !path.is_file() {
+                continue;
+            }
             let file: ConversationFile = match read_jsonc(&path) {
                 Ok(file) => file,
                 Err(StorageError::Parse { .. }) => continue,
@@ -416,16 +583,84 @@ impl Storage {
     }
 
     fn conversation_path(&self, id: &str) -> Result<PathBuf> {
-        if id.is_empty()
-            || Path::new(id).components().count() != 1
-            || Path::new(id).file_name().is_none_or(|name| name != id)
+        Ok(self.conversation_dir(id)?.join(format!("{id}.json")))
+    }
+
+    fn conversation_dir(&self, id: &str) -> Result<PathBuf> {
+        validate_component("conversation id", id)?;
+        Ok(self.conversations_dir.join(id))
+    }
+
+    pub fn attachment_path(&self, conversation_id: &str, relative: &str) -> Result<PathBuf> {
+        let relative = Path::new(relative);
+        if relative.is_absolute()
+            || relative
+                .components()
+                .any(|component| !matches!(component, std::path::Component::Normal(_)))
         {
             return Err(StorageError::InvalidData(format!(
-                "invalid conversation id: {id}"
+                "invalid attachment path: {}",
+                relative.display()
             )));
         }
-        Ok(self.conversations_dir.join(format!("{id}.json")))
+        Ok(self.conversation_dir(conversation_id)?.join(relative))
     }
+
+    fn image_content(&self, conversation_id: &str, file: &AttachmentFile) -> Result<UserContent> {
+        let media_type = match file.media_type.as_str() {
+            "image/jpeg" => ImageMediaType::JPEG,
+            "image/png" => ImageMediaType::PNG,
+            "image/gif" => ImageMediaType::GIF,
+            "image/webp" => ImageMediaType::WEBP,
+            value => {
+                return Err(StorageError::InvalidData(format!(
+                    "unsupported image media type: {value}"
+                )));
+            }
+        };
+        let bytes = fs::read(self.attachment_path(conversation_id, &file.path)?)?;
+        Ok(UserContent::image_base64(
+            BASE64.encode(bytes),
+            Some(media_type),
+            None,
+        ))
+    }
+
+    fn copy_attachment_assets(
+        &self,
+        source_conversation_id: &str,
+        destination: &ConversationFile,
+    ) -> Result<()> {
+        for attachment in destination
+            .turns
+            .iter()
+            .flat_map(|turn| &turn.user.attachments)
+        {
+            for file in &attachment.files {
+                let source = self.attachment_path(source_conversation_id, &file.path)?;
+                let target = self.attachment_path(&destination.conversation.id, &file.path)?;
+                if let Some(parent) = target.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::copy(source, target)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+fn validate_component(kind: &str, value: &str) -> Result<()> {
+    if value.is_empty()
+        || Path::new(value).components().count() != 1
+        || Path::new(value)
+            .file_name()
+            .is_none_or(|name| name != value)
+    {
+        return Err(StorageError::InvalidData(format!(
+            "invalid {kind}: {value}"
+        )));
+    }
+    Ok(())
 }
 
 fn fork_path(

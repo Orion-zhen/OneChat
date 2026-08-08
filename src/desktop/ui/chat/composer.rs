@@ -7,7 +7,11 @@ pub(super) fn render_composer(
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let generating = app.is_current_generating();
-    let can_send = !app.chat.composer.read(cx).value().trim().is_empty()
+    let invalid_for_model = !app.attachment_context_supported();
+    let can_send = (!app.chat.composer.read(cx).value().trim().is_empty()
+        || !app.chat.attachments.is_empty())
+        && !app.chat.attachments_loading
+        && !invalid_for_model
         && app.current_model().is_some()
         && app.current_conversation().is_some();
     let action = if generating {
@@ -49,6 +53,51 @@ pub(super) fn render_composer(
             .into_any_element()
     };
 
+    let add_disabled = generating || app.chat.attachments_loading;
+    let add = Button::new("composer-add-attachment")
+        .ghost()
+        .rounded(px(17.0))
+        .tooltip(if app.chat.attachments_loading {
+            "Loading attachments"
+        } else {
+            "Add attachments"
+        })
+        .disabled(add_disabled)
+        .size(px(34.0))
+        .p_0()
+        .absolute()
+        .left(px(7.0))
+        .bottom(px(7.0))
+        .child(render_icon(AppIcon::Plus, IconTone::Muted, 20.0, cx))
+        .on_click(cx.listener(|this, _, _, cx| this.add_attachments(cx)));
+
+    let attachments =
+        (!app.chat.attachments.is_empty() || app.chat.attachments_loading).then(|| {
+            div()
+                .id("composer-attachments")
+                .w_full()
+                .min_w_0()
+                .overflow_x_scroll()
+                .restrict_scroll_to_axis()
+                .px_3()
+                .pt_3()
+                .pb_1()
+                .flex()
+                .items_start()
+                .gap_3()
+                .children(
+                    app.chat
+                        .attachments
+                        .iter()
+                        .map(|attachment| render_attachment(app, attachment, cx)),
+                )
+                .children(
+                    app.chat
+                        .attachments_loading
+                        .then(|| render_loading_attachment(cx)),
+                )
+        });
+
     let input = div()
         .relative()
         .min_w_0()
@@ -59,16 +108,19 @@ pub(super) fn render_composer(
         .border_color(cx.theme().border)
         .bg(cx.theme().popover)
         .shadow_md()
+        .capture_action(cx.listener(|this, _: &Paste, _, cx| this.paste_composer_image(cx)))
+        .children(attachments)
         .child(
             Input::new(&app.chat.composer)
                 .aria_label("Message")
                 .appearance(false)
-                .pl_4()
+                .pl(px(56.0))
                 .pr(px(56.0))
                 .py(px(12.0))
                 .text_size(px(typography.body_size))
                 .line_height(px(typography.body_line_height)),
         )
+        .child(add)
         .child(action);
 
     div()
@@ -83,6 +135,216 @@ pub(super) fn render_composer(
                 .w_full()
                 .max_w(px(message_max_width))
                 .child(input),
+        )
+        .into_any_element()
+}
+
+fn render_attachment(
+    app: &OneChat,
+    attachment: &crate::domain::AttachmentDraft,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    let card = match attachment.kind {
+        crate::domain::AttachmentKind::Image | crate::domain::AttachmentKind::Pdf => {
+            render_visual_attachment(app, attachment, cx)
+        }
+        crate::domain::AttachmentKind::Text => render_file_attachment(attachment, cx),
+    };
+
+    if cx.reduce_motion() {
+        card
+    } else {
+        div()
+            .relative()
+            .child(card)
+            .with_animation(
+                SharedString::from(format!("attachment-appear-{}", attachment.id)),
+                Animation::new(Duration::from_millis(180)).with_easing(ease_out_quint()),
+                |card, delta| {
+                    card.opacity(0.65 + delta * 0.35)
+                        .top(px(5.0 * (1.0 - delta)))
+                },
+            )
+            .into_any_element()
+    }
+}
+
+fn render_visual_attachment(
+    app: &OneChat,
+    attachment: &crate::domain::AttachmentDraft,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    let preview = app.chat.attachment_previews.get(&attachment.id).cloned();
+    let object_fit = if attachment.kind == crate::domain::AttachmentKind::Pdf {
+        ObjectFit::Contain
+    } else {
+        ObjectFit::Cover
+    };
+    let detail = if attachment.kind == crate::domain::AttachmentKind::Pdf {
+        format!(
+            "{} page{}",
+            attachment.files.len(),
+            if attachment.files.len() == 1 { "" } else { "s" }
+        )
+    } else {
+        "Image".to_string()
+    };
+
+    div()
+        .relative()
+        .w(px(108.0))
+        .flex_none()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(
+            div()
+                .size(px(96.0))
+                .overflow_hidden()
+                .rounded(px(14.0))
+                .border_1()
+                .border_color(cx.theme().border)
+                .bg(cx.theme().muted)
+                .flex()
+                .items_center()
+                .justify_center()
+                .children(preview.map(|preview| {
+                    img(preview)
+                        .size_full()
+                        .object_fit(object_fit)
+                        .into_any_element()
+                }))
+                .children(
+                    (!app.chat.attachment_previews.contains_key(&attachment.id))
+                        .then(|| render_icon(AppIcon::FileText, IconTone::Muted, 28.0, cx)),
+                ),
+        )
+        .child(
+            div()
+                .min_w_0()
+                .pr_1()
+                .text_size(px(11.0))
+                .line_height(px(14.0))
+                .font_weight(FontWeight::SEMIBOLD)
+                .truncate()
+                .child(attachment.name.clone()),
+        )
+        .child(
+            div()
+                .text_size(px(10.0))
+                .line_height(px(12.0))
+                .text_color(cx.theme().muted_foreground)
+                .child(detail),
+        )
+        .child(remove_attachment_button(attachment, cx))
+        .into_any_element()
+}
+
+fn render_file_attachment(
+    attachment: &crate::domain::AttachmentDraft,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    div()
+        .relative()
+        .w(px(196.0))
+        .h(px(68.0))
+        .flex_none()
+        .rounded(px(14.0))
+        .border_1()
+        .border_color(cx.theme().border)
+        .bg(cx.theme().muted)
+        .p_2()
+        .pr_8()
+        .flex()
+        .items_center()
+        .gap_3()
+        .child(
+            div()
+                .size(px(42.0))
+                .flex_none()
+                .rounded(px(11.0))
+                .bg(cx.theme().accent)
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(render_icon(AppIcon::FileText, IconTone::Accent, 21.0, cx)),
+        )
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .min_w_0()
+                        .text_size(px(12.0))
+                        .line_height(px(15.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .truncate()
+                        .child(attachment.name.clone()),
+                )
+                .child(
+                    div()
+                        .text_size(px(10.0))
+                        .line_height(px(12.0))
+                        .text_color(cx.theme().muted_foreground)
+                        .child("Text document"),
+                ),
+        )
+        .child(remove_attachment_button(attachment, cx))
+        .into_any_element()
+}
+
+fn remove_attachment_button(
+    attachment: &crate::domain::AttachmentDraft,
+    cx: &mut Context<OneChat>,
+) -> Button {
+    let id = attachment.id.clone();
+    Button::new(SharedString::from(format!(
+        "remove-attachment-{}",
+        attachment.id
+    )))
+    .ghost()
+    .tooltip("Remove attachment")
+    .size(px(24.0))
+    .p_0()
+    .rounded(px(12.0))
+    .absolute()
+    .top(px(5.0))
+    .right(px(5.0))
+    .border_1()
+    .border_color(cx.theme().border)
+    .bg(cx.theme().popover)
+    .shadow_sm()
+    .child(render_icon(AppIcon::Close, IconTone::Foreground, 12.0, cx))
+    .on_click(cx.listener(move |this, _, _, cx| this.remove_attachment(id.clone(), cx)))
+}
+
+fn render_loading_attachment(cx: &App) -> AnyElement {
+    div()
+        .w(px(108.0))
+        .flex_none()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(
+            div()
+                .size(px(96.0))
+                .rounded(px(14.0))
+                .bg(cx.theme().muted)
+                .flex()
+                .items_center()
+                .justify_center()
+                .child(render_icon(AppIcon::Plus, IconTone::Muted, 22.0, cx)),
+        )
+        .child(
+            div()
+                .text_size(px(11.0))
+                .line_height(px(14.0))
+                .text_color(cx.theme().muted_foreground)
+                .child("Preparing…"),
         )
         .into_any_element()
 }

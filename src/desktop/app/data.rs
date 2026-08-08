@@ -222,6 +222,10 @@ impl OneChat {
         self.chat.generation_config_save_revision =
             self.chat.generation_config_save_revision.wrapping_add(1);
         self.chat.parameter_error = None;
+        self.chat.attachments.clear();
+        self.chat.attachment_previews.clear();
+        self.chat.attachments_loading = false;
+        self.chat.attachments_revision = self.chat.attachments_revision.wrapping_add(1);
     }
 
     fn sync_tool_execution_expansions(&mut self) {

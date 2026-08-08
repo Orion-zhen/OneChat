@@ -108,20 +108,60 @@ impl MessageStatus {
     }
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttachmentKind {
+    Text,
+    Image,
+    Pdf,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct AttachmentFile {
+    pub path: String,
+    pub media_type: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct Attachment {
+    pub id: String,
+    pub name: String,
+    pub kind: AttachmentKind,
+    pub files: Vec<AttachmentFile>,
+}
+
+#[derive(Clone, Debug)]
+pub struct AttachmentDraftFile {
+    pub extension: &'static str,
+    pub media_type: &'static str,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+pub struct AttachmentDraft {
+    pub id: String,
+    pub name: String,
+    pub kind: AttachmentKind,
+    pub files: Vec<AttachmentDraftFile>,
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct UserMessage {
     pub id: String,
     pub content: String,
+    #[serde(default)]
+    pub attachments: Vec<Attachment>,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
 }
 
 impl UserMessage {
-    pub fn new(content: impl Into<String>) -> Self {
+    pub fn new(content: impl Into<String>, attachments: Vec<Attachment>) -> Self {
         let now = now_timestamp();
         Self {
             id: new_id("message"),
             content: content.into(),
+            attachments,
             created_at: now,
             updated_at: now,
         }
@@ -221,14 +261,14 @@ impl Turn {
     pub fn new(
         conversation: &Conversation,
         parent_response_id: Option<String>,
-        prompt: impl Into<String>,
+        user: UserMessage,
         response: AssistantResponse,
     ) -> Self {
         Self {
             id: new_id("turn"),
             parent_response_id,
             selected: true,
-            user: UserMessage::new(prompt),
+            user,
             continuation_response_id: Some(response.id.clone()),
             responses: vec![response],
             generation_config: conversation.generation_config.clone(),

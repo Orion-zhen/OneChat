@@ -219,11 +219,6 @@ impl OneChat {
             return;
         };
         let content = editor.input.read(cx).value().trim().to_string();
-        if content.is_empty() {
-            self.data.error = Some("User messages cannot be empty.".into());
-            cx.notify();
-            return;
-        }
         let Some(turn) = self
             .data
             .snapshot
@@ -234,6 +229,11 @@ impl OneChat {
         else {
             return;
         };
+        if content.is_empty() && turn.user.attachments.is_empty() {
+            self.data.error = Some("User messages cannot be empty.".into());
+            cx.notify();
+            return;
+        }
         if content == turn.user.content {
             self.cancel_message_edit(cx);
             return;
@@ -246,14 +246,43 @@ impl OneChat {
                 return;
             }
         };
-        let prepared = PreparedGeneration::new(
+        if !model.capabilities.vision
+            && turn
+                .user
+                .attachments
+                .iter()
+                .any(|attachment| attachment.kind != AttachmentKind::Text)
+        {
+            self.data.error = Some(
+                "The selected model cannot use the image or PDF attachments on this message."
+                    .into(),
+            );
+            cx.notify();
+            return;
+        }
+        let storage = self.services.storage.clone();
+        let conversation_id = conversation.id.clone();
+        let user_message = |user: &crate::domain::UserMessage| {
+            storage
+                .message_for_user(&conversation_id, user)
+                .map_err(|error| error.to_string())
+        };
+        let prepared = match PreparedGeneration::new(
             &conversation,
             &provider,
             &model,
             &self.data.snapshot.current_turns,
             turn.parent_response_id,
-            content,
-        );
+            crate::domain::UserMessage::new(content, turn.user.attachments),
+            &user_message,
+        ) {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                self.data.error = Some(format!("Could not load attachments: {error}"));
+                cx.notify();
+                return;
+            }
+        };
         self.chat.message_editor = None;
         self.navigation.pending_focus = Some(PendingFocus::Composer);
         self.begin_prepared_generation(prepared, cx);
