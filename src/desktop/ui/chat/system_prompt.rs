@@ -3,8 +3,6 @@ use super::*;
 pub(super) fn render_system_prompt_card(
     app: &OneChat,
     message_max_width: f32,
-    colors: Colors,
-    scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let conversation = app
@@ -12,56 +10,88 @@ pub(super) fn render_system_prompt_card(
         .expect("system prompt card requires a conversation");
     let source = app.system_prompt_label(&conversation.system_prompt);
     let actions = match app.chat.system_prompt_mode {
-        SystemPromptMode::Compact => div()
-            .flex()
-            .gap_1()
-            .child(
-                compact_button("expand-system-prompt", "Show", colors)
+        SystemPromptMode::Compact => {
+            div()
+                .flex()
+                .gap_1()
+                .child(
+                    large_icon_button(
+                        "expand-system-prompt",
+                        AppIcon::ChevronDown,
+                        IconTone::Muted,
+                        cx,
+                    )
                     .on_click(cx.listener(|this, _, _, cx| this.expand_system_prompt(cx))),
-            )
-            .child(
-                compact_button("copy-system-prompt", "Copy", colors)
-                    .on_click(cx.listener(|this, _, _, cx| this.copy_system_prompt(cx))),
-            )
-            .child(
-                compact_button("edit-system-prompt", "Edit", colors)
-                    .text_color(colors.accent)
-                    .on_click(cx.listener(|this, _, _, cx| this.begin_edit_system_prompt(cx))),
-            )
-            .into_any_element(),
+                )
+                .child(
+                    large_icon_button("copy-system-prompt", AppIcon::Copy, IconTone::Muted, cx)
+                        .on_click(cx.listener(|this, _, _, cx| this.copy_system_prompt(cx))),
+                )
+                .child(
+                    large_icon_button("edit-system-prompt", AppIcon::Pencil, IconTone::Accent, cx)
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.begin_edit_system_prompt(window, cx)
+                        })),
+                )
+                .into_any_element()
+        }
         SystemPromptMode::Expanded => div()
             .flex()
             .gap_1()
             .child(
-                compact_button("collapse-system-prompt", "Hide", colors)
-                    .on_click(cx.listener(|this, _, _, cx| this.collapse_system_prompt(cx))),
+                large_icon_button(
+                    "collapse-system-prompt",
+                    AppIcon::ChevronUp,
+                    IconTone::Muted,
+                    cx,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.collapse_system_prompt(cx))),
             )
             .child(
-                compact_button("copy-system-prompt-expanded", "Copy", colors)
-                    .on_click(cx.listener(|this, _, _, cx| this.copy_system_prompt(cx))),
+                large_icon_button(
+                    "copy-system-prompt-expanded",
+                    AppIcon::Copy,
+                    IconTone::Muted,
+                    cx,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.copy_system_prompt(cx))),
             )
             .child(
-                compact_button("edit-system-prompt-expanded", "Edit", colors)
-                    .text_color(colors.accent)
-                    .on_click(cx.listener(|this, _, _, cx| this.begin_edit_system_prompt(cx))),
+                large_icon_button(
+                    "edit-system-prompt-expanded",
+                    AppIcon::Pencil,
+                    IconTone::Accent,
+                    cx,
+                )
+                .on_click(
+                    cx.listener(|this, _, window, cx| this.begin_edit_system_prompt(window, cx)),
+                ),
             )
             .into_any_element(),
         SystemPromptMode::Editing => div()
             .flex()
             .gap_2()
             .child(
-                primary_icon_button("save-system-prompt", Icon::Save, colors, scale_factor)
+                primary_icon_button("save-system-prompt", AppIcon::Save, cx)
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.save_system_prompt(cx);
+                            cx.stop_propagation();
+                        }),
+                    )
                     .on_click(cx.listener(|this, _, _, cx| this.save_system_prompt(cx))),
             )
             .child(
-                large_icon_button(
-                    "cancel-system-prompt",
-                    Icon::Close,
-                    IconTone::Muted,
-                    colors,
-                    scale_factor,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.cancel_system_prompt_edit(cx))),
+                large_icon_button("cancel-system-prompt", AppIcon::Close, IconTone::Muted, cx)
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, cx| {
+                            this.cancel_system_prompt_edit(cx);
+                            cx.stop_propagation();
+                        }),
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.cancel_system_prompt_edit(cx))),
             )
             .into_any_element(),
     };
@@ -69,7 +99,7 @@ pub(super) fn render_system_prompt_card(
         SystemPromptMode::Compact => div()
             .text_sm()
             .line_height(px(21.0))
-            .text_color(colors.muted)
+            .text_color(cx.theme().muted_foreground)
             .child(prompt_preview(&conversation.system_prompt))
             .into_any_element(),
         SystemPromptMode::Expanded => div()
@@ -82,11 +112,28 @@ pub(super) fn render_system_prompt_card(
             .chat
             .system_prompt_editor
             .as_ref()
-            .map(|editor| editor.clone().into_any_element())
+            .map(|editor| {
+                div()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_mouse_move(|_, _, cx| cx.stop_propagation())
+                    .on_mouse_up(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_mouse_up_out(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_action(cx.listener(|this, _: &InputEscape, _, cx| {
+                        this.cancel_system_prompt_edit(cx)
+                    }))
+                    .child(
+                        Input::new(editor)
+                            .aria_label("System prompt")
+                            .bg(cx.theme().muted)
+                            .text_size(px(15.0))
+                            .line_height(px(22.0)),
+                    )
+                    .into_any_element()
+            })
             .unwrap_or_else(|| {
                 div()
                     .text_sm()
-                    .text_color(colors.muted)
+                    .text_color(cx.theme().muted_foreground)
                     .child("Opening editor…")
                     .into_any_element()
             }),
@@ -97,9 +144,13 @@ pub(super) fn render_system_prompt_card(
         .mb_7()
         .w_full()
         .max_w(px(message_max_width))
-        .rounded_xl()
-        .bg(colors.raised)
-        .p_4()
+        .rounded(px(16.0))
+        .border_1()
+        .border_color(cx.theme().border)
+        .bg(cx.theme().popover)
+        .shadow_xs()
+        .px_4()
+        .py_3()
         .flex()
         .flex_col()
         .gap_3()
@@ -118,13 +169,13 @@ pub(super) fn render_system_prompt_card(
                             div()
                                 .size(px(22.0))
                                 .rounded_lg()
-                                .bg(colors.accent_soft)
+                                .bg(cx.theme().accent)
                                 .flex()
                                 .items_center()
                                 .justify_center()
                                 .text_size(px(11.0))
-                                .text_color(colors.accent)
-                                .child("⌘"),
+                                .text_color(cx.theme().primary)
+                                .child(render_icon(AppIcon::Command, IconTone::Accent, 13.0, cx)),
                         )
                         .child(
                             div()
@@ -135,11 +186,11 @@ pub(super) fn render_system_prompt_card(
                         .child(
                             div()
                                 .rounded_full()
-                                .bg(colors.accent_soft)
+                                .bg(cx.theme().accent)
                                 .px_2()
                                 .py_1()
                                 .text_size(px(10.0))
-                                .text_color(colors.accent)
+                                .text_color(cx.theme().primary)
                                 .child(source),
                         ),
                 )

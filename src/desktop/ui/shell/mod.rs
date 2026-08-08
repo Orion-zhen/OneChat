@@ -1,32 +1,32 @@
-mod dialogs;
 mod pickers;
 mod sidebar;
 
-use dialogs::{animated_overlay, render_destructive_confirmation};
-use pickers::{render_command_palette, render_model_picker, render_prompt_picker};
-use sidebar::{COLLAPSED_SIDEBAR_WIDTH, EXPANDED_SIDEBAR_WIDTH, render_sidebar};
-
-use std::time::Duration;
+pub(crate) use pickers::{
+    CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate, command_palette_dialog,
+    model_picker_dialog, prompt_picker_dialog,
+};
+use sidebar::render_sidebar;
 
 use gpui::{
-    Animation, AnimationExt as _, AnyElement, App, Context, Div, FontWeight, KeyBinding,
-    SharedString, Window, actions, div, ease_out_quint, prelude::*, px, rgba,
+    AnyElement, App, Context, ElementId, Focusable as _, FontWeight, KeyBinding, SharedString,
+    Window, actions, div, prelude::*, px,
+};
+use gpui_component::{
+    ActiveTheme as _, Disableable as _, Selectable as _, Sizable as _, WindowExt as _,
+    button::{Button, ButtonVariants as _},
+    input::{Escape as InputEscape, Input},
+    notification::Notification,
 };
 
 use super::{
-    components::{
-        button_base, compact_button, icon_button, large_icon_button, primary_button,
-        primary_button_base, primary_icon_button,
-    },
-    icons::{Icon, IconTone, render_icon},
+    SIDEBAR_WIDTH,
+    icons::{AppIcon, IconTone, render_icon},
     motion::{translated_x, waiting_title},
-    theme::Colors,
+    theme as component_theme,
 };
 
 use crate::{
-    desktop::app::{
-        ConnectionTestStatus, DestructiveAction, OneChat, Page, PaletteCommand, PendingFocus,
-    },
+    desktop::app::{ConnectionTestStatus, OneChat, Page, PendingFocus},
     desktop::ui::{chat, inspector, settings},
     domain::{AutoTitleState, Conversation},
 };
@@ -42,6 +42,14 @@ actions!(
         DismissOverlay,
     ]
 );
+
+fn shortcut_label(key: &str) -> String {
+    if cfg!(target_os = "macos") {
+        format!("⌘{key}")
+    } else {
+        format!("Ctrl+{key}")
+    }
+}
 
 pub fn init(cx: &mut App) {
     let primary = if cfg!(target_os = "macos") {
@@ -60,39 +68,111 @@ pub fn init(cx: &mut App) {
     ]);
 }
 
-fn shortcut_label(key: &str) -> String {
-    if cfg!(target_os = "macos") {
-        format!("⌘{key}")
-    } else {
-        format!("Ctrl+{key}")
+struct AppErrorNotification;
+
+fn icon_tooltip(icon: AppIcon) -> &'static str {
+    match icon {
+        AppIcon::ChevronLeft => "Collapse sidebar",
+        AppIcon::Close => "Close",
+        AppIcon::Compose => "New conversation",
+        AppIcon::Info => "Toggle Inspector",
+        AppIcon::Layers => "Manage models",
+        AppIcon::Pencil => "Rename",
+        AppIcon::Pin => "Pin or unpin",
+        AppIcon::Plus => "New conversation",
+        AppIcon::Settings => "Open settings",
+        AppIcon::Sidebar => "Toggle sidebar",
+        AppIcon::Trash => "Delete",
+        _ => "Action",
     }
 }
 
+fn button_base(id: impl Into<ElementId>) -> Button {
+    Button::new(id)
+}
+
+fn icon_button(id: impl Into<ElementId>, icon: AppIcon, tone: IconTone, cx: &App) -> Button {
+    Button::new(id)
+        .ghost()
+        .tooltip(icon_tooltip(icon))
+        .size(px(28.0))
+        .p_0()
+        .child(render_icon(icon, tone, 17.0, cx))
+}
+
+fn large_icon_button(id: impl Into<ElementId>, icon: AppIcon, tone: IconTone, cx: &App) -> Button {
+    Button::new(id)
+        .ghost()
+        .tooltip(icon_tooltip(icon))
+        .size(px(36.0))
+        .p_0()
+        .child(render_icon(icon, tone, 20.0, cx))
+}
+
+fn primary_icon_button(id: impl Into<ElementId>, icon: AppIcon, cx: &App) -> Button {
+    Button::new(id)
+        .primary()
+        .rounded(px(18.0))
+        .tooltip(icon_tooltip(icon))
+        .size(px(36.0))
+        .p_0()
+        .child(render_icon(icon, IconTone::OnAccent, 20.0, cx))
+}
+
 pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>) -> AnyElement {
+    component_theme::sync_component_theme(
+        app.theme(),
+        &mut app.applied_component_theme,
+        window,
+        cx,
+    );
+    settings::sync_controls(app, window, cx);
+    inspector::sync_controls(app, window, cx);
+
+    if let Some(message) = app.data.error.take() {
+        window.push_notification(
+            Notification::error(message)
+                .title("OneChat")
+                .id::<AppErrorNotification>()
+                .autohide(false),
+            cx,
+        );
+    }
+
     if let Some(pending) = app.navigation.pending_focus.take() {
         if pending == PendingFocus::Root {
-            window.focus(&app.root_focus);
+            window.focus(&app.root_focus, cx);
         }
-        let input = match pending {
+        let focus = match pending {
             PendingFocus::Root => None,
-            PendingFocus::CommandPalette => Some(app.overlays.command_input.clone()),
-            PendingFocus::ModelPicker => Some(app.overlays.model_search_input.clone()),
-            PendingFocus::ConversationSearch => Some(app.sidebar.search_input.clone()),
-            PendingFocus::SystemPrompt => app.chat.system_prompt_editor.clone(),
-            PendingFocus::SettingsPrompt => app
-                .settings_ui
-                .prompt_preset_editor
+            PendingFocus::ConversationSearch => {
+                Some(app.sidebar.search_input.read(cx).focus_handle(cx))
+            }
+            PendingFocus::SystemPrompt => app
+                .chat
+                .system_prompt_editor
                 .as_ref()
-                .map(|editor| editor.focus_input())
-                .or_else(|| app.settings_ui.title_prompt_editor.clone()),
-            PendingFocus::MessageEditor => app.active_message_editor(),
+                .map(|input| input.read(cx).focus_handle(cx)),
+            PendingFocus::SettingsPrompt => {
+                if let Some(editor) = &app.settings_ui.prompt_preset_editor {
+                    Some(editor.focus_input().read(cx).focus_handle(cx))
+                } else {
+                    app.settings_ui
+                        .title_prompt_editor
+                        .as_ref()
+                        .map(|input| input.read(cx).focus_handle(cx))
+                }
+            }
+            PendingFocus::MessageEditor => app
+                .active_message_editor()
+                .map(|input| input.read(cx).focus_handle(cx)),
             PendingFocus::Composer if app.navigation.page == Page::Chat => {
-                Some(app.chat.composer.clone())
+                Some(app.chat.composer.read(cx).focus_handle(cx))
             }
             PendingFocus::Composer => None,
         };
-        if let Some(input) = input {
-            window.focus(&input.read(cx).focus_handle(cx));
+        if let Some(focus) = focus {
+            window.focus(&focus, cx);
         }
     }
 
@@ -103,91 +183,52 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         None
     };
 
-    let colors = Colors::for_theme(app.theme(), window.appearance());
     let scale_factor = window.scale_factor();
-    let inspector_progress = app.navigation.inspector_motion.progress(window);
-    let sidebar_width = if app.settings().sidebar_collapsed {
-        COLLAPSED_SIDEBAR_WIDTH
-    } else {
-        EXPANDED_SIDEBAR_WIDTH
-    };
+    let inspector_progress = app
+        .navigation
+        .inspector_motion
+        .progress(window, cx.reduce_motion());
+    let sidebar_progress = app
+        .navigation
+        .sidebar_motion
+        .progress(window, cx.reduce_motion());
+    let jump_to_latest_visible = app.navigation.page == Page::Chat
+        && app.current_conversation().is_some()
+        && !app.chat.follow_latest
+        && !app.chat.message_scroll_motion.is_active();
+    app.chat
+        .jump_to_latest_motion
+        .set_visible(jump_to_latest_visible);
+    let jump_to_latest_progress = app.chat.jump_to_latest_motion.progress(window);
+    let sidebar_width = SIDEBAR_WIDTH * sidebar_progress;
     let chat_available_width = (f32::from(window.bounds().size.width) - sidebar_width).max(0.0);
-    let sidebar = (app.navigation.page == Page::Chat)
-        .then(|| render_sidebar(app, animated_title.as_deref(), colors, scale_factor, cx));
-    let top_bar = render_top_bar(app, animated_title.as_deref(), colors, scale_factor, cx);
+    let sidebar = (app.navigation.page == Page::Chat && sidebar_width > 0.01).then(|| {
+        div()
+            .w(px(sidebar_width))
+            .h_full()
+            .flex_none()
+            .overflow_hidden()
+            .child(render_sidebar(app, animated_title.as_deref(), cx))
+    });
+    let top_bar = render_top_bar(app, animated_title.as_deref(), cx);
     let page = match app.navigation.page {
-        Page::Chat => render_chat_page(app, chat_available_width, colors, scale_factor, cx),
-        Page::Settings => settings::render(app, colors, scale_factor, cx),
+        Page::Chat => render_chat_page(
+            app,
+            chat_available_width,
+            scale_factor,
+            jump_to_latest_progress,
+            cx,
+        ),
+        Page::Settings => settings::render(app, cx),
     };
     let inspector = (app.navigation.page == Page::Chat
         && (app.navigation.inspector_open || inspector_progress > 0.0))
         .then(|| {
             translated_x(
-                inspector::render(app, colors, scale_factor, cx),
-                px(340.0 * (1.0 - inspector_progress)),
+                inspector::render(app, cx),
+                px(368.0 * (1.0 - inspector_progress)),
             )
         });
-    let command_palette = app
-        .overlays
-        .command_palette_open
-        .then(|| render_command_palette(app, colors, cx));
-    let model_picker = app
-        .overlays
-        .model_picker_open
-        .then(|| render_model_picker(app, colors, scale_factor, cx));
-    let prompt_picker = app
-        .overlays
-        .prompt_picker_open
-        .then(|| render_prompt_picker(app, colors, scale_factor, cx));
-    let prompt_preset_panel = (app.settings_ui.prompt_preset_editor.is_some()
-        || app.settings_ui.viewed_prompt_preset.is_some())
-    .then(|| {
-        animated_overlay(
-            settings::prompt_preset_panel(app, colors, scale_factor, cx),
-            colors,
-            "prompt-preset-backdrop",
-            "prompt-preset-panel",
-        )
-    });
-    let destructive_confirmation = app
-        .overlays
-        .destructive_action
-        .as_ref()
-        .map(|action| render_destructive_confirmation(action, colors, scale_factor, cx));
-    let error = app.data.error.clone().map(|message| {
-        div()
-            .absolute()
-            .top(px(66.0))
-            .left(px(16.0))
-            .right(px(16.0))
-            .rounded_xl()
-            .border_1()
-            .border_color(if colors.dark {
-                rgba(0xff453a66)
-            } else {
-                rgba(0xd7001538)
-            })
-            .bg(if colors.dark {
-                rgba(0x3a2020f5)
-            } else {
-                rgba(0xfff2f2f5)
-            })
-            .shadow_lg()
-            .px_4()
-            .py_3()
-            .flex()
-            .items_center()
-            .justify_between()
-            .gap_4()
-            .text_sm()
-            .text_color(colors.danger)
-            .child(message)
-            .child(
-                compact_button("dismiss-error", "Dismiss", colors)
-                    .text_color(colors.danger)
-                    .on_click(cx.listener(|this, _, _, cx| this.dismiss_error(cx))),
-            )
-    });
 
     div()
         .relative()
@@ -195,19 +236,23 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         .flex()
         .track_focus(&app.root_focus)
         .key_context("OneChat")
-        .on_action(cx.listener(|this, _: &NewConversation, _, cx| {
-            this.overlays.command_palette_open = false;
-            this.overlays.model_picker_open = false;
-            this.overlays.prompt_picker_open = false;
-            this.create_conversation(cx);
+        .on_action(cx.listener(|this, _: &NewConversation, _, cx| this.create_conversation(cx)))
+        .on_action(cx.listener(|this, _: &ShowCommandPalette, window, cx| {
+            this.open_command_palette(window, cx)
         }))
-        .on_action(cx.listener(|this, _: &ShowCommandPalette, _, cx| this.open_command_palette(cx)))
-        .on_action(cx.listener(|this, _: &ShowModelPicker, _, cx| this.open_model_picker(cx)))
+        .on_action(
+            cx.listener(|this, _: &ShowModelPicker, window, cx| this.open_model_picker(window, cx)),
+        )
         .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
         .on_action(cx.listener(|this, _: &OpenSettings, _, cx| this.set_page(Page::Settings, cx)))
-        .on_action(cx.listener(|this, _: &DismissOverlay, _, cx| this.dismiss_overlay(cx)))
-        .bg(colors.canvas)
-        .text_color(colors.text)
+        .on_action(
+            cx.listener(|this, _: &DismissOverlay, window, cx| this.dismiss_overlay(window, cx)),
+        )
+        .bg(cx
+            .theme()
+            .background
+            .alpha(app.settings().background_opacity()))
+        .text_color(cx.theme().foreground)
         .text_size(px(15.0))
         .children(sidebar)
         .child(
@@ -227,35 +272,26 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
                         .flex()
                         .child(page)
                         .children(inspector),
-                )
-                .children(error),
+                ),
         )
-        .children(command_palette)
-        .children(model_picker)
-        .children(prompt_picker)
-        .children(prompt_preset_panel)
-        .children(destructive_confirmation)
         .into_any_element()
 }
 
 fn render_top_bar(
     app: &OneChat,
     animated_title: Option<&str>,
-    colors: Colors,
-    scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     if app.navigation.page == Page::Settings {
         return div()
-            .h(px(56.0))
+            .h(px(60.0))
             .flex_none()
             .flex()
             .items_center()
             .justify_between()
             .px_5()
-            .border_b_1()
-            .border_color(colors.border)
-            .bg(colors.toolbar)
+            .bg(cx.theme().title_bar)
+            .shadow_xs()
             .child(
                 div()
                     .min_w_0()
@@ -268,19 +304,14 @@ fn render_top_bar(
                     .child("Settings"),
             )
             .child(
-                large_icon_button(
-                    "chat-page",
-                    Icon::Close,
-                    IconTone::Muted,
-                    colors,
-                    scale_factor,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.set_page(Page::Chat, cx))),
+                large_icon_button("chat-page", AppIcon::Close, IconTone::Muted, cx)
+                    .on_click(cx.listener(|this, _, _, cx| this.set_page(Page::Chat, cx))),
             )
             .into_any_element();
     }
 
     let current_conversation = app.current_conversation();
+    let inspector_open = app.navigation.inspector_open;
     let title = animated_title.map(str::to_string).unwrap_or_else(|| {
         current_conversation
             .map(|conversation| conversation.title.clone())
@@ -298,34 +329,39 @@ fn render_top_bar(
         .map(|provider| provider.name.clone())
         .unwrap_or_else(|| "No provider".into());
     let model_label = selected_model
-        .map(|model| format!("{} · {provider_name}", model.display_name))
+        .map(|model| model.display_name.clone())
         .unwrap_or_else(|| "Choose Model".into());
     let prompt_label = current_conversation
         .map(|conversation| app.system_prompt_label(&conversation.system_prompt))
         .unwrap_or_else(|| "None".into());
     let can_choose_prompt = current_conversation.is_some() && !app.is_current_generating();
-    let (connection, connection_color) =
-        provider.map_or(("Not configured", colors.muted), |provider| {
-            match app.settings_ui.connection_tests.get(&provider.id) {
-                Some(ConnectionTestStatus::Testing) => ("Testing", colors.accent),
-                Some(ConnectionTestStatus::Connected) => ("Connected", colors.success),
-                Some(ConnectionTestStatus::Failed(_)) => ("Connection failed", colors.danger),
-                None if provider.enabled => ("Ready", colors.success),
-                None => ("Disabled", colors.danger),
-            }
-        });
+    let (connection, connection_color) = provider.map_or(
+        ("Not configured", cx.theme().muted_foreground),
+        |provider| match app.settings_ui.connection_tests.get(&provider.id) {
+            Some(ConnectionTestStatus::Testing) => ("Testing", cx.theme().primary),
+            Some(ConnectionTestStatus::Connected) => ("Connected", cx.theme().success),
+            Some(ConnectionTestStatus::Failed(_)) => ("Connection failed", cx.theme().danger),
+            None if provider.enabled => ("Ready", cx.theme().success),
+            None => ("Disabled", cx.theme().danger),
+        },
+    );
 
     div()
-        .h(px(56.0))
+        .h(px(60.0))
         .flex_none()
         .flex()
         .items_center()
         .justify_between()
         .gap_4()
-        .px_5()
-        .border_b_1()
-        .border_color(colors.border)
-        .bg(colors.toolbar)
+        .px_4()
+        .bg(cx.theme().title_bar)
+        .shadow_xs()
+        .when(app.settings().sidebar_collapsed, |this| {
+            this.child(
+                large_icon_button("expand-sidebar", AppIcon::Sidebar, IconTone::Muted, cx)
+                    .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
+            )
+        })
         .child(
             div()
                 .min_w_0()
@@ -336,7 +372,7 @@ fn render_top_bar(
                 .justify_center()
                 .child(waiting_title(
                     div()
-                        .max_w(px(340.0))
+                        .max_w(px(400.0))
                         .overflow_hidden()
                         .whitespace_nowrap()
                         .text_ellipsis()
@@ -352,7 +388,7 @@ fn render_top_bar(
                         .items_center()
                         .gap_1()
                         .text_size(px(11.0))
-                        .text_color(colors.muted)
+                        .text_color(cx.theme().muted_foreground)
                         .child(div().size(px(6.0)).rounded_full().bg(connection_color))
                         .child(format!("{provider_name} · {connection}")),
                 ),
@@ -364,8 +400,13 @@ fn render_top_bar(
                 .items_center()
                 .gap_2()
                 .child(
-                    button_base("open-model-picker", colors)
-                        .max_w(px(300.0))
+                    button_base("open-model-picker")
+                        .large()
+                        .h(px(40.0))
+                        .px(px(14.0))
+                        .rounded(px(12.0))
+                        .tooltip("Choose model")
+                        .max_w(px(240.0))
                         .flex()
                         .items_center()
                         .gap_2()
@@ -377,66 +418,52 @@ fn render_top_bar(
                                 .text_ellipsis()
                                 .child(model_label),
                         )
-                        .child(render_icon(
-                            Icon::ChevronDown,
-                            IconTone::Muted,
-                            colors,
-                            scale_factor,
-                            14.0,
-                        ))
-                        .on_click(cx.listener(|this, _, _, cx| this.open_model_picker(cx))),
+                        .child(render_icon(AppIcon::ChevronDown, IconTone::Muted, 14.0, cx))
+                        .on_click(
+                            cx.listener(|this, _, window, cx| this.open_model_picker(window, cx)),
+                        ),
                 )
                 .child(
-                    button_base("open-prompt-picker", colors)
-                        .max_w(px(220.0))
+                    button_base("open-prompt-picker")
+                        .large()
+                        .h(px(40.0))
+                        .px(px(14.0))
+                        .rounded(px(12.0))
+                        .tooltip("Choose system prompt")
+                        .disabled(!can_choose_prompt)
+                        .max_w(px(190.0))
                         .flex()
                         .items_center()
                         .gap_2()
-                        .when(app.overlays.prompt_picker_open, |element| {
-                            element.bg(colors.accent_soft)
-                        })
-                        .when(can_choose_prompt, |element| {
-                            element
-                                .on_click(cx.listener(|this, _, _, cx| this.open_prompt_picker(cx)))
-                        })
-                        .when(!can_choose_prompt, |element| element.opacity(0.5))
+                        .on_click(
+                            cx.listener(|this, _, window, cx| this.open_prompt_picker(window, cx)),
+                        )
+                        .child(render_icon(AppIcon::Command, IconTone::Muted, 14.0, cx))
                         .child(
                             div()
                                 .min_w_0()
                                 .overflow_hidden()
                                 .whitespace_nowrap()
                                 .text_ellipsis()
-                                .child(format!("Prompt · {prompt_label}")),
+                                .child(prompt_label),
                         )
-                        .child(render_icon(
-                            Icon::ChevronDown,
-                            IconTone::Muted,
-                            colors,
-                            scale_factor,
-                            14.0,
-                        )),
-                )
-                .child(
-                    compact_button("open-command-palette", shortcut_label("K"), colors)
-                        .text_color(colors.muted)
-                        .on_click(cx.listener(|this, _, _, cx| this.open_command_palette(cx))),
+                        .child(render_icon(AppIcon::ChevronDown, IconTone::Muted, 14.0, cx)),
                 )
                 .child(
                     large_icon_button(
                         "toggle-inspector",
-                        Icon::Info,
-                        if app.navigation.inspector_open {
+                        AppIcon::Info,
+                        if inspector_open {
                             IconTone::Accent
                         } else {
                             IconTone::Muted
                         },
-                        colors,
-                        scale_factor,
+                        cx,
                     )
-                    .when(app.navigation.inspector_open, |element| {
-                        element.bg(colors.accent_soft)
-                    })
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_inspector(cx))),
+                    .selected(inspector_open)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.set_inspector_visible(!inspector_open, cx)
+                    })),
                 ),
         )
         .into_any_element()
@@ -445,8 +472,8 @@ fn render_top_bar(
 fn render_chat_page(
     app: &OneChat,
     available_width: f32,
-    colors: Colors,
     scale_factor: f32,
+    jump_to_latest_progress: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let content = if app.data.loading {
@@ -454,7 +481,6 @@ fn render_chat_page(
             "Loading your conversations",
             "Opening the local OneChat library…",
             None,
-            colors,
             cx,
         )
     } else if app.data.snapshot.providers.is_empty() {
@@ -462,7 +488,6 @@ fn render_chat_page(
             "Connect a provider",
             "Add OpenAI, Anthropic, Gemini, or an OpenAI-compatible provider to get started.",
             Some(("Open Settings", Page::Settings)),
-            colors,
             cx,
         )
     } else if !app
@@ -476,7 +501,6 @@ fn render_chat_page(
             "Add your first model",
             "Choose a remote model ID for one of your configured providers.",
             Some(("Manage Models", Page::Settings)),
-            colors,
             cx,
         )
     } else if app.data.snapshot.conversations.is_empty() {
@@ -484,7 +508,6 @@ fn render_chat_page(
             "What would you like to explore?",
             "Conversations and credentials stay on this Mac.",
             Some(("New Conversation", Page::Chat)),
-            colors,
             cx,
         );
     } else if app.current_conversation().is_none() {
@@ -492,11 +515,16 @@ fn render_chat_page(
             "Choose a conversation",
             "Select one from the sidebar or start a new conversation.",
             None,
-            colors,
             cx,
         )
     } else {
-        chat::render(app, available_width, colors, scale_factor, cx)
+        chat::render(
+            app,
+            available_width,
+            scale_factor,
+            jump_to_latest_progress,
+            cx,
+        )
     };
 
     div()
@@ -511,16 +539,23 @@ fn empty_state(
     title: &'static str,
     detail: &'static str,
     action: Option<(&'static str, Page)>,
-    colors: Colors,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let action = action.map(|(label, page)| {
         if label == "New Conversation" {
-            primary_button("empty-new-conversation", label, colors)
+            primary_icon_button("empty-new-conversation", AppIcon::Plus, cx)
                 .on_click(cx.listener(|this, _, _, cx| this.create_conversation(cx)))
         } else {
-            primary_button("empty-state-action", label, colors)
-                .on_click(cx.listener(move |this, _, _, cx| this.set_page(page, cx)))
+            primary_icon_button(
+                "empty-state-action",
+                if label == "Manage Models" {
+                    AppIcon::Layers
+                } else {
+                    AppIcon::Settings
+                },
+                cx,
+            )
+            .on_click(cx.listener(move |this, _, _, cx| this.set_page(page, cx)))
         }
     });
     div()
@@ -541,12 +576,12 @@ fn empty_state(
                     div()
                         .size(px(52.0))
                         .rounded_full()
-                        .bg(colors.accent_soft)
+                        .bg(cx.theme().accent)
                         .flex()
                         .items_center()
                         .justify_center()
                         .text_xl()
-                        .text_color(colors.accent)
+                        .text_color(cx.theme().primary)
                         .child("✦"),
                 )
                 .child(
@@ -560,7 +595,7 @@ fn empty_state(
                     div()
                         .max_w(px(440.0))
                         .line_height(px(22.0))
-                        .text_color(colors.muted)
+                        .text_color(cx.theme().muted_foreground)
                         .child(detail),
                 )
                 .children(action),

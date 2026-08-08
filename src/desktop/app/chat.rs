@@ -20,28 +20,25 @@ impl OneChat {
         cx.notify();
     }
 
-    pub(crate) fn begin_edit_system_prompt(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn begin_edit_system_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.is_current_generating() {
             return;
         }
         let Some(conversation) = self.current_conversation() else {
             return;
         };
+        let value = conversation.system_prompt.clone();
         let editor = cx.new(|cx| {
-            Composer::multiline(
-                conversation.system_prompt.clone(),
+            multiline_input(
+                value,
                 "Describe how the assistant should respond",
+                window,
                 cx,
             )
         });
-        cx.subscribe(&editor, |this, _, event, cx| {
-            if matches!(event, ComposerEvent::Cancel) {
-                this.cancel_system_prompt_edit(cx);
-            }
-        })
-        .detach();
         self.chat.system_prompt_editor = Some(editor);
         self.chat.system_prompt_mode = SystemPromptMode::Editing;
+        self.set_inspector_open(false, true, cx);
         self.navigation.pending_focus = Some(PendingFocus::SystemPrompt);
         cx.notify();
     }
@@ -60,7 +57,7 @@ impl OneChat {
         let Some(editor) = self.chat.system_prompt_editor.as_ref() else {
             return;
         };
-        let content = editor.read(cx).text().trim().to_string();
+        let content = editor.read(cx).value().trim().to_string();
         let Some(mut conversation) = self.current_conversation().cloned() else {
             return;
         };
@@ -86,13 +83,6 @@ impl OneChat {
         cx.write_to_clipboard(ClipboardItem::new_string(content));
     }
 
-    pub(crate) fn toggle_generation_parameter_menu(&mut self, cx: &mut Context<Self>) {
-        if let Some(editor) = &mut self.chat.generation_config_editor {
-            editor.toggle_menu();
-            cx.notify();
-        }
-    }
-
     pub(crate) fn add_generation_parameter(
         &mut self,
         parameter: GenerationParameter,
@@ -108,10 +98,11 @@ impl OneChat {
     pub(crate) fn remove_generation_parameter(
         &mut self,
         parameter: GenerationParameter,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if let Some(editor) = &mut self.chat.generation_config_editor {
-            editor.remove(parameter, cx);
+            editor.remove(parameter, window, cx);
             self.schedule_generation_config_save(cx);
             cx.notify();
         }
@@ -165,7 +156,11 @@ impl OneChat {
         );
     }
 
-    pub(crate) fn request_clear_current_context(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn request_clear_current_context(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(conversation_id) = self.current_conversation().map(|value| value.id.clone())
         else {
             return;
@@ -175,10 +170,11 @@ impl OneChat {
             cx.notify();
             return;
         }
-        self.overlays.destructive_action =
-            Some(DestructiveAction::ClearContext { conversation_id });
-        self.navigation.pending_focus = Some(PendingFocus::Root);
-        cx.notify();
+        self.request_destructive_action(
+            DestructiveAction::ClearContext { conversation_id },
+            window,
+            cx,
+        );
     }
 
     pub(super) fn clear_current_context(

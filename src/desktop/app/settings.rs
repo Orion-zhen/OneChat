@@ -1,28 +1,21 @@
 use super::*;
 
 impl OneChat {
-    pub(crate) fn begin_message_width_drag(&mut self, ratio: f32, cx: &mut Context<Self>) {
-        self.settings_ui.message_width_dragging = true;
-        self.update_message_width_ratio(ratio, cx);
+    pub(crate) fn update_background_opacity(&mut self, opacity: f32, cx: &mut Context<Self>) {
+        let opacity = rounded_background_opacity(opacity);
+        if (self.data.snapshot.settings.background_opacity - opacity).abs() < f32::EPSILON {
+            return;
+        }
+        self.data.snapshot.settings.background_opacity = opacity;
+        cx.notify();
     }
 
     pub(crate) fn update_message_width_ratio(&mut self, ratio: f32, cx: &mut Context<Self>) {
-        let ratio = ratio.clamp(
-            crate::domain::MIN_MESSAGE_WIDTH_RATIO,
-            crate::domain::MAX_MESSAGE_WIDTH_RATIO,
-        );
+        let ratio = rounded_message_width_ratio(ratio);
         if (self.data.snapshot.settings.message_width_ratio - ratio).abs() < f32::EPSILON {
             return;
         }
         self.data.snapshot.settings.message_width_ratio = ratio;
-        cx.notify();
-    }
-
-    pub(crate) fn finish_message_width_drag(&mut self, cx: &mut Context<Self>) {
-        if !std::mem::take(&mut self.settings_ui.message_width_dragging) {
-            return;
-        }
-        self.save_settings(cx);
         cx.notify();
     }
 
@@ -46,8 +39,6 @@ impl OneChat {
             return;
         }
         self.settings_ui.section = section;
-        self.settings_ui.default_model_menu = None;
-        self.settings_ui.default_prompt_menu_open = false;
         self.settings_ui.viewed_prompt_preset = None;
         self.settings_ui.provider_editor = None;
         self.settings_ui.model_editor = None;
@@ -57,16 +48,6 @@ impl OneChat {
         if reload_prompts {
             self.reload_snapshot(cx);
         }
-        cx.notify();
-    }
-
-    pub(crate) fn toggle_default_model_menu(
-        &mut self,
-        role: DefaultModelRole,
-        cx: &mut Context<Self>,
-    ) {
-        self.settings_ui.default_model_menu =
-            (self.settings_ui.default_model_menu != Some(role)).then_some(role);
         cx.notify();
     }
 
@@ -95,7 +76,6 @@ impl OneChat {
             return;
         }
 
-        self.settings_ui.default_model_menu = None;
         let stored_id = match role {
             DefaultModelRole::Primary => &mut self.data.snapshot.settings.primary_model_id,
             DefaultModelRole::TitleGeneration => {
@@ -111,11 +91,6 @@ impl OneChat {
         cx.notify();
     }
 
-    pub(crate) fn toggle_default_prompt_menu(&mut self, cx: &mut Context<Self>) {
-        self.settings_ui.default_prompt_menu_open = !self.settings_ui.default_prompt_menu_open;
-        cx.notify();
-    }
-
     pub(crate) fn select_default_prompt(&mut self, name: Option<String>, cx: &mut Context<Self>) {
         if name
             .as_deref()
@@ -123,7 +98,6 @@ impl OneChat {
         {
             return;
         }
-        self.settings_ui.default_prompt_menu_open = false;
         if self.data.snapshot.settings.default_system_prompt_preset == name {
             cx.notify();
             return;
@@ -133,49 +107,57 @@ impl OneChat {
         cx.notify();
     }
 
-    pub(crate) fn view_prompt_preset(&mut self, name: String, cx: &mut Context<Self>) {
+    pub(crate) fn view_prompt_preset(
+        &mut self,
+        name: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.prompt_preset(&name).is_none() {
             return;
         }
         self.settings_ui.viewed_prompt_preset = Some(name);
+        self.open_prompt_preset_dialog(window, cx);
         cx.notify();
     }
 
-    pub(crate) fn close_prompt_preset_view(&mut self, cx: &mut Context<Self>) {
-        self.settings_ui.viewed_prompt_preset = None;
-        cx.notify();
+    pub(crate) fn begin_add_prompt_preset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.begin_prompt_preset_edit(None, window, cx);
     }
 
-    pub(crate) fn begin_add_prompt_preset(&mut self, cx: &mut Context<Self>) {
-        self.begin_prompt_preset_edit(None, cx);
-    }
-
-    pub(crate) fn begin_edit_prompt_preset(&mut self, name: String, cx: &mut Context<Self>) {
+    pub(crate) fn begin_edit_prompt_preset(
+        &mut self,
+        name: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(preset) = self.prompt_preset(&name).cloned() else {
             return;
         };
-        self.begin_prompt_preset_edit(Some(preset), cx);
+        self.begin_prompt_preset_edit(Some(preset), window, cx);
     }
 
     fn begin_prompt_preset_edit(
         &mut self,
         preset: Option<SystemPromptPreset>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let editor = PromptPresetEditor::new(preset, cx);
-        for input in [editor.name.clone(), editor.content.clone()] {
-            cx.subscribe(&input, |this, _, event, cx| {
-                if matches!(event, ComposerEvent::Cancel) {
-                    this.cancel_prompt_preset_edit(cx);
-                }
-            })
-            .detach();
-        }
+        let editor = PromptPresetEditor::new(preset, window, cx);
         self.settings_ui.viewed_prompt_preset = None;
         self.settings_ui.prompt_preset_editor = Some(editor);
         self.settings_ui.form_error = None;
         self.navigation.pending_focus = Some(PendingFocus::SettingsPrompt);
+        self.open_prompt_preset_dialog(window, cx);
         cx.notify();
+    }
+
+    fn open_prompt_preset_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.chat.text_selection.clear(window);
+        let app = cx.entity();
+        window.open_dialog(cx, move |dialog, window, cx| {
+            crate::desktop::ui::settings::prompt_preset_dialog(dialog, app.clone(), window, cx)
+        });
     }
 
     pub(crate) fn cancel_prompt_preset_edit(&mut self, cx: &mut Context<Self>) {
@@ -184,16 +166,16 @@ impl OneChat {
         cx.notify();
     }
 
-    pub(crate) fn save_prompt_preset(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn save_prompt_preset(&mut self, cx: &mut Context<Self>) -> bool {
         let Some(editor) = self.settings_ui.prompt_preset_editor.as_ref() else {
-            return;
+            return false;
         };
         let preset = match editor.build(cx) {
             Ok(preset) => preset,
             Err(error) => {
                 self.settings_ui.form_error = Some(error);
                 cx.notify();
-                return;
+                return false;
             }
         };
         let original_name = editor.original_name().map(str::to_string);
@@ -205,7 +187,7 @@ impl OneChat {
                 preset.name
             ));
             cx.notify();
-            return;
+            return false;
         }
         let mut settings = self.data.snapshot.settings.clone();
         if let Some(original_name) = original_name.as_deref()
@@ -227,11 +209,16 @@ impl OneChat {
             },
             cx,
         );
+        true
     }
 
-    pub(crate) fn request_delete_prompt_preset(&mut self, name: String, cx: &mut Context<Self>) {
-        self.overlays.destructive_action = Some(DestructiveAction::DeletePromptPreset { name });
-        cx.notify();
+    pub(crate) fn request_delete_prompt_preset(
+        &mut self,
+        name: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.request_destructive_action(DestructiveAction::DeletePromptPreset { name }, window, cx);
     }
 
     pub(crate) fn delete_prompt_preset(&mut self, name: String, cx: &mut Context<Self>) {
@@ -252,30 +239,24 @@ impl OneChat {
     }
 
     pub(crate) fn reload_prompt_presets(&mut self, cx: &mut Context<Self>) {
-        self.settings_ui.default_prompt_menu_open = false;
         self.settings_ui.viewed_prompt_preset = None;
         self.reload_snapshot(cx);
     }
 
-    pub(crate) fn begin_edit_title_prompt(&mut self, cx: &mut Context<Self>) {
-        let input = cx.new(|cx| {
-            Composer::multiline(
-                self.data
-                    .snapshot
-                    .settings
-                    .title_generation_system_prompt
-                    .clone(),
-                "Used to generate automatic conversation titles",
-                cx,
-            )
-        });
-        cx.subscribe(&input, |this, _, event, cx| {
-            if matches!(event, ComposerEvent::Cancel) {
-                this.cancel_title_prompt_edit(cx);
-            }
-        })
-        .detach();
-        self.settings_ui.title_prompt_editor = Some(input);
+    pub(crate) fn begin_edit_title_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let value = self
+            .data
+            .snapshot
+            .settings
+            .title_generation_system_prompt
+            .clone();
+        self.settings_ui.title_prompt_editor = Some(cx.new(|cx| {
+            InputState::new(window, cx)
+                .multi_line(true)
+                .soft_wrap(true)
+                .default_value(value)
+                .placeholder("Used to generate automatic conversation titles")
+        }));
         self.navigation.pending_focus = Some(PendingFocus::SettingsPrompt);
         cx.notify();
     }
@@ -289,7 +270,7 @@ impl OneChat {
         let Some(editor) = self.settings_ui.title_prompt_editor.as_ref() else {
             return;
         };
-        let content = editor.read(cx).text().trim().to_string();
+        let content = editor.read(cx).value().trim().to_string();
         if content.is_empty() {
             self.data.error = Some("The title generation prompt cannot be empty.".into());
             cx.notify();
@@ -309,15 +290,20 @@ impl OneChat {
         cx.notify();
     }
 
-    pub(crate) fn begin_add_provider(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn begin_add_provider(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.settings_ui.section = SettingsSection::NewProvider;
-        self.settings_ui.provider_editor = Some(ProviderEditor::new(None, cx));
+        self.install_provider_editor(ProviderEditor::new(None, window, cx), window, cx);
         self.settings_ui.model_editor = None;
         self.settings_ui.form_error = None;
         cx.notify();
     }
 
-    pub(crate) fn begin_edit_provider(&mut self, id: String, cx: &mut Context<Self>) {
+    pub(crate) fn begin_edit_provider(
+        &mut self,
+        id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let provider = self
             .data
             .snapshot
@@ -327,28 +313,51 @@ impl OneChat {
             .cloned();
         if let Some(provider) = provider {
             self.settings_ui.section = SettingsSection::Provider(provider.id.clone());
-            self.settings_ui.provider_editor = Some(ProviderEditor::new(Some(provider), cx));
+            self.install_provider_editor(
+                ProviderEditor::new(Some(provider), window, cx),
+                window,
+                cx,
+            );
             self.settings_ui.model_editor = None;
             self.settings_ui.form_error = None;
             cx.notify();
         }
     }
 
-    pub(crate) fn toggle_provider_kind_menu(&mut self, cx: &mut Context<Self>) {
-        if let Some(editor) = &mut self.settings_ui.provider_editor {
-            editor.toggle_kind_menu();
-            cx.notify();
-        }
+    fn install_provider_editor(
+        &mut self,
+        editor: ProviderEditor,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let kind = editor.kind.clone();
+        self.settings_ui.provider_editor = Some(editor);
+        cx.subscribe_in(
+            &kind,
+            window,
+            |this,
+             _,
+             event: &SelectEvent<Vec<crate::desktop::ui::settings::ProviderKindItem>>,
+             window,
+             cx| {
+                let SelectEvent::Confirm(Some(kind)) = event else {
+                    return;
+                };
+                if let Some(editor) = &mut this.settings_ui.provider_editor {
+                    editor.select_kind(*kind, window, cx);
+                    cx.notify();
+                }
+            },
+        )
+        .detach();
     }
 
-    pub(crate) fn select_provider_kind(&mut self, kind: ProviderKind, cx: &mut Context<Self>) {
-        if let Some(editor) = &mut self.settings_ui.provider_editor {
-            editor.select_kind(kind, cx);
-            cx.notify();
-        }
-    }
-
-    pub(crate) fn toggle_provider_enabled(&mut self, id: String, cx: &mut Context<Self>) {
+    pub(crate) fn set_provider_enabled(
+        &mut self,
+        id: String,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) {
         let Some(mut provider) = self
             .data
             .snapshot
@@ -359,7 +368,10 @@ impl OneChat {
         else {
             return;
         };
-        provider.enabled = !provider.enabled;
+        if provider.enabled == enabled {
+            return;
+        }
+        provider.enabled = enabled;
         provider.updated_at = now_timestamp();
         self.mutate_and_reload(move |storage| storage.update_provider(&provider), cx);
     }
@@ -401,12 +413,13 @@ impl OneChat {
         cx.notify();
     }
 
-    pub(crate) fn request_delete_provider(&mut self, id: String, cx: &mut Context<Self>) {
-        self.overlays.destructive_action = Some(DestructiveAction::DeleteProvider { id });
-        self.navigation.pending_focus = Some(PendingFocus::Root);
-        self.overlays.command_palette_open = false;
-        self.overlays.model_picker_open = false;
-        cx.notify();
+    pub(crate) fn request_delete_provider(
+        &mut self,
+        id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.request_destructive_action(DestructiveAction::DeleteProvider { id }, window, cx);
     }
 
     pub(super) fn delete_provider(&mut self, id: String, cx: &mut Context<Self>) {
@@ -419,7 +432,12 @@ impl OneChat {
         self.mutate_and_reload(move |storage| storage.delete_provider(&id), cx);
     }
 
-    pub(crate) fn begin_add_model(&mut self, provider_id: String, cx: &mut Context<Self>) {
+    pub(crate) fn begin_add_model(
+        &mut self,
+        provider_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let Some(provider_kind) = self
             .data
             .snapshot
@@ -435,7 +453,8 @@ impl OneChat {
         self.settings_ui.section = SettingsSection::Provider(provider_id.clone());
         self.settings_ui.provider_editor = None;
         self.install_model_editor(
-            ModelEditor::new(provider_id.clone(), provider_kind, None, cx),
+            ModelEditor::new(provider_id.clone(), provider_kind, None, window, cx),
+            window,
             cx,
         );
         self.settings_ui.form_error = None;
@@ -443,7 +462,12 @@ impl OneChat {
         cx.notify();
     }
 
-    pub(crate) fn begin_edit_model(&mut self, id: String, cx: &mut Context<Self>) {
+    pub(crate) fn begin_edit_model(
+        &mut self,
+        id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let model = self
             .data
             .snapshot
@@ -468,7 +492,8 @@ impl OneChat {
             self.settings_ui.provider_editor = None;
             let provider_id = model.provider_id.clone();
             self.install_model_editor(
-                ModelEditor::new(provider_id.clone(), provider_kind, Some(model), cx),
+                ModelEditor::new(provider_id.clone(), provider_kind, Some(model), window, cx),
+                window,
                 cx,
             );
             self.settings_ui.form_error = None;
@@ -477,30 +502,34 @@ impl OneChat {
         }
     }
 
-    fn install_model_editor(&mut self, editor: ModelEditor, cx: &mut Context<Self>) {
+    fn install_model_editor(
+        &mut self,
+        editor: ModelEditor,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let remote_id = editor.remote_id.clone();
         self.settings_ui.model_editor = Some(editor);
-        cx.subscribe(&remote_id, |this, _, event, cx| match event {
-            ComposerEvent::Changed(remote_id) => {
+        cx.subscribe_in(
+            &remote_id,
+            window,
+            |this,
+             _,
+             event: &ComboboxEvent<crate::desktop::ui::settings::ModelIdDelegate>,
+             window,
+             cx| {
+                let ComboboxEvent::Change(values) = event else {
+                    return;
+                };
+                let Some(remote_id) = values.last() else {
+                    return;
+                };
                 if let Some(editor) = &mut this.settings_ui.model_editor {
-                    editor.remote_id_changed(remote_id.clone(), cx);
+                    editor.select_model(remote_id.clone(), window, cx);
                     cx.notify();
                 }
-            }
-            ComposerEvent::Navigate(direction) => {
-                if let Some(editor) = &mut this.settings_ui.model_editor {
-                    editor.navigate_models(*direction, cx);
-                    cx.notify();
-                }
-            }
-            ComposerEvent::Submit(_) => this.confirm_available_model(cx),
-            ComposerEvent::Cancel => {
-                if let Some(editor) = &mut this.settings_ui.model_editor {
-                    editor.close_model_menu();
-                    cx.notify();
-                }
-            }
-        })
+            },
+        )
         .detach();
     }
 
@@ -584,39 +613,14 @@ impl OneChat {
         }
     }
 
-    pub(crate) fn toggle_available_model_menu(&mut self, cx: &mut Context<Self>) {
-        if let Some(editor) = &mut self.settings_ui.model_editor {
-            editor.toggle_model_menu();
-            cx.notify();
-        }
-    }
-
-    pub(crate) fn select_available_model(&mut self, remote_id: String, cx: &mut Context<Self>) {
-        if let Some(editor) = &mut self.settings_ui.model_editor {
-            editor.select_model(remote_id, cx);
-            cx.notify();
-        }
-    }
-
-    fn confirm_available_model(&mut self, cx: &mut Context<Self>) {
-        let remote_id = self
-            .settings_ui
-            .model_editor
-            .as_ref()
-            .filter(|editor| editor.model_menu_open)
-            .and_then(|editor| editor.selected_model_id(cx));
-        if let Some(remote_id) = remote_id {
-            self.select_available_model(remote_id, cx);
-        }
-    }
-
-    pub(crate) fn toggle_model_capability(
+    pub(crate) fn set_model_capability(
         &mut self,
         capability: Capability,
+        enabled: bool,
         cx: &mut Context<Self>,
     ) {
         if let Some(editor) = &mut self.settings_ui.model_editor {
-            editor.toggle_capability(capability);
+            editor.set_capability(capability, enabled);
             cx.notify();
         }
     }
@@ -654,12 +658,13 @@ impl OneChat {
         cx.notify();
     }
 
-    pub(crate) fn request_delete_model(&mut self, id: String, cx: &mut Context<Self>) {
-        self.overlays.destructive_action = Some(DestructiveAction::DeleteModel { id });
-        self.navigation.pending_focus = Some(PendingFocus::Root);
-        self.overlays.command_palette_open = false;
-        self.overlays.model_picker_open = false;
-        cx.notify();
+    pub(crate) fn request_delete_model(
+        &mut self,
+        id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.request_destructive_action(DestructiveAction::DeleteModel { id }, window, cx);
     }
 
     pub(super) fn delete_model(&mut self, id: String, cx: &mut Context<Self>) {
@@ -702,5 +707,42 @@ impl OneChat {
         })
         .detach();
         cx.notify();
+    }
+}
+
+fn rounded_background_opacity(opacity: f32) -> f32 {
+    let opacity = opacity.clamp(
+        crate::domain::MIN_BACKGROUND_OPACITY,
+        crate::domain::MAX_BACKGROUND_OPACITY,
+    );
+    (opacity * 100.0).round() / 100.0
+}
+
+fn rounded_message_width_ratio(ratio: f32) -> f32 {
+    let ratio = ratio.clamp(
+        crate::domain::MIN_MESSAGE_WIDTH_RATIO,
+        crate::domain::MAX_MESSAGE_WIDTH_RATIO,
+    );
+    (ratio * 100.0).round() / 100.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{rounded_background_opacity, rounded_message_width_ratio};
+
+    #[test]
+    fn background_opacity_is_clamped_and_rounded_to_slider_step() {
+        assert_eq!(rounded_background_opacity(0.734), 0.73);
+        assert_eq!(rounded_background_opacity(0.736), 0.74);
+        assert_eq!(rounded_background_opacity(-0.1), 0.0);
+        assert_eq!(rounded_background_opacity(1.1), 1.0);
+    }
+
+    #[test]
+    fn message_width_ratio_is_clamped_and_rounded_to_slider_step() {
+        assert_eq!(rounded_message_width_ratio(0.734), 0.73);
+        assert_eq!(rounded_message_width_ratio(0.736), 0.74);
+        assert_eq!(rounded_message_width_ratio(0.1), 0.5);
+        assert_eq!(rounded_message_width_ratio(1.5), 1.0);
     }
 }

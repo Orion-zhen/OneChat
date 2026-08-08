@@ -110,7 +110,7 @@ impl OneChat {
         cx.write_to_clipboard(ClipboardItem::new_string(content));
     }
 
-    pub(crate) fn user_message_editor(&self, turn: &Turn) -> Option<Entity<Composer>> {
+    pub(crate) fn user_message_editor(&self, turn: &Turn) -> Option<Entity<InputState>> {
         self.chat
             .message_editor
             .as_ref()
@@ -123,7 +123,7 @@ impl OneChat {
     pub(crate) fn assistant_message_editor(
         &self,
         response: &AssistantResponse,
-    ) -> Option<Entity<Composer>> {
+    ) -> Option<Entity<InputState>> {
         self.chat
             .message_editor
             .as_ref()
@@ -133,14 +133,19 @@ impl OneChat {
             .map(|editor| editor.input.clone())
     }
 
-    pub(crate) fn active_message_editor(&self) -> Option<Entity<Composer>> {
+    pub(crate) fn active_message_editor(&self) -> Option<Entity<InputState>> {
         self.chat
             .message_editor
             .as_ref()
             .map(|editor| editor.input.clone())
     }
 
-    pub(crate) fn begin_edit_user(&mut self, turn_id: String, cx: &mut Context<Self>) {
+    pub(crate) fn begin_edit_user(
+        &mut self,
+        turn_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.is_current_generating() || self.chat.message_editor.is_some() {
             return;
         }
@@ -154,11 +159,11 @@ impl OneChat {
         else {
             return;
         };
-        let input = cx.new(|cx| Composer::multiline(content, "Edit user message", cx));
-        cx.subscribe(&input, |this, _, event, cx| match event {
-            ComposerEvent::Changed(_) => cx.notify(),
-            ComposerEvent::Cancel => this.cancel_message_edit(cx),
-            _ => {}
+        let input = cx.new(|cx| multiline_input(content, "Edit user message", window, cx));
+        cx.subscribe_in(&input, window, |_, _, event: &InputEvent, _, cx| {
+            if matches!(event, InputEvent::Change) {
+                cx.notify();
+            }
         })
         .detach();
         self.chat.message_editor = Some(MessageEditor {
@@ -169,7 +174,12 @@ impl OneChat {
         cx.notify();
     }
 
-    pub(crate) fn begin_edit_assistant(&mut self, response_id: String, cx: &mut Context<Self>) {
+    pub(crate) fn begin_edit_assistant(
+        &mut self,
+        response_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.is_current_generating() || self.chat.message_editor.is_some() {
             return;
         }
@@ -182,13 +192,7 @@ impl OneChat {
             return;
         }
         let content = response.content.clone();
-        let input = cx.new(|cx| Composer::multiline(content, "Edit assistant response", cx));
-        cx.subscribe(&input, |this, _, event, cx| {
-            if matches!(event, ComposerEvent::Cancel) {
-                this.cancel_message_edit(cx);
-            }
-        })
-        .detach();
+        let input = cx.new(|cx| multiline_input(content, "Edit assistant response", window, cx));
         self.chat.message_editor = Some(MessageEditor {
             target: MessageEditorTarget::Assistant(response_id),
             input,
@@ -209,7 +213,7 @@ impl OneChat {
         ) else {
             return;
         };
-        let content = editor.input.read(cx).text().trim().to_string();
+        let content = editor.input.read(cx).value().trim().to_string();
         if content.is_empty() {
             self.data.error = Some("User messages cannot be empty.".into());
             cx.notify();
@@ -272,7 +276,7 @@ impl OneChat {
         }) else {
             return;
         };
-        let content = editor.input.read(cx).text().to_string();
+        let content = editor.input.read(cx).value().to_string();
         let Some((turn_id, mut response)) = self
             .response(&response_id)
             .map(|(turn, response)| (turn.id.clone(), response.clone()))
@@ -345,7 +349,7 @@ impl OneChat {
             return;
         };
         let from_height = f32::from(scroll.bounds().size.height);
-        let measured_height = from_height + f32::from(scroll.max_offset().height);
+        let measured_height = from_height + f32::from(scroll.max_offset().y);
         self.chat.thinking_motions.insert(
             response_id,
             ThinkingMotion {
@@ -375,7 +379,7 @@ impl OneChat {
         self.chat.message_scroll_motion.cancel();
         let delta = event.delta.pixel_delta(window.line_height()).y;
         let distance =
-            self.chat.message_scroll.max_offset().height + self.chat.message_scroll.offset().y;
+            self.chat.message_scroll.max_offset().y + self.chat.message_scroll.offset().y;
         self.chat.follow_latest = follow_after_scroll(
             self.chat.follow_latest,
             f32::from(delta),
@@ -386,7 +390,7 @@ impl OneChat {
 
     pub(crate) fn jump_to_latest(&mut self, cx: &mut Context<Self>) {
         let from = f32::from(self.chat.message_scroll.offset().y);
-        let target = -f32::from(self.chat.message_scroll.max_offset().height);
+        let target = -f32::from(self.chat.message_scroll.max_offset().y);
         if (target - from).abs() < 1.0 {
             self.chat.follow_latest = true;
             self.chat.message_scroll.scroll_to_bottom();
@@ -397,7 +401,7 @@ impl OneChat {
     }
 
     pub(crate) fn advance_message_scroll(&mut self, window: &mut Window) {
-        let target = -f32::from(self.chat.message_scroll.max_offset().height);
+        let target = -f32::from(self.chat.message_scroll.max_offset().y);
         let Some((offset_y, finished)) = self.chat.message_scroll_motion.offset(target, window)
         else {
             return;

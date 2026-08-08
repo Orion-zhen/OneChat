@@ -25,6 +25,18 @@ struct SelectionState {
     pending_position: Option<Point<Pixels>>,
 }
 
+impl SelectionState {
+    fn clear(&mut self) {
+        self.active_id = None;
+        self.source = "".into();
+        self.anchor = 0;
+        self.selection = 0..0;
+        self.selecting = false;
+        self.collecting = false;
+        self.pending_position = None;
+    }
+}
+
 #[derive(Clone)]
 struct TextRegion {
     layout: gpui::TextLayout,
@@ -68,6 +80,19 @@ impl TextSelection {
         self.regions.borrow_mut().clear();
     }
 
+    pub(crate) fn clear(&self, window: &mut Window) {
+        self.state.borrow_mut().clear();
+        self.regions.borrow_mut().clear();
+        window.refresh();
+    }
+
+    fn clear_if_unfocused(&self, window: &Window) {
+        if !self.focus.is_focused(window) {
+            self.state.borrow_mut().clear();
+            self.regions.borrow_mut().clear();
+        }
+    }
+
     fn is_collecting(&self) -> bool {
         self.state.borrow().collecting
     }
@@ -104,20 +129,14 @@ impl TextSelection {
             return 0..0;
         }
         if state.source != *source {
-            state.active_id = None;
-            state.source = "".into();
-            state.anchor = 0;
-            state.selection = 0..0;
-            state.selecting = false;
-            state.collecting = false;
-            state.pending_position = None;
+            state.clear();
             return 0..0;
         }
         state.selection.clone()
     }
 
     pub(crate) fn mouse_down(&self, event: &MouseDownEvent, window: &mut Window, cx: &mut App) {
-        window.focus(&self.focus);
+        window.focus(&self.focus, cx);
         let mut state = self.state.borrow_mut();
         state.active_id = None;
         state.source = "".into();
@@ -253,6 +272,7 @@ impl Element for SelectableText {
     ) -> Self::PrepaintState {
         self.text
             .prepaint(None, inspector_id, bounds, request_state, window, cx);
+        self.selection.clear_if_unfocused(window);
         let selected_range = self.selection.selected_range(&self.id, &self.source);
         let hitbox = self.selection.is_collecting().then(|| {
             let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
@@ -368,5 +388,28 @@ mod tests {
     fn selection_range_is_order_independent() {
         assert_eq!(normalized_range(2, 7), 2..7);
         assert_eq!(normalized_range(7, 2), 2..7);
+    }
+
+    #[test]
+    fn clearing_selection_resets_drag_and_copy_state() {
+        let mut state = SelectionState {
+            active_id: Some("message".into()),
+            source: "selected text".into(),
+            anchor: 2,
+            selection: 2..8,
+            selecting: true,
+            collecting: true,
+            pending_position: Some(Point::default()),
+        };
+
+        state.clear();
+
+        assert!(state.active_id.is_none());
+        assert!(state.source.is_empty());
+        assert_eq!(state.anchor, 0);
+        assert!(state.selection.is_empty());
+        assert!(!state.selecting);
+        assert!(!state.collecting);
+        assert!(state.pending_position.is_none());
     }
 }

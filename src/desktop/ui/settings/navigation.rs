@@ -1,11 +1,6 @@
 use super::*;
 
-pub(super) fn settings_sidebar(
-    app: &OneChat,
-    colors: Colors,
-    scale_factor: f32,
-    cx: &mut Context<OneChat>,
-) -> AnyElement {
+pub(super) fn settings_sidebar(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
     let general_selected = app.settings_ui.section == SettingsSection::General;
     let default_models_selected = app.settings_ui.section == SettingsSection::DefaultModels;
     let prompts_selected = app.settings_ui.section == SettingsSection::SystemPrompts;
@@ -20,13 +15,7 @@ pub(super) fn settings_sidebar(
             .iter()
             .filter(|model| model.provider_id == provider.id)
             .count();
-        providers = providers.child(provider_nav_row(
-            provider,
-            model_count,
-            selected,
-            colors,
-            cx,
-        ));
+        providers = providers.child(provider_nav_row(provider, model_count, selected, cx));
     }
 
     if app.data.snapshot.providers.is_empty() {
@@ -35,20 +24,20 @@ pub(super) fn settings_sidebar(
                 .px_3()
                 .py_2()
                 .text_size(px(12.0))
-                .text_color(colors.muted)
+                .text_color(cx.theme().muted_foreground)
                 .child("No providers configured"),
         );
     }
 
     div()
-        .w(px(244.0))
+        .w(px(SIDEBAR_WIDTH))
         .h_full()
         .flex_none()
         .flex()
         .flex_col()
         .border_r_1()
-        .border_color(colors.border)
-        .bg(colors.sidebar)
+        .border_color(cx.theme().border)
+        .bg(cx.theme().sidebar)
         .child(
             div()
                 .px_3()
@@ -59,12 +48,11 @@ pub(super) fn settings_sidebar(
                 .child(
                     settings_nav_row(
                         "settings-general",
-                        Icon::Sliders,
+                        AppIcon::Sliders,
                         "General",
                         "Appearance and behavior",
                         general_selected,
-                        colors,
-                        scale_factor,
+                        cx,
                     )
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.select_settings_section(SettingsSection::General, cx)
@@ -73,12 +61,11 @@ pub(super) fn settings_sidebar(
                 .child(
                     settings_nav_row(
                         "settings-default-models",
-                        Icon::Layers,
+                        AppIcon::Layers,
                         "Default Models",
                         "Models for new conversations",
                         default_models_selected,
-                        colors,
-                        scale_factor,
+                        cx,
                     )
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.select_settings_section(SettingsSection::DefaultModels, cx)
@@ -87,12 +74,11 @@ pub(super) fn settings_sidebar(
                 .child(
                     settings_nav_row(
                         "settings-system-prompts",
-                        Icon::MessageText,
+                        AppIcon::MessageText,
                         "System Prompts",
                         "Default instructions",
                         prompts_selected,
-                        colors,
-                        scale_factor,
+                        cx,
                     )
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.select_settings_section(SettingsSection::SystemPrompts, cx)
@@ -111,19 +97,20 @@ pub(super) fn settings_sidebar(
                     div()
                         .text_size(px(11.0))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(colors.muted)
-                        .child("PROVIDERS"),
+                        .text_color(cx.theme().muted_foreground)
+                        .child("Providers"),
                 )
                 .child(
-                    icon_button(
+                    icon_action(
                         "add-provider-sidebar",
-                        Icon::Plus,
-                        IconTone::Muted,
-                        colors,
-                        scale_factor,
+                        AppIcon::Plus,
+                        IconTone::Accent,
+                        "Add provider",
+                        cx,
                     )
-                    .size(px(26.0))
-                    .on_click(cx.listener(|this, _, _, cx| this.begin_add_provider(cx))),
+                    .on_click(
+                        cx.listener(|this, _, window, cx| this.begin_add_provider(window, cx)),
+                    ),
                 ),
         )
         .child(
@@ -136,17 +123,32 @@ pub(super) fn settings_sidebar(
                 .child(providers),
         )
         .child(
-            div().border_t_1().border_color(colors.border).p_3().child(
-                settings_nav_row(
-                    "settings-add-provider",
-                    Icon::Plus,
-                    "Add Provider",
-                    "Connect another service",
-                    app.settings_ui.section == SettingsSection::NewProvider,
-                    colors,
-                    scale_factor,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.begin_add_provider(cx))),
+            div().flex_none().p_2().child(
+                Button::new("back-to-chats")
+                    .ghost()
+                    .w_full()
+                    .h(px(34.0))
+                    .px_2()
+                    .rounded(px(7.0))
+                    .tooltip("Back to chats")
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(render_icon(AppIcon::MessageText, IconTone::Muted, 16.0, cx))
+                            .child("Chats"),
+                    )
+                    .child(render_icon(
+                        AppIcon::ChevronRight,
+                        IconTone::Muted,
+                        14.0,
+                        cx,
+                    ))
+                    .on_click(cx.listener(|this, _, _, cx| this.set_page(Page::Chat, cx))),
             ),
         )
         .into_any_element()
@@ -154,12 +156,11 @@ pub(super) fn settings_sidebar(
 
 fn settings_nav_row(
     id: impl Into<ElementId>,
-    icon: Icon,
+    icon: AppIcon,
     title: &'static str,
     detail: &'static str,
     selected: bool,
-    colors: Colors,
-    scale_factor: f32,
+    cx: &App,
 ) -> Stateful<Div> {
     let icon = render_icon(
         icon,
@@ -168,33 +169,28 @@ fn settings_nav_row(
         } else {
             IconTone::Muted
         },
-        colors,
-        scale_factor,
         18.0,
+        cx,
     );
+    let accent = cx.theme().accent;
+    let hover = cx.theme().list_hover;
 
     div()
         .id(id)
-        .rounded_lg()
+        .rounded(px(10.0))
         .px_3()
         .py_2()
         .flex()
         .items_center()
         .gap_3()
         .bg(if selected {
-            colors.accent_soft
+            accent
         } else {
-            rgba(0x00000000)
+            cx.theme().transparent
         })
         .cursor_pointer()
-        .hover(move |style| {
-            style.bg(if selected {
-                colors.accent_soft
-            } else {
-                colors.hover
-            })
-        })
-        .active(move |style| style.bg(colors.accent_soft))
+        .hover(move |style| style.bg(if selected { accent } else { hover }))
+        .active(move |style| style.bg(accent))
         .child(
             div()
                 .w(px(22.0))
@@ -223,7 +219,7 @@ fn settings_nav_row(
                         .whitespace_nowrap()
                         .text_ellipsis()
                         .text_size(px(11.0))
-                        .text_color(colors.muted)
+                        .text_color(cx.theme().muted_foreground)
                         .child(detail),
                 ),
         )
@@ -233,70 +229,46 @@ fn provider_nav_row(
     provider: &Provider,
     model_count: usize,
     selected: bool,
-    colors: Colors,
     cx: &mut Context<OneChat>,
 ) -> Stateful<Div> {
     let select_id = provider.id.clone();
     let toggle_id = provider.id.clone();
+    let accent = cx.theme().accent;
+    let hover = cx.theme().list_hover;
 
     div()
         .id(SharedString::from(format!(
             "settings-provider-{}",
             provider.id
         )))
-        .rounded_lg()
+        .rounded(px(10.0))
         .px_3()
         .py_2()
         .flex()
         .items_center()
         .gap_3()
         .bg(if selected {
-            colors.accent_soft
+            accent
         } else {
-            rgba(0x00000000)
+            cx.theme().transparent
         })
-        .hover(move |style| {
-            style.bg(if selected {
-                colors.accent_soft
-            } else {
-                colors.hover
-            })
-        })
+        .hover(move |style| style.bg(if selected { accent } else { hover }))
         .child(
-            div()
-                .id(SharedString::from(format!(
-                    "toggle-provider-sidebar-{}",
-                    provider.id
-                )))
-                .w(px(32.0))
-                .h(px(18.0))
-                .p(px(2.0))
-                .flex_none()
-                .rounded_full()
-                .border_1()
-                .border_color(if provider.enabled {
-                    colors.accent
-                } else {
-                    colors.border
-                })
-                .bg(if provider.enabled {
-                    colors.accent
-                } else {
-                    colors.raised
-                })
-                .flex()
-                .items_center()
-                .when(provider.enabled, |element| element.justify_end())
-                .cursor_pointer()
-                .hover(|style| style.opacity(0.8))
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.toggle_provider_enabled(toggle_id.clone(), cx)
-                }))
-                .child(div().size(px(12.0)).rounded_full().bg(if provider.enabled {
-                    colors.on_accent
-                } else {
-                    colors.muted
-                })),
+            Switch::new(SharedString::from(format!(
+                "toggle-provider-sidebar-{}",
+                provider.id
+            )))
+            .small()
+            .checked(provider.enabled)
+            .color(cx.theme().primary)
+            .tooltip(if provider.enabled {
+                "Disable provider"
+            } else {
+                "Enable provider"
+            })
+            .on_click(cx.listener(move |this, enabled: &bool, _, cx| {
+                this.set_provider_enabled(toggle_id.clone(), *enabled, cx)
+            })),
         )
         .child(
             div()
@@ -333,7 +305,7 @@ fn provider_nav_row(
                             div()
                                 .flex_none()
                                 .text_size(px(11.0))
-                                .text_color(colors.muted)
+                                .text_color(cx.theme().muted_foreground)
                                 .child(format!(
                                     "{} {}",
                                     model_count,
@@ -344,7 +316,7 @@ fn provider_nav_row(
                 .child(
                     div()
                         .text_size(px(11.0))
-                        .text_color(colors.muted)
+                        .text_color(cx.theme().muted_foreground)
                         .child(provider.kind.label()),
                 ),
         )

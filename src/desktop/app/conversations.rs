@@ -1,5 +1,13 @@
 use super::*;
 
+fn resolve_destructive_action(
+    action: &mut Option<DestructiveAction>,
+    confirmed: bool,
+) -> Option<DestructiveAction> {
+    let action = action.take();
+    if confirmed { action } else { None }
+}
+
 impl OneChat {
     pub(crate) fn create_conversation(&mut self, cx: &mut Context<Self>) {
         let model_id = if self.current_conversation().is_none() {
@@ -20,7 +28,6 @@ impl OneChat {
         let Some(model) = model else {
             self.navigation.page = Page::Settings;
             self.settings_ui.section = SettingsSection::DefaultModels;
-            self.settings_ui.default_model_menu = Some(DefaultModelRole::Primary);
             self.data.error = Some("Choose a model before creating a conversation.".into());
             cx.notify();
             return;
@@ -28,7 +35,6 @@ impl OneChat {
         if let Err(reason) = self.model_availability(&model) {
             self.navigation.page = Page::Settings;
             self.settings_ui.section = SettingsSection::DefaultModels;
-            self.settings_ui.default_model_menu = Some(DefaultModelRole::Primary);
             self.data.error = Some(format!(
                 "Choose an available model before creating a conversation: {reason}."
             ));
@@ -101,24 +107,36 @@ impl OneChat {
             return;
         };
         let title = conversation.title.clone();
+        let cursor = title.len();
         let event_id = conversation_id.clone();
-        let input = cx.new(|cx| Composer::single_line(title, "Conversation title", cx));
-        cx.subscribe(&input, move |this, _, event, cx| match event {
-            ComposerEvent::Submit(title) => {
-                this.finish_rename(&event_id, title.clone(), cx);
-            }
-            ComposerEvent::Cancel => {
-                this.sidebar.rename_editor = None;
-                cx.notify();
-            }
-            ComposerEvent::Changed(_) | ComposerEvent::Navigate(_) => {}
-        })
+        let input = cx.new(|cx| {
+            let mut input = InputState::new(window, cx)
+                .default_value(title)
+                .placeholder("Conversation title")
+                .submit_on_enter(true);
+            input.set_selected_range(cursor..cursor, cx);
+            input
+        });
+        cx.subscribe_in(
+            &input,
+            window,
+            move |this, input, event: &InputEvent, _, cx| {
+                if matches!(event, InputEvent::PressEnter { shift: false, .. }) {
+                    this.finish_rename(&event_id, input.read(cx).value().to_string(), cx);
+                }
+            },
+        )
         .detach();
-        window.focus(&input.read(cx).focus_handle(cx));
+        window.focus(&input.read(cx).focus_handle(cx), cx);
         self.sidebar.rename_editor = Some(RenameEditor {
             conversation_id,
             input,
         });
+        cx.notify();
+    }
+
+    pub(crate) fn cancel_rename(&mut self, cx: &mut Context<Self>) {
+        self.sidebar.rename_editor = None;
         cx.notify();
     }
 
@@ -161,12 +179,86 @@ impl OneChat {
         );
     }
 
-    pub(crate) fn request_delete_conversation(&mut self, id: String, cx: &mut Context<Self>) {
-        self.overlays.destructive_action = Some(DestructiveAction::DeleteConversation { id });
-        self.navigation.pending_focus = Some(PendingFocus::Root);
-        self.overlays.command_palette_open = false;
-        self.overlays.model_picker_open = false;
-        cx.notify();
+    pub(crate) fn request_delete_conversation(
+        &mut self,
+        id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.request_destructive_action(DestructiveAction::DeleteConversation { id }, window, cx);
+    }
+
+    pub(super) fn request_destructive_action(
+        &mut self,
+        action: DestructiveAction,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.chat.text_selection.clear(window);
+        let title = action.title();
+        let description = action.description();
+        self.overlays.destructive_action = Some(action);
+
+        let confirm_app = cx.entity();
+        let cancel_app = confirm_app.clone();
+        let confirm_click_app = confirm_app.clone();
+        let cancel_click_app = confirm_app.clone();
+        window.open_alert_dialog(cx, move |dialog, _, cx| {
+            let confirm_app = confirm_app.clone();
+            let cancel_app = cancel_app.clone();
+            let confirm_click_app = confirm_click_app.clone();
+            let cancel_click_app = cancel_click_app.clone();
+            dialog
+                .title(title)
+                .description(description)
+                .footer(
+                    DialogFooter::new()
+                        .child(
+                            Button::new("cancel-destructive-action")
+                                .ghost()
+                                .tooltip("Cancel")
+                                .size(px(36.0))
+                                .p_0()
+                                .child(crate::desktop::ui::icons::render_icon(
+                                    crate::desktop::ui::icons::AppIcon::Close,
+                                    crate::desktop::ui::icons::IconTone::Muted,
+                                    19.0,
+                                    cx,
+                                ))
+                                .on_click(move |_, window, cx| {
+                                    cancel_click_app
+                                        .update(cx, |app, cx| app.cancel_destructive_action(cx));
+                                    window.close_dialog(cx);
+                                }),
+                        )
+                        .child(
+                            Button::new("confirm-destructive-action")
+                                .danger()
+                                .tooltip("Confirm destructive action")
+                                .size(px(36.0))
+                                .p_0()
+                                .child(crate::desktop::ui::icons::render_icon(
+                                    crate::desktop::ui::icons::AppIcon::Trash,
+                                    crate::desktop::ui::icons::IconTone::OnAccent,
+                                    19.0,
+                                    cx,
+                                ))
+                                .on_click(move |_, window, cx| {
+                                    confirm_click_app
+                                        .update(cx, |app, cx| app.confirm_destructive_action(cx));
+                                    window.close_dialog(cx);
+                                }),
+                        ),
+                )
+                .on_ok(move |_, _, cx| {
+                    confirm_app.update(cx, |app, cx| app.confirm_destructive_action(cx));
+                    true
+                })
+                .on_cancel(move |_, _, cx| {
+                    cancel_app.update(cx, |app, cx| app.cancel_destructive_action(cx));
+                    true
+                })
+        });
     }
 
     fn delete_conversation(&mut self, id: String, cx: &mut Context<Self>) {
@@ -191,13 +283,13 @@ impl OneChat {
     }
 
     pub(crate) fn cancel_destructive_action(&mut self, cx: &mut Context<Self>) {
-        self.overlays.destructive_action = None;
-        self.navigation.pending_focus = Some(PendingFocus::Composer);
+        resolve_destructive_action(&mut self.overlays.destructive_action, false);
         cx.notify();
     }
 
     pub(crate) fn confirm_destructive_action(&mut self, cx: &mut Context<Self>) {
-        let Some(action) = self.overlays.destructive_action.take() else {
+        let Some(action) = resolve_destructive_action(&mut self.overlays.destructive_action, true)
+        else {
             return;
         };
         match action {
@@ -211,16 +303,35 @@ impl OneChat {
         }
     }
 
-    pub(crate) fn dismiss_error(&mut self, cx: &mut Context<Self>) {
-        self.data.error = None;
-        cx.notify();
-    }
-
     pub(crate) fn theme(&self) -> Theme {
         self.data.snapshot.settings.theme
     }
 
     pub(crate) fn settings(&self) -> &AppSettings {
         &self.data.snapshot.settings
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn destructive_confirmation_consumes_the_pending_action() {
+        let mut action = Some(DestructiveAction::DeleteModel { id: "model".into() });
+        assert!(matches!(
+            resolve_destructive_action(&mut action, true),
+            Some(DestructiveAction::DeleteModel { id }) if id == "model"
+        ));
+        assert!(action.is_none());
+    }
+
+    #[test]
+    fn destructive_cancel_clears_without_returning_the_action() {
+        let mut action = Some(DestructiveAction::ClearContext {
+            conversation_id: "conversation".into(),
+        });
+        assert!(resolve_destructive_action(&mut action, false).is_none());
+        assert!(action.is_none());
     }
 }

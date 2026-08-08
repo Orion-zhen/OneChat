@@ -268,6 +268,7 @@ mod tests {
             default_system_prompt_preset: Some("Default".into()),
             title_generation_system_prompt: "Generate a title".into(),
             message_width_ratio: 0.85,
+            background_opacity: 0.65,
         };
         storage.save_settings(&settings).unwrap();
         (provider, model, conversation, settings)
@@ -324,6 +325,10 @@ mod tests {
         assert_eq!(
             snapshot.settings.message_width_ratio,
             crate::domain::DEFAULT_MESSAGE_WIDTH_RATIO
+        );
+        assert_eq!(
+            snapshot.settings.background_opacity,
+            crate::domain::DEFAULT_BACKGROUND_OPACITY
         );
     }
 

@@ -60,6 +60,21 @@ impl GenerationParameter {
         }
     }
 
+    pub fn hint(self) -> &'static str {
+        match self {
+            Self::Temperature => "Controls randomness",
+            Self::TopP => "Limits probability mass",
+            Self::TopK => "Limits candidate tokens",
+            Self::MaxOutputTokens => "Maximum response length",
+            Self::FrequencyPenalty => "Reduces repeated tokens",
+            Self::PresencePenalty => "Encourages new topics",
+            Self::Seed => "Makes output repeatable",
+            Self::StopSequences => "One sequence per line",
+            Self::ThinkingBudget => "Reasoning token limit",
+            Self::Extra => "Provider-specific JSON",
+        }
+    }
+
     pub fn supported_by(self, capabilities: &crate::domain::ModelCapabilities) -> bool {
         match self {
             Self::Temperature => capabilities.temperature,
@@ -74,60 +89,89 @@ impl GenerationParameter {
             Self::Extra => true,
         }
     }
+
+    pub fn is_multiline(self) -> bool {
+        matches!(self, Self::StopSequences | Self::Extra)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GenerationParameterItem(GenerationParameter);
+
+impl SearchableListItem for GenerationParameterItem {
+    type Value = GenerationParameter;
+
+    fn title(&self) -> SharedString {
+        self.0.label().into()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.0
+    }
+
+    fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        crate::desktop::ui::spaced_select_item(self.title(), cx)
+    }
 }
 
 pub struct GenerationConfigEditor {
     conversation_id: String,
     active: HashSet<GenerationParameter>,
-    pub parameter_menu_open: bool,
-    pub temperature: Entity<Composer>,
-    pub top_p: Entity<Composer>,
-    pub top_k: Entity<Composer>,
-    pub max_output_tokens: Entity<Composer>,
-    pub frequency_penalty: Entity<Composer>,
-    pub presence_penalty: Entity<Composer>,
-    pub seed: Entity<Composer>,
-    pub stop_sequences: Entity<Composer>,
-    pub thinking_budget: Entity<Composer>,
-    pub extra: Entity<Composer>,
+    pub parameter_select: Entity<SelectState<Vec<GenerationParameterItem>>>,
+    synced_options: Vec<GenerationParameterItem>,
+    pub temperature: Entity<InputState>,
+    pub top_p: Entity<InputState>,
+    pub top_k: Entity<InputState>,
+    pub max_output_tokens: Entity<InputState>,
+    pub frequency_penalty: Entity<InputState>,
+    pub presence_penalty: Entity<InputState>,
+    pub seed: Entity<InputState>,
+    pub stop_sequences: Entity<InputState>,
+    pub thinking_budget: Entity<InputState>,
+    pub extra: Entity<InputState>,
 }
 
 impl GenerationConfigEditor {
-    pub fn new(conversation: &Conversation, cx: &mut Context<OneChat>) -> Self {
+    pub fn new(
+        conversation: &Conversation,
+        window: &mut Window,
+        cx: &mut Context<OneChat>,
+    ) -> Self {
         let config = &conversation.generation_config;
         let editor = Self {
             conversation_id: conversation.id.clone(),
             active: active_parameters(config),
-            parameter_menu_open: false,
-            temperature: optional_input(config.temperature, "Optional number", cx),
-            top_p: optional_input(config.top_p, "Optional number", cx),
-            top_k: optional_input(config.top_k, "Optional integer", cx),
-            max_output_tokens: optional_input(config.max_output_tokens, "Optional integer", cx),
-            frequency_penalty: optional_input(config.frequency_penalty, "Optional number", cx),
-            presence_penalty: optional_input(config.presence_penalty, "Optional number", cx),
-            seed: optional_input(config.seed, "Optional integer", cx),
-            stop_sequences: cx.new(|cx| {
-                Composer::multiline(
-                    config.stop_sequences.join("\n"),
-                    "One stop sequence per line",
-                    cx,
-                )
-            }),
-            thinking_budget: optional_input(config.thinking_budget, "Optional integer", cx),
-            extra: cx.new(|cx| {
-                Composer::multiline(
-                    serde_json::to_string_pretty(&config.extra).unwrap_or_else(|_| "{}".into()),
-                    "Provider-specific JSON object",
-                    cx,
-                )
-            }),
+            parameter_select: cx.new(|cx| SelectState::new(Vec::new(), None, window, cx)),
+            synced_options: Vec::new(),
+            temperature: optional_number_input(config.temperature, None, window, cx),
+            top_p: optional_number_input(config.top_p, None, window, cx),
+            top_k: optional_number_input(config.top_k, Some(0.0), window, cx),
+            max_output_tokens: optional_number_input(
+                config.max_output_tokens,
+                Some(0.0),
+                window,
+                cx,
+            ),
+            frequency_penalty: optional_number_input(config.frequency_penalty, None, window, cx),
+            presence_penalty: optional_number_input(config.presence_penalty, None, window, cx),
+            seed: optional_number_input(config.seed, None, window, cx),
+            stop_sequences: multiline_input(
+                config.stop_sequences.join("\n"),
+                "One stop sequence per line",
+                window,
+                cx,
+            ),
+            thinking_budget: optional_number_input(config.thinking_budget, None, window, cx),
+            extra: multiline_input(
+                serde_json::to_string_pretty(&config.extra).unwrap_or_else(|_| "{}".into()),
+                "Provider-specific JSON object",
+                window,
+                cx,
+            ),
         };
         for input in editor.inputs() {
-            cx.subscribe(&input, |this, _, event, cx| {
-                if matches!(
-                    event,
-                    crate::desktop::ui::composer::ComposerEvent::Changed(_)
-                ) {
+            cx.subscribe(&input, |this, _, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
                     this.schedule_generation_config_save(cx);
                 }
             })
@@ -144,27 +188,22 @@ impl GenerationConfigEditor {
         self.active.contains(&parameter)
     }
 
-    pub fn toggle_menu(&mut self) {
-        self.parameter_menu_open = !self.parameter_menu_open;
-    }
-
-    pub fn close_menu(&mut self) {
-        self.parameter_menu_open = false;
-    }
-
     pub fn add(&mut self, parameter: GenerationParameter) {
         self.active.insert(parameter);
-        self.parameter_menu_open = false;
     }
 
-    pub fn remove(&mut self, parameter: GenerationParameter, cx: &mut Context<OneChat>) {
+    pub fn remove(
+        &mut self,
+        parameter: GenerationParameter,
+        window: &mut Window,
+        cx: &mut Context<OneChat>,
+    ) {
         self.active.remove(&parameter);
-        self.parameter_menu_open = false;
-        let input = self.input(parameter);
-        input.update(cx, |input, cx| input.set_text("", cx));
+        self.input(parameter)
+            .update(cx, |input, cx| input.set_value("", window, cx));
     }
 
-    pub fn input(&self, parameter: GenerationParameter) -> Entity<Composer> {
+    pub fn input(&self, parameter: GenerationParameter) -> Entity<InputState> {
         match parameter {
             GenerationParameter::Temperature => self.temperature.clone(),
             GenerationParameter::TopP => self.top_p.clone(),
@@ -179,34 +218,64 @@ impl GenerationConfigEditor {
         }
     }
 
+    pub fn sync_parameter_select(
+        &mut self,
+        capabilities: &crate::domain::ModelCapabilities,
+        window: &mut Window,
+        cx: &mut Context<OneChat>,
+    ) {
+        let options = GenerationParameter::ALL
+            .into_iter()
+            .filter(|parameter| parameter.supported_by(capabilities) && !self.is_active(*parameter))
+            .map(GenerationParameterItem)
+            .collect::<Vec<_>>();
+        if options == self.synced_options {
+            return;
+        }
+        self.synced_options.clone_from(&options);
+        self.parameter_select.update(cx, |select, cx| {
+            select.set_items(options, window, cx);
+            select.set_selected_index(None, window, cx);
+        });
+    }
+
     pub fn build(&self, base: &GenerationConfig, cx: &App) -> Result<GenerationConfig, String> {
         let mut config = base.clone();
-        config.temperature = parse_optional_f64("Temperature", self.temperature.read(cx).text())?;
-        config.top_p = parse_optional_f64("Top P", self.top_p.read(cx).text())?;
-        config.top_k = parse_optional("Top K", self.top_k.read(cx).text())?;
-        config.max_output_tokens =
-            parse_optional("Max Output", self.max_output_tokens.read(cx).text())?;
-        config.frequency_penalty =
-            parse_optional_f64("Frequency Penalty", self.frequency_penalty.read(cx).text())?;
-        config.presence_penalty =
-            parse_optional_f64("Presence Penalty", self.presence_penalty.read(cx).text())?;
-        config.seed = parse_optional("Seed", self.seed.read(cx).text())?;
+        config.temperature =
+            parse_optional_f64("Temperature", self.temperature.read(cx).value().as_ref())?;
+        config.top_p = parse_optional_f64("Top P", self.top_p.read(cx).value().as_ref())?;
+        config.top_k = parse_optional("Top K", self.top_k.read(cx).value().as_ref())?;
+        config.max_output_tokens = parse_optional(
+            "Max Output",
+            self.max_output_tokens.read(cx).value().as_ref(),
+        )?;
+        config.frequency_penalty = parse_optional_f64(
+            "Frequency Penalty",
+            self.frequency_penalty.read(cx).value().as_ref(),
+        )?;
+        config.presence_penalty = parse_optional_f64(
+            "Presence Penalty",
+            self.presence_penalty.read(cx).value().as_ref(),
+        )?;
+        config.seed = parse_optional("Seed", self.seed.read(cx).value().as_ref())?;
         config.stop_sequences = self
             .stop_sequences
             .read(cx)
-            .text()
+            .value()
             .lines()
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(str::to_owned)
             .collect();
-        config.thinking_budget =
-            parse_optional("Thinking Budget", self.thinking_budget.read(cx).text())?;
-        config.extra = parse_json_object(self.extra.read(cx).text())?;
+        config.thinking_budget = parse_optional(
+            "Thinking Budget",
+            self.thinking_budget.read(cx).value().as_ref(),
+        )?;
+        config.extra = parse_json_object(self.extra.read(cx).value().as_ref())?;
         Ok(config)
     }
 
-    fn inputs(&self) -> [Entity<Composer>; 10] {
+    fn inputs(&self) -> [Entity<InputState>; 10] {
         [
             self.temperature.clone(),
             self.top_p.clone(),
@@ -240,17 +309,39 @@ fn active_parameters(config: &GenerationConfig) -> HashSet<GenerationParameter> 
         .collect()
 }
 
-fn optional_input<T: Display>(
+fn optional_number_input<T: Display>(
     value: Option<T>,
-    placeholder: &'static str,
+    min: Option<f64>,
+    window: &mut Window,
     cx: &mut Context<OneChat>,
-) -> Entity<Composer> {
+) -> Entity<InputState> {
     cx.new(|cx| {
-        Composer::single_line(
-            value.map(|value| value.to_string()).unwrap_or_default(),
-            placeholder,
-            cx,
-        )
+        let mut input = InputState::new(window, cx)
+            .default_value(value.map(|value| value.to_string()).unwrap_or_default())
+            .placeholder("")
+            .mask_pattern(MaskPattern::Number {
+                separator: None,
+                fraction: None,
+            });
+        if let Some(min) = min {
+            input = input.min(min);
+        }
+        input
+    })
+}
+
+fn multiline_input(
+    value: impl Into<String>,
+    placeholder: &'static str,
+    window: &mut Window,
+    cx: &mut Context<OneChat>,
+) -> Entity<InputState> {
+    cx.new(|cx| {
+        InputState::new(window, cx)
+            .multi_line(true)
+            .soft_wrap(true)
+            .default_value(value.into())
+            .placeholder(placeholder)
     })
 }
 
@@ -306,7 +397,7 @@ mod tests {
     }
 
     #[test]
-    fn numeric_parameters_are_optional_and_finite() {
+    fn numeric_parameters_are_optional_finite_and_unsigned_where_required() {
         assert_eq!(parse_optional::<u32>("Top K", "").unwrap(), None);
         assert_eq!(parse_optional::<u32>("Top K", "12").unwrap(), Some(12));
         assert!(parse_optional::<u32>("Top K", "-1").is_err());

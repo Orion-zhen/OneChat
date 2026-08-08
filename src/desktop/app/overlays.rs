@@ -1,8 +1,17 @@
 use super::*;
 
 impl OneChat {
-    pub(crate) fn conversation_groups(&self) -> Vec<(ConversationGroup, Vec<Conversation>)> {
-        let query = self.sidebar.search_query.trim().to_lowercase();
+    pub(crate) fn conversation_groups(
+        &self,
+        cx: &App,
+    ) -> Vec<(ConversationGroup, Vec<Conversation>)> {
+        let query = self
+            .sidebar
+            .search_input
+            .read(cx)
+            .value()
+            .trim()
+            .to_lowercase();
         let now = now_timestamp();
         let mut groups = Vec::new();
         for group in [
@@ -30,7 +39,7 @@ impl OneChat {
         groups
     }
 
-    pub(crate) fn rename_input(&self, conversation_id: &str) -> Option<Entity<Composer>> {
+    pub(crate) fn rename_input(&self, conversation_id: &str) -> Option<Entity<InputState>> {
         self.sidebar
             .rename_editor
             .as_ref()
@@ -40,81 +49,52 @@ impl OneChat {
 
     pub(crate) fn set_page(&mut self, page: Page, cx: &mut Context<Self>) {
         self.navigation.page = page;
-        self.overlays.command_palette_open = false;
-        self.overlays.model_picker_open = false;
-        self.overlays.prompt_picker_open = false;
         self.overlays.response_model_turn_id = None;
-        self.settings_ui.default_model_menu = None;
         cx.notify();
     }
 
-    pub(crate) fn open_command_palette(&mut self, cx: &mut Context<Self>) {
-        self.overlays.model_picker_open = false;
-        self.overlays.prompt_picker_open = false;
+    pub(crate) fn open_command_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.chat.text_selection.clear(window);
         self.overlays.response_model_turn_id = None;
-        self.overlays.command_palette_open = true;
-        self.overlays.command_selection = 0;
+        self.overlays.command_picker.update(cx, |picker, cx| {
+            *picker.delegate_mut() = CommandPaletteDelegate::new();
+            picker.set_query("", window, cx);
+            picker.set_selected_index(Some(gpui_component::IndexPath::default()), window, cx);
+        });
+
+        let picker = self.overlays.command_picker.clone();
+        window.open_dialog(cx, move |dialog, _, cx| {
+            crate::desktop::ui::shell::command_palette_dialog(dialog, picker.clone(), cx)
+        });
         self.overlays
-            .command_input
-            .update(cx, |input, cx| input.set_text("", cx));
-        self.navigation.pending_focus = Some(PendingFocus::CommandPalette);
-        cx.notify();
+            .command_picker
+            .update(cx, |picker, cx| picker.focus(window, cx));
     }
 
-    pub(crate) fn close_command_palette(&mut self, cx: &mut Context<Self>) {
-        self.overlays.command_palette_open = false;
-        self.navigation.pending_focus = Some(PendingFocus::Composer);
-        cx.notify();
-    }
-
-    pub(crate) fn navigate_command(&mut self, direction: PickerDirection, cx: &mut Context<Self>) {
-        self.overlays.command_selection = moved_selection(
-            self.overlays.command_selection,
-            self.filtered_commands().len(),
-            direction,
-        );
-        self.overlays
-            .command_scroll
-            .scroll_to_item(self.overlays.command_selection);
-        cx.notify();
-    }
-
-    pub(crate) fn confirm_command(&mut self, cx: &mut Context<Self>) {
-        let commands = self.filtered_commands();
-        let Some(command) = commands.get(self.overlays.command_selection).copied() else {
-            return;
-        };
-        self.execute_command(command, cx);
-    }
-
-    pub(crate) fn execute_command(&mut self, command: PaletteCommand, cx: &mut Context<Self>) {
-        self.overlays.command_palette_open = false;
+    pub(crate) fn execute_command(
+        &mut self,
+        command: PaletteCommand,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         match command {
-            PaletteCommand::NewConversation => {
-                self.navigation.pending_focus = Some(PendingFocus::Composer);
-                self.create_conversation(cx);
-            }
-            PaletteCommand::ChooseModel => self.open_model_picker(cx),
+            PaletteCommand::NewConversation => self.create_conversation(cx),
+            PaletteCommand::ChooseModel => self.open_model_picker(window, cx),
             PaletteCommand::FocusConversationSearch => {
                 if self.data.snapshot.settings.sidebar_collapsed {
                     self.data.snapshot.settings.sidebar_collapsed = false;
+                    self.navigation.sidebar_motion.set_open(true, true);
                     self.save_settings(cx);
                 }
                 self.navigation.pending_focus = Some(PendingFocus::ConversationSearch);
                 cx.notify();
             }
-            PaletteCommand::ToggleSidebar => {
-                self.navigation.pending_focus = Some(PendingFocus::Composer);
-                self.toggle_sidebar(cx);
-            }
-            PaletteCommand::ToggleInspector => {
-                self.navigation.pending_focus = Some(PendingFocus::Composer);
-                self.toggle_inspector_immediate(cx);
-            }
+            PaletteCommand::ToggleSidebar => self.toggle_sidebar(cx),
+            PaletteCommand::ToggleInspector => self.toggle_inspector_immediate(cx),
             PaletteCommand::EditSystemPrompt => {
                 self.navigation.page = Page::Chat;
                 if self.current_conversation().is_some() {
-                    self.begin_edit_system_prompt(cx);
+                    self.begin_edit_system_prompt(window, cx);
                 } else {
                     self.data.error = Some("Create or select a conversation first.".into());
                     cx.notify();
@@ -129,51 +109,53 @@ impl OneChat {
         }
     }
 
-    pub(crate) fn dismiss_overlay(&mut self, cx: &mut Context<Self>) {
-        if let Some(editor) = &mut self.chat.generation_config_editor
-            && editor.parameter_menu_open
-        {
-            editor.close_menu();
-            cx.notify();
-        } else if self.settings_ui.default_model_menu.is_some() {
-            self.settings_ui.default_model_menu = None;
-            cx.notify();
-        } else if self.settings_ui.default_prompt_menu_open {
-            self.settings_ui.default_prompt_menu_open = false;
-            cx.notify();
-        } else if let Some(editor) = &mut self.settings_ui.provider_editor
-            && editor.kind_menu_open
-        {
-            editor.kind_menu_open = false;
-            cx.notify();
-        } else if self.settings_ui.prompt_preset_editor.is_some() {
-            self.cancel_prompt_preset_edit(cx);
-        } else if self.settings_ui.viewed_prompt_preset.is_some() {
-            self.close_prompt_preset_view(cx);
-        } else if self.overlays.destructive_action.is_some() {
-            self.cancel_destructive_action(cx);
-        } else if self.overlays.command_palette_open {
-            self.close_command_palette(cx);
-        } else if self.overlays.model_picker_open {
-            self.close_model_picker(cx);
-        } else if self.overlays.prompt_picker_open {
-            self.close_prompt_picker(cx);
+    pub(crate) fn dismiss_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if window.has_active_dialog(cx) {
+            self.overlays.response_model_turn_id = None;
+            self.overlays.destructive_action = None;
+            self.settings_ui.prompt_preset_editor = None;
+            self.settings_ui.viewed_prompt_preset = None;
+            self.settings_ui.form_error = None;
+            window.close_dialog(cx);
+        } else if self.settings_ui.title_prompt_editor.is_some() {
+            self.cancel_title_prompt_edit(cx);
         }
     }
 
     pub(crate) fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
         self.data.snapshot.settings.sidebar_collapsed =
             !self.data.snapshot.settings.sidebar_collapsed;
+        self.navigation
+            .sidebar_motion
+            .set_open(!self.data.snapshot.settings.sidebar_collapsed, true);
         self.save_settings(cx);
         cx.notify();
     }
 
-    pub(crate) fn toggle_inspector(&mut self, cx: &mut Context<Self>) {
-        self.set_inspector_open(!self.navigation.inspector_open, true, cx);
+    pub(crate) fn set_inspector_visible(&mut self, open: bool, cx: &mut Context<Self>) {
+        self.set_inspector_open(open, true, cx);
     }
 
     pub(crate) fn toggle_inspector_immediate(&mut self, cx: &mut Context<Self>) {
         self.set_inspector_open(!self.navigation.inspector_open, false, cx);
+    }
+
+    pub(crate) fn close_inspector(&mut self, cx: &mut Context<Self>) {
+        self.set_inspector_visible(false, cx);
+    }
+
+    pub(crate) fn begin_inspector_outside_press(&mut self) {
+        self.navigation.inspector_pointer.begin_outside();
+    }
+
+    pub(crate) fn cancel_inspector_outside_press(&mut self) {
+        self.navigation.inspector_pointer.cancel();
+    }
+
+    pub(crate) fn release_inspector_outside(&mut self, cx: &mut Context<Self>) {
+        if self.navigation.inspector_pointer.release_outside() {
+            self.close_inspector(cx);
+        }
     }
 
     pub(super) fn set_inspector_open(
@@ -182,74 +164,97 @@ impl OneChat {
         animated: bool,
         cx: &mut Context<Self>,
     ) {
+        self.navigation.inspector_pointer.cancel();
         self.navigation.inspector_open = open;
         self.navigation.inspector_motion.set_open(open, animated);
-        if open {
-            self.sync_generation_config_editor(cx);
-        }
         cx.notify();
     }
 
     pub(crate) fn set_inspector_tab(&mut self, tab: InspectorTab, cx: &mut Context<Self>) {
         self.navigation.inspector_tab = tab;
-        if tab == InspectorTab::Model {
-            self.sync_generation_config_editor(cx);
-        }
         cx.notify();
     }
 
-    pub(crate) fn open_model_picker(&mut self, cx: &mut Context<Self>) {
-        self.overlays.command_palette_open = false;
-        self.overlays.prompt_picker_open = false;
-        self.overlays.response_model_turn_id = None;
-        self.overlays.model_picker_open = true;
-        self.overlays
-            .model_search_input
-            .update(cx, |input, cx| input.set_text("", cx));
-        self.overlays.model_selection = self.initial_model_selection();
-        self.navigation.pending_focus = Some(PendingFocus::ModelPicker);
-        cx.notify();
+    pub(crate) fn open_model_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_model_picker_for_turn(None, window, cx);
     }
 
-    pub(crate) fn open_response_model_picker(&mut self, turn_id: String, cx: &mut Context<Self>) {
+    pub(crate) fn open_response_model_picker(
+        &mut self,
+        turn_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.is_current_generating() {
             return;
         }
-        self.overlays.command_palette_open = false;
-        self.overlays.prompt_picker_open = false;
-        self.overlays.response_model_turn_id = Some(turn_id);
-        self.overlays.model_picker_open = true;
+        self.open_model_picker_for_turn(Some(turn_id), window, cx);
+    }
+
+    fn open_model_picker_for_turn(
+        &mut self,
+        turn_id: Option<String>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.chat.text_selection.clear(window);
+        self.overlays.response_model_turn_id = turn_id;
+        let adding_response = self.overlays.response_model_turn_id.is_some();
+        let delegate = ModelPickerDelegate::from_app(self);
+        let selected = delegate.initial_selection();
+        self.overlays.model_picker.update(cx, |picker, cx| {
+            *picker.delegate_mut() = delegate;
+            picker.set_query("", window, cx);
+            picker.set_selected_index(selected, window, cx);
+            picker.scroll_to_selected_item(window, cx);
+        });
+
+        let picker = self.overlays.model_picker.clone();
+        let app = cx.entity();
+        window.open_dialog(cx, move |dialog, _, cx| {
+            let app = app.clone();
+            crate::desktop::ui::shell::model_picker_dialog(
+                dialog,
+                picker.clone(),
+                adding_response,
+                cx,
+            )
+            .on_cancel(move |_, _, cx| {
+                app.update(cx, |app, _| {
+                    app.overlays.response_model_turn_id = None;
+                });
+                true
+            })
+        });
         self.overlays
-            .model_search_input
-            .update(cx, |input, cx| input.set_text("", cx));
-        self.overlays.model_selection = self.initial_model_selection();
-        self.navigation.pending_focus = Some(PendingFocus::ModelPicker);
-        cx.notify();
+            .model_picker
+            .update(cx, |picker, cx| picker.focus(window, cx));
     }
 
-    pub(crate) fn close_model_picker(&mut self, cx: &mut Context<Self>) {
-        self.overlays.model_picker_open = false;
-        self.overlays.response_model_turn_id = None;
-        self.navigation.pending_focus = Some(PendingFocus::Composer);
-        cx.notify();
-    }
-
-    pub(crate) fn open_prompt_picker(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn open_prompt_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.current_conversation().is_none() || self.is_current_generating() {
             return;
         }
-        self.overlays.command_palette_open = false;
-        self.overlays.model_picker_open = false;
+        self.chat.text_selection.clear(window);
         self.overlays.response_model_turn_id = None;
-        self.overlays.prompt_picker_open = true;
-        self.reload_snapshot(cx);
-        cx.notify();
-    }
+        let delegate = PromptPickerDelegate::from_app(self);
+        let selected = delegate.initial_selection();
+        self.overlays.prompt_picker.update(cx, |picker, cx| {
+            *picker.delegate_mut() = delegate;
+            picker.set_query("", window, cx);
+            picker.set_selected_index(selected, window, cx);
+            picker.scroll_to_selected_item(window, cx);
+        });
 
-    pub(crate) fn close_prompt_picker(&mut self, cx: &mut Context<Self>) {
-        self.overlays.prompt_picker_open = false;
-        self.navigation.pending_focus = Some(PendingFocus::Composer);
-        cx.notify();
+        let picker = self.overlays.prompt_picker.clone();
+        let app = cx.entity();
+        window.open_dialog(cx, move |dialog, _, cx| {
+            crate::desktop::ui::shell::prompt_picker_dialog(dialog, picker.clone(), app.clone(), cx)
+        });
+        self.overlays
+            .prompt_picker
+            .update(cx, |picker, cx| picker.focus(window, cx));
+        self.reload_snapshot(cx);
     }
 
     pub(crate) fn select_system_prompt_preset(
@@ -263,8 +268,6 @@ impl OneChat {
         let Some(mut conversation) = self.current_conversation().cloned() else {
             return;
         };
-        self.overlays.prompt_picker_open = false;
-        self.navigation.pending_focus = Some(PendingFocus::Composer);
         self.mutate_and_reload(
             move |storage| {
                 let content = match name {
@@ -288,36 +291,10 @@ impl OneChat {
     }
 
     pub(crate) fn open_prompt_settings(&mut self, cx: &mut Context<Self>) {
-        self.overlays.prompt_picker_open = false;
         self.navigation.page = Page::Settings;
         self.settings_ui.section = SettingsSection::SystemPrompts;
         self.reload_snapshot(cx);
         cx.notify();
-    }
-
-    pub(crate) fn navigate_model(&mut self, direction: PickerDirection, cx: &mut Context<Self>) {
-        let models = self.filtered_models();
-        let mut selection = self.overlays.model_selection;
-        for _ in 0..models.len() {
-            selection = moved_selection(selection, models.len(), direction);
-            if self.model_availability(models[selection]).is_ok() {
-                break;
-            }
-        }
-        self.overlays.model_selection = selection;
-        self.overlays.model_scroll.scroll_to_item(selection);
-        cx.notify();
-    }
-
-    pub(crate) fn confirm_model(&mut self, cx: &mut Context<Self>) {
-        let model_id = self
-            .filtered_models()
-            .get(self.overlays.model_selection)
-            .filter(|model| self.model_availability(model).is_ok())
-            .map(|model| model.id.clone());
-        if let Some(model_id) = model_id {
-            self.select_model(model_id, cx);
-        }
     }
 
     pub(crate) fn select_model(&mut self, model_id: String, cx: &mut Context<Self>) {
@@ -338,12 +315,6 @@ impl OneChat {
         }
         let conversation = self.current_conversation().cloned();
         let response_turn_id = self.overlays.response_model_turn_id.take();
-        self.overlays.model_picker_open = false;
-        self.navigation.pending_focus = Some(if conversation.is_some() {
-            PendingFocus::Composer
-        } else {
-            PendingFocus::Root
-        });
 
         if let Some(turn_id) = response_turn_id {
             self.start_additional_response(turn_id, model.id, cx);

@@ -24,19 +24,27 @@ where
         .into_any_element()
 }
 
-pub(crate) fn translated_x(child: impl IntoElement, offset: Pixels) -> TranslatedX {
-    TranslatedX {
+pub(crate) fn translated_x(child: impl IntoElement, offset: Pixels) -> Translated {
+    translated(child, point(offset, px(0.0)))
+}
+
+pub(crate) fn translated_y(child: impl IntoElement, offset: Pixels) -> Translated {
+    translated(child, point(px(0.0), offset))
+}
+
+fn translated(child: impl IntoElement, offset: gpui::Point<Pixels>) -> Translated {
+    Translated {
         child: Some(child.into_any_element()),
         offset,
     }
 }
 
-pub(crate) struct TranslatedX {
+pub(crate) struct Translated {
     child: Option<AnyElement>,
-    offset: Pixels,
+    offset: gpui::Point<Pixels>,
 }
 
-impl IntoElement for TranslatedX {
+impl IntoElement for Translated {
     type Element = Self;
 
     fn into_element(self) -> Self::Element {
@@ -44,7 +52,7 @@ impl IntoElement for TranslatedX {
     }
 }
 
-impl Element for TranslatedX {
+impl Element for Translated {
     type RequestLayoutState = AnyElement;
     type PrepaintState = ();
 
@@ -80,7 +88,7 @@ impl Element for TranslatedX {
         window: &mut Window,
         cx: &mut App,
     ) {
-        window.with_element_offset(point(self.offset, px(0.0)), |window| {
+        window.with_element_offset(self.offset, |window| {
             child.prepaint(window, cx);
         });
     }

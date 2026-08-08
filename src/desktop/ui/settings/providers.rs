@@ -1,21 +1,15 @@
 use super::*;
 
-pub(super) fn new_provider_page(
-    app: &OneChat,
-    colors: Colors,
-    scale_factor: f32,
-    cx: &mut Context<OneChat>,
-) -> AnyElement {
-    let content = app.settings_ui.provider_editor.as_ref().map_or_else(
-        || {
-            div()
-                .text_sm()
-                .text_color(colors.muted)
-                .child("Preparing provider settings…")
-                .into_any_element()
-        },
-        |editor| provider_form(editor, colors, scale_factor, cx),
-    );
+pub(super) fn new_provider_page(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
+    let content = if let Some(editor) = &app.settings_ui.provider_editor {
+        provider_form(editor, cx)
+    } else {
+        div()
+            .text_sm()
+            .text_color(cx.theme().muted_foreground)
+            .child("Preparing provider settings…")
+            .into_any_element()
+    };
 
     detail_page(
         div()
@@ -25,13 +19,13 @@ pub(super) fn new_provider_page(
             .child(page_header(
                 "Add Provider",
                 "Connect OneChat to an LLM service.",
-                colors,
+                cx,
             ))
             .children(
                 app.settings_ui
                     .form_error
                     .as_ref()
-                    .map(|error| error_banner(error, colors)),
+                    .map(|error| error_banner(error)),
             )
             .child(content),
     )
@@ -40,11 +34,9 @@ pub(super) fn new_provider_page(
 pub(super) fn provider_page(
     app: &OneChat,
     provider: &Provider,
-    colors: Colors,
-    scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    let (status, status_color) = provider_status(app, provider, colors);
+    let (status, status_color) = provider_status(app, provider, cx);
     let provider_id = provider.id.clone();
     let edit_id = provider.id.clone();
     let testing = matches!(
@@ -73,8 +65,14 @@ pub(super) fn provider_page(
                         .items_center()
                         .gap_2()
                         .text_sm()
-                        .text_color(colors.muted)
-                        .child(div().size(px(7.0)).rounded_full().bg(status_color))
+                        .text_color(cx.theme().muted_foreground)
+                        .child(
+                            div()
+                                .size(px(6.0))
+                                .flex_none()
+                                .rounded_full()
+                                .bg(status_color),
+                        )
                         .child(format!("{} · {status}", provider.kind.label())),
                 ),
         )
@@ -86,42 +84,45 @@ pub(super) fn provider_page(
                     .items_center()
                     .gap_2()
                     .child(
-                        button(
+                        icon_action(
                             SharedString::from(format!("test-provider-{}", provider.id)),
-                            if testing {
-                                "Testing…"
-                            } else {
-                                "Test Connection"
-                            },
-                            colors,
+                            AppIcon::Plug,
+                            IconTone::Muted,
+                            "Test connection",
+                            cx,
                         )
+                        .loading(testing)
+                        .disabled(testing)
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.test_provider_connection(provider_id.clone(), cx)
                         })),
                     )
                     .child(
-                        primary_button(
+                        primary_icon_action(
                             SharedString::from(format!("edit-provider-{}", provider.id)),
-                            "Edit",
-                            colors,
+                            AppIcon::Pencil,
+                            "Edit provider",
+                            cx,
                         )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.begin_edit_provider(edit_id.clone(), cx)
-                        })),
+                        .on_click(cx.listener(
+                            move |this, _, window, cx| {
+                                this.begin_edit_provider(edit_id.clone(), window, cx)
+                            },
+                        )),
                     ),
             )
         });
 
     let body = if let Some(editor) = &app.settings_ui.provider_editor {
-        provider_form(editor, colors, scale_factor, cx)
+        provider_form(editor, cx)
     } else {
         div()
             .flex()
             .flex_col()
             .gap_6()
-            .child(provider_summary(provider, colors))
-            .child(provider_models(app, provider, colors, scale_factor, cx))
-            .child(provider_danger_zone(provider, colors, cx))
+            .child(provider_summary(provider, cx))
+            .child(provider_models(app, provider, cx))
+            .child(provider_danger_zone(provider, cx))
             .into_any_element()
     };
 
@@ -135,25 +136,40 @@ pub(super) fn provider_page(
                 app.settings_ui
                     .form_error
                     .as_ref()
-                    .map(|error| error_banner(error, colors)),
+                    .map(|error| error_banner(error)),
+            )
+            .children(
+                app.settings_ui.connection_tests.get(&provider.id).and_then(
+                    |status| match status {
+                        ConnectionTestStatus::Failed(message) => Some(
+                            Alert::error("provider-connection-error", message.clone())
+                                .into_any_element(),
+                        ),
+                        ConnectionTestStatus::Connected => Some(
+                            Alert::success("provider-connection-success", "Connection succeeded")
+                                .into_any_element(),
+                        ),
+                        ConnectionTestStatus::Testing => None,
+                    },
+                ),
             )
             .child(body),
     )
 }
 
-fn provider_status(app: &OneChat, provider: &Provider, colors: Colors) -> (String, gpui::Rgba) {
+fn provider_status(app: &OneChat, provider: &Provider, cx: &App) -> (String, gpui::Hsla) {
     match app.settings_ui.connection_tests.get(&provider.id) {
-        Some(ConnectionTestStatus::Testing) => ("Testing connection…".into(), colors.accent),
-        Some(ConnectionTestStatus::Connected) => ("Connected".into(), colors.success),
+        Some(ConnectionTestStatus::Testing) => ("Testing connection…".into(), cx.theme().primary),
+        Some(ConnectionTestStatus::Connected) => ("Connected".into(), cx.theme().success),
         Some(ConnectionTestStatus::Failed(message)) => {
-            (format!("Connection failed: {message}"), colors.danger)
+            (format!("Connection failed: {message}"), cx.theme().danger)
         }
-        None if provider.enabled => ("Enabled".into(), colors.success),
-        None => ("Disabled".into(), colors.muted),
+        None if provider.enabled => ("Enabled".into(), cx.theme().success),
+        None => ("Disabled".into(), cx.theme().muted_foreground),
     }
 }
 
-fn provider_summary(provider: &Provider, colors: Colors) -> AnyElement {
+fn provider_summary(provider: &Provider, cx: &App) -> AnyElement {
     let api_key = if provider.api_key.is_empty() {
         "Not configured"
     } else {
@@ -166,79 +182,46 @@ fn provider_summary(provider: &Provider, colors: Colors) -> AnyElement {
         count => format!("{count} custom headers"),
     };
     let content = div()
+        .w_full()
         .flex()
         .flex_col()
-        .gap_2()
-        .child(summary_row("Endpoint", provider.endpoint.clone(), colors))
-        .child(summary_row("API Key", api_key, colors))
-        .child(summary_row("Custom Headers", headers, colors))
-        .child(summary_row("Proxy", proxy, colors));
+        .child(summary_row("Endpoint", provider.endpoint.clone(), cx))
+        .child(setting_divider(cx))
+        .child(summary_row("API Key", api_key, cx))
+        .child(setting_divider(cx))
+        .child(summary_row("Custom Headers", headers, cx))
+        .child(setting_divider(cx))
+        .child(summary_row("Proxy", proxy, cx));
     section(
         "Connection",
         Some("Credentials are stored as plain text on this Mac."),
         content,
-        colors,
+        cx,
     )
 }
 
-fn provider_danger_zone(
-    provider: &Provider,
-    colors: Colors,
-    cx: &mut Context<OneChat>,
-) -> AnyElement {
+fn provider_danger_zone(provider: &Provider, cx: &mut Context<OneChat>) -> AnyElement {
     let provider_id = provider.id.clone();
-    let content = div()
-        .flex()
-        .items_center()
-        .justify_between()
-        .gap_5()
-        .child(
-            div()
-                .min_w_0()
-                .child(
-                    div()
-                        .text_sm()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child("Delete Provider"),
-                )
-                .child(
-                    div()
-                        .pt_1()
-                        .text_size(px(12.0))
-                        .text_color(colors.muted)
-                        .child("This also removes every model configured for this provider."),
-                ),
-        )
-        .child(
-            button("delete-provider", "Delete…", colors)
-                .text_color(colors.danger)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.request_delete_provider(provider_id.clone(), cx)
-                })),
-        );
-    section("Danger Zone", None, content, colors)
+    let delete = danger_icon_action("delete-provider", AppIcon::Trash, "Delete provider", cx)
+        .on_click(cx.listener(move |this, _, window, cx| {
+            this.request_delete_provider(provider_id.clone(), window, cx)
+        }));
+    let content = setting_row(
+        "Delete Provider",
+        "Also removes every model configured for this provider.",
+        delete,
+        cx,
+    );
+    section("Danger Zone", None, content, cx)
 }
 
-fn provider_models(
-    app: &OneChat,
-    provider: &Provider,
-    colors: Colors,
-    scale_factor: f32,
-    cx: &mut Context<OneChat>,
-) -> AnyElement {
+fn provider_models(app: &OneChat, provider: &Provider, cx: &mut Context<OneChat>) -> AnyElement {
     let editor = app
         .settings_ui
         .model_editor
         .as_ref()
         .filter(|editor| editor.provider_id == provider.id);
     let editing_id = editor.and_then(ModelEditor::editing_id);
-    let provider_id = provider.id.clone();
-    let mut models = div().flex().flex_col().gap_2();
-
-    if let Some(editor) = editor {
-        models = models.child(model_form(editor, colors, scale_factor, cx));
-    }
-
     let configured_models = app
         .data
         .snapshot
@@ -247,13 +230,22 @@ fn provider_models(
         .filter(|model| model.provider_id == provider.id)
         .filter(|model| editing_id != Some(model.id.as_str()))
         .collect::<Vec<_>>();
+    let provider_id = provider.id.clone();
+    let mut models = div().w_full().flex().flex_col().gap_1();
+
+    if let Some(editor) = editor {
+        models = models.child(model_form(editor, cx));
+        if !configured_models.is_empty() {
+            models = models.child(setting_divider(cx));
+        }
+    }
 
     if configured_models.is_empty() && editor.is_none() {
         models = models.child(
             div()
-                .rounded_lg()
-                .bg(colors.raised)
-                .p_5()
+                .w_full()
+                .px_4()
+                .py_6()
                 .text_center()
                 .child(
                     div()
@@ -265,68 +257,44 @@ fn provider_models(
                     div()
                         .pt_1()
                         .text_size(px(12.0))
-                        .text_color(colors.muted)
+                        .text_color(cx.theme().muted_foreground)
                         .child("Add a remote model ID to use this provider in conversations."),
                 ),
         );
     }
 
     for model in configured_models {
-        models = models.child(model_row(model, colors, cx));
+        models = models.child(model_row(model, cx));
     }
 
-    let header = div()
-        .flex()
-        .items_end()
-        .justify_between()
-        .gap_4()
-        .child(
-            div()
-                .child(
-                    div()
-                        .text_size(px(13.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child("Models"),
-                )
-                .child(
-                    div()
-                        .pt_1()
-                        .text_size(px(12.0))
-                        .text_color(colors.muted)
-                        .child("Models are configured and managed within this provider."),
-                ),
-        )
-        .when(editor.is_none(), |element| {
-            element.child(primary_button("add-model", "Add Model", colors).on_click(
-                cx.listener(move |this, _, _, cx| this.begin_add_model(provider_id.clone(), cx)),
-            ))
-        });
+    let actions = editor.is_none().then(|| {
+        primary_icon_action("add-model", AppIcon::Plus, "Add model", cx)
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.begin_add_model(provider_id.clone(), window, cx)
+            }))
+            .into_any_element()
+    });
 
-    div()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .child(header)
-        .child(
-            div()
-                .rounded_xl()
-                .border_1()
-                .border_color(colors.border)
-                .bg(colors.panel)
-                .p_4()
-                .child(models),
-        )
-        .into_any_element()
+    section_with_actions(
+        "Models",
+        Some("Models configured for this provider."),
+        actions,
+        models,
+        cx,
+    )
 }
 
-fn model_row(model: &Model, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
+fn model_row(model: &Model, cx: &mut Context<OneChat>) -> AnyElement {
     let edit_id = model.id.clone();
     let delete_id = model.id.clone();
     div()
+        .w_full()
+        .min_h(px(64.0))
         .rounded_lg()
-        .bg(colors.raised)
-        .px_4()
-        .py_3()
+        .bg(cx.theme().transparent)
+        .hover(|style| style.bg(cx.theme().list_hover))
+        .px_3()
+        .py_2()
         .flex()
         .items_center()
         .justify_between()
@@ -338,6 +306,7 @@ fn model_row(model: &Model, colors: Colors, cx: &mut Context<OneChat>) -> AnyEle
                 .child(
                     div()
                         .font_weight(FontWeight::SEMIBOLD)
+                        .text_sm()
                         .child(model.display_name.clone()),
                 )
                 .child(
@@ -346,8 +315,8 @@ fn model_row(model: &Model, colors: Colors, cx: &mut Context<OneChat>) -> AnyEle
                         .overflow_hidden()
                         .whitespace_nowrap()
                         .text_ellipsis()
-                        .text_size(px(11.0))
-                        .text_color(colors.muted)
+                        .text_size(px(12.0))
+                        .text_color(cx.theme().muted_foreground)
                         .child(format!(
                             "{} · {}",
                             model.remote_id,
@@ -361,26 +330,27 @@ fn model_row(model: &Model, colors: Colors, cx: &mut Context<OneChat>) -> AnyEle
                 .flex()
                 .gap_1()
                 .child(
-                    compact_button(
+                    icon_action(
                         SharedString::from(format!("edit-model-{}", model.id)),
-                        "Edit",
-                        colors,
+                        AppIcon::Pencil,
+                        IconTone::Muted,
+                        "Edit model",
+                        cx,
                     )
-                    .on_click(
-                        cx.listener(move |this, _, _, cx| {
-                            this.begin_edit_model(edit_id.clone(), cx)
-                        }),
-                    ),
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.begin_edit_model(edit_id.clone(), window, cx)
+                    })),
                 )
                 .child(
-                    compact_button(
+                    icon_action(
                         SharedString::from(format!("delete-model-{}", model.id)),
-                        "Delete",
-                        colors,
+                        AppIcon::Trash,
+                        IconTone::Danger,
+                        "Delete model",
+                        cx,
                     )
-                    .text_color(colors.danger)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.request_delete_model(delete_id.clone(), cx)
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.request_delete_model(delete_id.clone(), window, cx)
                     })),
                 ),
         )

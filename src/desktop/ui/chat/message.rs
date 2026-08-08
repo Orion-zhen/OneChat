@@ -24,32 +24,26 @@ pub(super) fn render_turn(
     app: &OneChat,
     turn: &Turn,
     message_max_width: f32,
-    colors: Colors,
     scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let response = app.visible_response(turn);
     div()
+        .id(SharedString::from(format!("turn-{}", turn.id)))
+        .relative()
         .w_full()
-        .child(render_user_message(
-            app,
-            turn,
-            message_max_width,
-            colors,
-            scale_factor,
-            cx,
-        ))
+        .child(render_user_message(app, turn, message_max_width, cx))
         .children(response.map(|response| {
-            render_assistant_message(
-                app,
-                turn,
-                response,
-                message_max_width,
-                colors,
-                scale_factor,
-                cx,
-            )
+            render_assistant_message(app, turn, response, message_max_width, scale_factor, cx)
         }))
+        .with_animation(
+            SharedString::from(format!("turn-appear-{}", turn.id)),
+            Animation::new(Duration::from_millis(240)).with_easing(ease_out_quint()),
+            |turn, delta| {
+                turn.opacity(0.72 + delta * 0.28)
+                    .top(px(6.0 * (1.0 - delta)))
+            },
+        )
         .into_any_element()
 }
 
@@ -57,11 +51,10 @@ fn render_user_message(
     app: &OneChat,
     turn: &Turn,
     message_max_width: f32,
-    colors: Colors,
-    scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let user_message_max_width = message_max_width * USER_MESSAGE_WIDTH_RATIO;
+    let action_group: SharedString = format!("user-actions-{}", turn.id).into();
     let generating = app.is_current_generating();
     let editor = app.user_message_editor(turn);
     let editing = editor.is_some();
@@ -78,15 +71,35 @@ fn render_user_message(
         });
     let content = if let Some(editor) = editor {
         let save_id = turn.id.clone();
-        let width = user_editor_width(editor.read(cx).text(), user_message_max_width);
+        let save_on_mouse_down_id = save_id.clone();
+        let width = user_editor_width(&editor.read(cx).value(), user_message_max_width);
         div()
             .w(px(width))
-            .rounded_xl()
+            .rounded(px(18.0))
             .border_1()
-            .border_color(colors.border)
-            .bg(colors.panel)
+            .border_color(cx.theme().border)
+            .bg(cx.theme().popover)
             .p_3()
-            .child(div().w_full().min_w_0().overflow_hidden().child(editor))
+            .child(
+                div()
+                    .w_full()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_mouse_move(|_, _, cx| cx.stop_propagation())
+                    .on_mouse_up(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_mouse_up_out(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_action(
+                        cx.listener(|this, _: &InputEscape, _, cx| this.cancel_message_edit(cx)),
+                    )
+                    .child(
+                        Input::new(&editor)
+                            .aria_label("Edit user message")
+                            .bg(cx.theme().muted)
+                            .text_size(px(15.0))
+                            .line_height(px(24.0)),
+                    ),
+            )
             .child(
                 div()
                     .pt_3()
@@ -97,19 +110,31 @@ fn render_user_message(
                     .child(
                         large_icon_button(
                             SharedString::from(format!("cancel-edit-user-{}", turn.id)),
-                            Icon::Close,
+                            AppIcon::Close,
                             IconTone::Muted,
-                            colors,
-                            scale_factor,
+                            cx,
+                        )
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _, _, cx| {
+                                this.cancel_message_edit(cx);
+                                cx.stop_propagation();
+                            }),
                         )
                         .on_click(cx.listener(|this, _, _, cx| this.cancel_message_edit(cx))),
                     )
                     .child(
                         primary_icon_button(
                             SharedString::from(format!("save-edit-user-{}", turn.id)),
-                            Icon::Save,
-                            colors,
-                            scale_factor,
+                            AppIcon::Save,
+                            cx,
+                        )
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, _, _, cx| {
+                                this.save_user_edit(save_on_mouse_down_id.clone(), cx);
+                                cx.stop_propagation();
+                            }),
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.save_user_edit(save_id.clone(), cx)
@@ -120,11 +145,11 @@ fn render_user_message(
     } else {
         div()
             .max_w(px(user_message_max_width))
-            .rounded_xl()
-            .bg(colors.accent)
+            .rounded(px(18.0))
+            .bg(cx.theme().primary)
             .px_4()
             .py_3()
-            .text_color(colors.on_accent)
+            .text_color(cx.theme().primary_foreground)
             .whitespace_normal()
             .line_height(px(23.0))
             .child(SelectableText::new(
@@ -156,10 +181,9 @@ fn render_user_message(
                     .map(|branch_id| {
                         icon_button(
                             SharedString::from(format!("previous-user-branch-{}", turn.id)),
-                            Icon::ChevronLeft,
+                            AppIcon::ChevronLeft,
                             IconTone::Muted,
-                            colors,
-                            scale_factor,
+                            cx,
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.select_user_branch(branch_id.clone(), cx)
@@ -170,7 +194,7 @@ fn render_user_message(
                 div()
                     .px_1()
                     .text_size(px(11.0))
-                    .text_color(colors.muted)
+                    .text_color(cx.theme().muted_foreground)
                     .child(format!("{}/{}", branch_index + 1, branches.len())),
             )
             .children(
@@ -180,10 +204,9 @@ fn render_user_message(
                     .map(|branch_id| {
                         icon_button(
                             SharedString::from(format!("next-user-branch-{}", turn.id)),
-                            Icon::ChevronRight,
+                            AppIcon::ChevronRight,
                             IconTone::Muted,
-                            colors,
-                            scale_factor,
+                            cx,
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.select_user_branch(branch_id.clone(), cx)
@@ -191,16 +214,20 @@ fn render_user_message(
                     }),
             );
     }
-    let mut actions = div().flex().items_center().gap_1();
+    let mut actions = div()
+        .invisible()
+        .group_hover(action_group.clone(), |actions| actions.visible())
+        .flex()
+        .items_center()
+        .gap_1();
     if !editing {
         let copy_id = turn.id.clone();
         actions = actions.child(
             icon_button(
                 SharedString::from(format!("copy-user-message-{}", turn.id)),
-                Icon::Copy,
+                AppIcon::Copy,
                 IconTone::Muted,
-                colors,
-                scale_factor,
+                cx,
             )
             .on_click(cx.listener(move |this, _, _, cx| this.copy_user(copy_id.clone(), cx))),
         );
@@ -210,12 +237,13 @@ fn render_user_message(
         actions = actions.child(
             icon_button(
                 SharedString::from(format!("edit-user-message-{}", turn.id)),
-                Icon::Pencil,
+                AppIcon::Pencil,
                 IconTone::Muted,
-                colors,
-                scale_factor,
+                cx,
             )
-            .on_click(cx.listener(move |this, _, _, cx| this.begin_edit_user(edit_id.clone(), cx))),
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.begin_edit_user(edit_id.clone(), window, cx)
+            })),
         );
     }
     if can_add_response {
@@ -223,13 +251,12 @@ fn render_user_message(
         actions = actions.child(
             icon_button(
                 SharedString::from(format!("add-response-{}", turn.id)),
-                Icon::At,
+                AppIcon::At,
                 IconTone::Muted,
-                colors,
-                scale_factor,
+                cx,
             )
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.open_response_model_picker(turn_id.clone(), cx)
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.open_response_model_picker(turn_id.clone(), window, cx)
             })),
         );
     }
@@ -253,6 +280,7 @@ fn render_user_message(
         .justify_end()
         .child(
             div()
+                .group(action_group)
                 .max_w(px(user_message_max_width))
                 .min_w_0()
                 .flex()
@@ -269,11 +297,11 @@ fn render_assistant_message(
     turn: &Turn,
     message: &AssistantResponse,
     message_max_width: f32,
-    colors: Colors,
     scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let request = app.request_for_response(message);
+    let action_group: SharedString = format!("assistant-actions-{}", message.id).into();
     let assistant_label = format!("{} · {}", message.model_name, message.provider_name);
     let waiting = message.content.is_empty()
         && matches!(
@@ -285,13 +313,30 @@ fn render_assistant_message(
     let editing_any = app.active_message_editor().is_some();
     let content = if let Some(editor) = editor {
         let save_id = message.id.clone();
+        let save_on_mouse_down_id = save_id.clone();
         div()
             .rounded_xl()
             .border_1()
-            .border_color(colors.border)
-            .bg(colors.panel)
+            .border_color(cx.theme().border)
+            .bg(cx.theme().popover)
             .p_3()
-            .child(editor)
+            .child(
+                div()
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_mouse_move(|_, _, cx| cx.stop_propagation())
+                    .on_mouse_up(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_mouse_up_out(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .on_action(
+                        cx.listener(|this, _: &InputEscape, _, cx| this.cancel_message_edit(cx)),
+                    )
+                    .child(
+                        Input::new(&editor)
+                            .aria_label("Edit assistant response")
+                            .bg(cx.theme().muted)
+                            .text_size(px(15.0))
+                            .line_height(px(24.0)),
+                    ),
+            )
             .child(
                 div()
                     .pt_3()
@@ -302,19 +347,31 @@ fn render_assistant_message(
                     .child(
                         large_icon_button(
                             SharedString::from(format!("cancel-edit-message-{}", message.id)),
-                            Icon::Close,
+                            AppIcon::Close,
                             IconTone::Muted,
-                            colors,
-                            scale_factor,
+                            cx,
+                        )
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _, _, cx| {
+                                this.cancel_message_edit(cx);
+                                cx.stop_propagation();
+                            }),
                         )
                         .on_click(cx.listener(|this, _, _, cx| this.cancel_message_edit(cx))),
                     )
                     .child(
                         primary_icon_button(
                             SharedString::from(format!("save-edit-message-{}", message.id)),
-                            Icon::Save,
-                            colors,
-                            scale_factor,
+                            AppIcon::Save,
+                            cx,
+                        )
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, _, _, cx| {
+                                this.save_assistant_edit(save_on_mouse_down_id.clone(), cx);
+                                cx.stop_propagation();
+                            }),
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.save_assistant_edit(save_id.clone(), cx)
@@ -327,8 +384,8 @@ fn render_assistant_message(
             .flex()
             .items_center()
             .gap_2()
-            .text_color(colors.muted)
-            .child(div().size(px(7.0)).rounded_full().bg(colors.accent))
+            .text_color(cx.theme().muted_foreground)
+            .child(div().size(px(7.0)).rounded_full().bg(cx.theme().primary))
             .child(if message.thinking.is_empty() {
                 "Contacting provider…"
             } else {
@@ -340,16 +397,11 @@ fn render_assistant_message(
             document,
             &message.id,
             &app.chat.text_selection,
-            colors,
             scale_factor,
+            cx,
         )
     } else {
-        markdown::render_plain(
-            &message.content,
-            &message.id,
-            &app.chat.text_selection,
-            colors,
-        )
+        markdown::render_plain(&message.content, &message.id, &app.chat.text_selection, cx)
     };
 
     let latest = app.is_latest_turn(&turn.id);
@@ -378,10 +430,9 @@ fn render_assistant_message(
             group = group.child(
                 icon_button(
                     SharedString::from(format!("copy-message-{}", message.id)),
-                    Icon::Copy,
+                    AppIcon::Copy,
                     IconTone::Muted,
-                    colors,
-                    scale_factor,
+                    cx,
                 )
                 .on_click(
                     cx.listener(move |this, _, _, cx| this.copy_assistant(copy_id.clone(), cx)),
@@ -390,23 +441,22 @@ fn render_assistant_message(
         }
         if can_edit {
             let edit_id = message.id.clone();
-            group =
-                group.child(
-                    icon_button(
-                        SharedString::from(format!("edit-message-{}", message.id)),
-                        Icon::Pencil,
-                        if editing {
-                            IconTone::Accent
-                        } else {
-                            IconTone::Muted
-                        },
-                        colors,
-                        scale_factor,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.begin_edit_assistant(edit_id.clone(), cx)
-                    })),
-                );
+            group = group.child(
+                icon_button(
+                    SharedString::from(format!("edit-message-{}", message.id)),
+                    AppIcon::Pencil,
+                    if editing {
+                        IconTone::Accent
+                    } else {
+                        IconTone::Muted
+                    },
+                    cx,
+                )
+                .selected(editing)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.begin_edit_assistant(edit_id.clone(), window, cx)
+                })),
+            );
         }
         Some(group)
     } else {
@@ -420,10 +470,9 @@ fn render_assistant_message(
             group = group.child(
                 icon_button(
                     SharedString::from(format!("regenerate-message-{}", message.id)),
-                    Icon::Regenerate,
+                    AppIcon::Regenerate,
                     IconTone::Muted,
-                    colors,
-                    scale_factor,
+                    cx,
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.regenerate_assistant(regenerate_id.clone(), cx)
@@ -436,10 +485,9 @@ fn render_assistant_message(
             group = group.child(
                 icon_button(
                     SharedString::from(format!("use-response-context-{}", message.id)),
-                    Icon::ContextSelect,
+                    AppIcon::ContextSelect,
                     IconTone::Muted,
-                    colors,
-                    scale_factor,
+                    cx,
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.use_response_for_context(
@@ -461,10 +509,9 @@ fn render_assistant_message(
             div().flex().items_center().gap_1().child(
                 icon_button(
                     SharedString::from(format!("fork-message-{}", message.id)),
-                    Icon::Fork,
+                    AppIcon::Fork,
                     IconTone::Muted,
-                    colors,
-                    scale_factor,
+                    cx,
                 )
                 .on_click(
                     cx.listener(move |this, _, _, cx| this.fork_from_response(fork_id.clone(), cx)),
@@ -481,10 +528,9 @@ fn render_assistant_message(
             div().flex().items_center().gap_1().child(
                 icon_button(
                     SharedString::from(format!("info-message-{}", message.id)),
-                    Icon::Info,
+                    AppIcon::Info,
                     IconTone::Muted,
-                    colors,
-                    scale_factor,
+                    cx,
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.inspect_message_request(info_id.clone(), cx)
@@ -496,6 +542,8 @@ fn render_assistant_message(
     };
 
     let actions = div()
+        .invisible()
+        .group_hover(action_group.clone(), |actions| actions.visible())
         .flex()
         .items_center()
         .gap_2()
@@ -504,8 +552,17 @@ fn render_assistant_message(
         .children(conversation_actions)
         .children(info_actions);
 
-    let header = if turn.responses.len() > 1 {
-        let mut tabs = div().mb_3().flex().flex_wrap().items_center().gap_1();
+    let multiple_responses = turn.responses.len() > 1;
+    let header_content = if multiple_responses {
+        let mut tabs = div()
+            .id(SharedString::from(format!("response-tabs-{}", turn.id)))
+            .min_w_0()
+            .flex_1()
+            .flex()
+            .items_center()
+            .gap_1()
+            .overflow_x_scroll()
+            .restrict_scroll_to_axis();
         for response in &turn.responses {
             let selected = response.id == message.id;
             let context = turn.continuation_response_id.as_deref() == Some(&response.id);
@@ -515,36 +572,34 @@ fn render_assistant_message(
                 MessageStatus::Stopped => "  ·  ■",
                 MessageStatus::Completed => "",
             };
-            let label = format!("{}{}", response.model_name, status);
+            let label = format!(
+                "{} · {}{}",
+                response.model_name, response.provider_name, status
+            );
             let tab_turn_id = turn.id.clone();
             let tab_response_id = response.id.clone();
             tabs = tabs.child(
-                compact_button(
+                response_tab_button(
                     SharedString::from(format!("response-tab-{}", response.id)),
                     label,
-                    colors,
                 )
+                .selected(selected)
                 .flex()
                 .items_center()
                 .gap_1()
-                .children(context.then(|| {
-                    render_icon(
-                        Icon::ContextSelected,
-                        IconTone::Accent,
-                        colors,
-                        scale_factor,
-                        13.0,
-                    )
-                }))
+                .children(
+                    context
+                        .then(|| render_icon(AppIcon::ContextSelected, IconTone::Accent, 15.0, cx)),
+                )
                 .bg(if selected {
-                    colors.accent_soft
+                    cx.theme().accent
                 } else {
-                    rgba(0x00000000)
+                    cx.theme().transparent
                 })
                 .text_color(if selected {
-                    colors.accent
+                    cx.theme().primary
                 } else {
-                    colors.muted
+                    cx.theme().muted_foreground
                 })
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.show_response(tab_turn_id.clone(), tab_response_id.clone(), cx)
@@ -554,35 +609,35 @@ fn render_assistant_message(
         tabs.into_any_element()
     } else {
         div()
-            .mb_3()
-            .flex()
-            .items_center()
-            .gap_2()
-            .child(
-                div()
-                    .size(px(24.0))
-                    .rounded_lg()
-                    .bg(colors.accent_soft)
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .text_size(px(11.0))
-                    .text_color(colors.accent)
-                    .child("✦"),
-            )
-            .child(
-                div()
-                    .text_size(px(12.0))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(colors.muted)
-                    .child(assistant_label),
-            )
-            .children(
-                (!matches!(message.status, MessageStatus::Completed))
-                    .then(|| status_badge(message.status, colors)),
-            )
+            .text_size(px(12.0))
+            .font_weight(FontWeight::SEMIBOLD)
+            .text_color(cx.theme().muted_foreground)
+            .child(assistant_label)
             .into_any_element()
     };
+    let header = div()
+        .mb_3()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(
+            div()
+                .size(px(24.0))
+                .flex_none()
+                .rounded_lg()
+                .bg(cx.theme().accent)
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_size(px(11.0))
+                .text_color(cx.theme().primary)
+                .child(render_icon(AppIcon::Sparkles, IconTone::Accent, 13.0, cx)),
+        )
+        .child(header_content)
+        .children(
+            (!multiple_responses && !matches!(message.status, MessageStatus::Completed))
+                .then(|| status_badge(message.status, cx)),
+        );
     let stats = request.map(format_message_stats).unwrap_or_default();
     div()
         .id(SharedString::from(format!(
@@ -590,21 +645,15 @@ fn render_assistant_message(
             message.id
         )))
         .mx_auto()
+        .group(action_group)
         .mb_8()
         .w_full()
         .max_w(px(message_max_width))
         .child(header)
-        .children(render_reasoning(
-            app,
-            message,
-            request,
-            colors,
-            scale_factor,
-            cx,
-        ))
+        .children(render_reasoning(app, message, request, cx))
         .child(content)
         .children(render_error_card(
-            app, message, request, latest, generating, colors, cx,
+            app, message, request, latest, generating, cx,
         ))
         .child(
             div()
@@ -621,7 +670,7 @@ fn render_assistant_message(
                         .flex_1()
                         .text_right()
                         .text_size(px(11.0))
-                        .text_color(colors.muted)
+                        .text_color(cx.theme().muted_foreground)
                         .child(stats)
                 })),
         )
@@ -632,8 +681,6 @@ fn render_reasoning(
     app: &OneChat,
     message: &AssistantResponse,
     request: Option<&RequestInfo>,
-    colors: Colors,
-    scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> Option<AnyElement> {
     if message.thinking.is_empty() {
@@ -655,15 +702,19 @@ fn render_reasoning(
         controls = controls.child(
             div()
                 .rounded_full()
-                .bg(colors.panel)
+                .bg(cx.theme().popover)
                 .px_2()
                 .py_1()
                 .flex()
                 .items_center()
                 .gap_1()
                 .text_size(px(10.0))
-                .text_color(if live { colors.accent } else { colors.muted })
-                .children(live.then(|| div().size(px(5.0)).rounded_full().bg(colors.accent)))
+                .text_color(if live {
+                    cx.theme().primary
+                } else {
+                    cx.theme().muted_foreground
+                })
+                .children(live.then(|| div().size(px(5.0)).rounded_full().bg(cx.theme().primary)))
                 .child(duration),
         );
     }
@@ -672,13 +723,12 @@ fn render_reasoning(
         icon_button(
             SharedString::from(format!("thinking-{}", message.id)),
             if expanded {
-                Icon::ChevronUp
+                AppIcon::ChevronUp
             } else {
-                Icon::ChevronDown
+                AppIcon::ChevronDown
             },
             IconTone::Accent,
-            colors,
-            scale_factor,
+            cx,
         )
         .on_click(
             cx.listener(move |this, _, _, cx| this.toggle_thinking(thinking_id.clone(), live, cx)),
@@ -708,7 +758,7 @@ fn render_reasoning(
             SharedString::from(format!("thinking-text-{}", message.id)),
             message.thinking.clone(),
             app.chat.text_selection.clone(),
-            selection_color(colors.dark),
+            selection_color(cx.theme().is_dark()),
         ));
     let body = if let Some(scroll) = scroll.as_ref() {
         body.track_scroll(scroll)
@@ -768,7 +818,7 @@ fn render_reasoning(
                 if should_capture_nested_scroll(
                     f32::from(delta_y),
                     f32::from(offset_before_event),
-                    f32::from(scroll.max_offset().height),
+                    f32::from(scroll.max_offset().y),
                 ) {
                     cx.stop_propagation();
                 }
@@ -781,11 +831,11 @@ fn render_reasoning(
         div()
             .mb_4()
             .rounded_xl()
-            .bg(colors.raised)
+            .bg(cx.theme().muted)
             .p_4()
             .text_sm()
             .line_height(px(22.0))
-            .text_color(colors.muted)
+            .text_color(cx.theme().muted_foreground)
             .child(
                 div()
                     .pb_2()
@@ -846,7 +896,7 @@ pub(super) fn format_message_stats(request: &RequestInfo) -> String {
     stats.join("  ·  ")
 }
 
-fn status_badge(status: MessageStatus, colors: Colors) -> AnyElement {
+fn status_badge(status: MessageStatus, cx: &App) -> AnyElement {
     let label = match status {
         MessageStatus::Pending => "Sending",
         MessageStatus::Streaming => "Writing",
@@ -859,18 +909,22 @@ fn status_badge(status: MessageStatus, colors: Colors) -> AnyElement {
     div()
         .rounded_full()
         .bg(if danger {
-            if colors.dark {
-                rgba(0xff453a24)
+            if cx.theme().is_dark() {
+                rgba(0xff453a24).into()
             } else {
-                rgba(0xd7001518)
+                rgba(0xd7001518).into()
             }
         } else {
-            colors.raised
+            cx.theme().muted
         })
         .px_2()
         .py_1()
         .text_size(px(11.0))
-        .text_color(if danger { colors.danger } else { colors.muted })
+        .text_color(if danger {
+            cx.theme().danger
+        } else {
+            cx.theme().muted_foreground
+        })
         .child(label)
         .into_any_element()
 }
@@ -881,7 +935,6 @@ fn render_error_card(
     request: Option<&RequestInfo>,
     latest: bool,
     generating: bool,
-    colors: Colors,
     cx: &mut Context<OneChat>,
 ) -> Option<AnyElement> {
     if !matches!(
@@ -906,7 +959,7 @@ fn render_error_card(
         div()
             .mt_4()
             .rounded_xl()
-            .bg(if colors.dark {
+            .bg(if cx.theme().is_dark() {
                 rgba(0xff453a16)
             } else {
                 rgba(0xd700150d)
@@ -919,39 +972,43 @@ fn render_error_card(
                 div()
                     .text_sm()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(colors.danger)
+                    .text_color(cx.theme().danger)
                     .child(summary),
             )
             .children(expanded.then(|| {
-                div().text_sm().text_color(colors.muted).child(
-                    detail
-                        .clone()
-                        .unwrap_or_else(|| "No technical details were returned.".into()),
-                )
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(
+                        detail
+                            .clone()
+                            .unwrap_or_else(|| "No technical details were returned.".into()),
+                    )
             }))
             .child(
                 div()
                     .flex()
                     .gap_2()
                     .children((latest && !generating).then(|| {
-                        primary_button(
+                        primary_icon_button(
                             SharedString::from(format!("retry-message-{}", message.id)),
-                            "Try Again",
-                            colors,
+                            AppIcon::Regenerate,
+                            cx,
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.regenerate_assistant(retry_id.clone(), cx)
                         }))
                     }))
                     .children(detail.map(|_| {
-                        button(
+                        large_icon_button(
                             SharedString::from(format!("error-detail-{}", message.id)),
                             if expanded {
-                                "Hide Details"
+                                AppIcon::ChevronUp
                             } else {
-                                "Show Details"
+                                AppIcon::ChevronDown
                             },
-                            colors,
+                            IconTone::Muted,
+                            cx,
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.toggle_error_detail(detail_id.clone(), cx)

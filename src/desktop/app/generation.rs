@@ -6,20 +6,25 @@ enum AutoTitleUpdate {
     ClaimFailed(String),
 }
 
+fn attempt_composer_submission(prompt: String, start: impl FnOnce(String) -> bool) -> bool {
+    !prompt.trim().is_empty() && start(prompt)
+}
+
 impl OneChat {
     pub(crate) fn is_current_generating(&self) -> bool {
         self.current_conversation()
             .is_some_and(|conversation| self.chat.generations.is_active(&conversation.id))
     }
 
-    pub(crate) fn send_composer(&mut self, cx: &mut Context<Self>) {
-        let prompt = self
-            .chat
-            .composer
-            .update(cx, |composer, cx| composer.take_text(cx));
-        if let Some(prompt) = prompt {
-            self.start_generation(prompt, cx);
+    pub(crate) fn send_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let prompt = self.chat.composer.read(cx).value().to_string();
+        if !attempt_composer_submission(prompt, |prompt| self.start_generation(prompt, cx)) {
+            return;
         }
+
+        self.chat.composer.update(cx, |composer, cx| {
+            composer.set_value("", window, cx);
+        });
     }
 
     pub(crate) fn stop_current_generation(&mut self, cx: &mut Context<Self>) {
@@ -29,13 +34,16 @@ impl OneChat {
         }
     }
 
-    pub(super) fn start_generation(&mut self, prompt: String, cx: &mut Context<Self>) {
+    pub(super) fn start_generation(&mut self, prompt: String, cx: &mut Context<Self>) -> bool {
+        if self.is_current_generating() {
+            return false;
+        }
         let (conversation, provider, model) = match self.generation_target(None) {
             Ok(target) => target,
             Err(error) => {
                 self.data.error = Some(error);
                 cx.notify();
-                return;
+                return false;
             }
         };
         let parent_response_id = self
@@ -51,7 +59,7 @@ impl OneChat {
         }) {
             self.data.error = Some("Choose a completed response before continuing.".into());
             cx.notify();
-            return;
+            return false;
         }
         let prepared = PreparedGeneration::new(
             &conversation,
@@ -62,6 +70,7 @@ impl OneChat {
             prompt,
         );
         self.begin_prepared_generation(prepared, cx);
+        true
     }
 
     pub(crate) fn start_additional_response(
@@ -610,5 +619,31 @@ impl OneChat {
             self.chat.message_scroll.scroll_to_bottom();
         }
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::attempt_composer_submission;
+
+    #[test]
+    fn blank_composer_submission_is_ignored_without_starting() {
+        let called = Cell::new(false);
+        let started = attempt_composer_submission("  \n\t".into(), |_| {
+            called.set(true);
+            true
+        });
+
+        assert!(!started);
+        assert!(!called.get());
+    }
+
+    #[test]
+    fn composer_clears_only_after_generation_starts() {
+        let draft = "keep this draft".to_string();
+        assert!(!attempt_composer_submission(draft.clone(), |_| false));
+        assert!(attempt_composer_submission(draft, |_| true));
     }
 }

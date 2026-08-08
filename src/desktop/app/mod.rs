@@ -18,8 +18,18 @@ use std::{
 };
 
 use gpui::{
-    ClipboardItem, Context, Entity, FocusHandle, Render, ScrollHandle, ScrollWheelEvent, Task,
-    Window, ease_out_quint, prelude::*,
+    App, ClipboardItem, Context, Entity, FocusHandle, Focusable as _, Render, ScrollHandle,
+    ScrollWheelEvent, Task, Window, prelude::*, px,
+};
+use gpui_component::{
+    WindowExt as _,
+    button::{Button, ButtonVariants as _},
+    combobox::ComboboxEvent,
+    dialog::DialogFooter,
+    input::{InputEvent, InputState},
+    list::{ListEvent, ListState},
+    select::{SelectEvent, SelectState},
+    slider::{SliderEvent, SliderState},
 };
 use tokio::runtime::Runtime;
 use tokio_util::sync::CancellationToken;
@@ -34,18 +44,21 @@ use crate::{
         title::generate_title,
     },
     desktop::ui::{
-        composer::{Composer, ComposerEvent, PickerDirection},
-        inspector::{GenerationConfigEditor, GenerationParameter, InspectorTab},
+        inspector::{
+            GenerationConfigEditor, GenerationParameter, GenerationParameterItem, InspectorTab,
+        },
         selectable_text::TextSelection,
-        settings::{Capability, ModelEditor, PromptPresetEditor, ProviderEditor, SettingsSection},
-        shell,
+        settings::{
+            Capability, DefaultModelItem, ModelEditor, PromptPresetEditor, PromptSelectItem,
+            ProviderEditor, SettingsSection,
+        },
+        shell::{self, CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate},
         stream::follow_after_scroll,
     },
     domain::{
         AppSettings, AssistantResponse, AutoTitleState, ChatMessage, Conversation,
-        DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, MessageStatus, Model, Provider, ProviderKind,
-        RequestInfo, SystemPromptPreset, Theme, Turn, active_turns, new_id, now_timestamp,
-        user_branches,
+        DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, MessageStatus, Model, Provider, RequestInfo,
+        SystemPromptPreset, Theme, Turn, active_turns, new_id, now_timestamp, user_branches,
     },
     markdown::MarkdownDocument,
     providers::{self, AvailableModel},
@@ -68,9 +81,30 @@ pub(crate) enum DestructiveAction {
     ClearContext { conversation_id: String },
 }
 
+impl DestructiveAction {
+    fn title(&self) -> &'static str {
+        match self {
+            Self::DeleteConversation { .. } => "Delete Conversation?",
+            Self::DeleteProvider { .. } => "Delete Provider?",
+            Self::DeleteModel { .. } => "Delete Model?",
+            Self::DeletePromptPreset { .. } => "Delete Prompt Preset?",
+            Self::ClearContext { .. } => "Clear Conversation?",
+        }
+    }
+
+    fn description(&self) -> &'static str {
+        match self {
+            Self::ClearContext { .. } => {
+                "This removes the conversation context used for future responses."
+            }
+            _ => "This action cannot be undone.",
+        }
+    }
+}
+
 struct RenameEditor {
     conversation_id: String,
-    input: Entity<Composer>,
+    input: Entity<InputState>,
 }
 
 enum MessageEditorTarget {
@@ -80,7 +114,28 @@ enum MessageEditorTarget {
 
 struct MessageEditor {
     target: MessageEditorTarget,
-    input: Entity<Composer>,
+    input: Entity<InputState>,
+}
+
+fn is_composer_submit(event: &InputEvent) -> bool {
+    matches!(event, InputEvent::PressEnter { shift: false, .. })
+}
+
+fn multiline_input(
+    value: impl Into<String>,
+    placeholder: impl Into<gpui::SharedString>,
+    window: &mut Window,
+    cx: &mut Context<InputState>,
+) -> InputState {
+    let value = value.into();
+    let cursor = value.len();
+    let mut input = InputState::new(window, cx)
+        .auto_grow(1, 8)
+        .soft_wrap(true)
+        .placeholder(placeholder)
+        .default_value(value);
+    input.set_selected_range(cursor..cursor, cx);
+    input
 }
 
 struct CachedMarkdown {
@@ -211,7 +266,7 @@ impl PaletteCommand {
         }
     }
 
-    fn matches(self, query: &str) -> bool {
+    pub(crate) fn matches(self, query: &str) -> bool {
         let query = query.trim().to_lowercase();
         query.is_empty()
             || self.label().to_lowercase().contains(&query)
@@ -222,8 +277,6 @@ impl PaletteCommand {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PendingFocus {
     Root,
-    CommandPalette,
-    ModelPicker,
     ConversationSearch,
     SystemPrompt,
     SettingsPrompt,
@@ -242,56 +295,180 @@ pub struct OneChat {
     pub(crate) overlays: OverlayState,
     pub(crate) chat: ChatState,
     pub(crate) settings_ui: SettingsState,
+    pub(crate) applied_component_theme: Option<gpui_component::ThemeMode>,
 }
 
 impl OneChat {
-    pub fn new(storage: Arc<Storage>, runtime: Arc<Runtime>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        storage: Arc<Storage>,
+        runtime: Arc<Runtime>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
         let root_focus = cx.focus_handle();
-        let search_input = cx.new(|cx| Composer::single_line("", "Search conversations", cx));
-        cx.subscribe(&search_input, |this, _, event, cx| {
-            if let ComposerEvent::Changed(query) = event {
-                this.sidebar.search_query = query.clone();
+        let applied_component_theme = Some(crate::desktop::ui::theme::component_mode(
+            Theme::System,
+            window.appearance(),
+        ));
+        let search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
+        cx.subscribe(&search_input, |_, _, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::Change) {
                 cx.notify();
             }
         })
         .detach();
 
-        let composer = cx.new(Composer::new);
-        cx.subscribe(&composer, |this, _, event, cx| {
-            if let ComposerEvent::Submit(prompt) = event {
-                this.start_generation(prompt.clone(), cx);
-            }
-        })
+        let composer = cx.new(|cx| {
+            InputState::new(window, cx)
+                .auto_grow(1, 8)
+                .soft_wrap(true)
+                .submit_on_enter(true)
+                .placeholder("Message")
+        });
+        cx.subscribe_in(
+            &composer,
+            window,
+            |this, _, event: &InputEvent, window, cx| {
+                if is_composer_submit(event) {
+                    this.send_composer(window, cx);
+                } else if matches!(event, InputEvent::Change) {
+                    cx.notify();
+                }
+            },
+        )
         .detach();
 
-        let command_input = cx.new(|cx| Composer::picker("Type a command…", cx));
-        cx.subscribe(&command_input, |this, _, event, cx| match event {
-            ComposerEvent::Changed(query) => {
-                this.overlays.command_query = query.clone();
-                this.overlays.command_selection = 0;
-                this.overlays.command_scroll.scroll_to_item(0);
-                cx.notify();
-            }
-            ComposerEvent::Submit(_) => this.confirm_command(cx),
-            ComposerEvent::Navigate(direction) => this.navigate_command(*direction, cx),
-            ComposerEvent::Cancel => this.close_command_palette(cx),
-        })
+        let command_picker =
+            cx.new(|cx| ListState::new(CommandPaletteDelegate::new(), window, cx).searchable(true));
+        cx.subscribe_in(
+            &command_picker,
+            window,
+            |this, picker, event: &ListEvent, window, cx| {
+                let ListEvent::Confirm(index) = event else {
+                    return;
+                };
+                let command = picker.read(cx).delegate().command(*index);
+                if let Some(command) = command {
+                    window.close_dialog(cx);
+                    this.execute_command(command, window, cx);
+                }
+            },
+        )
         .detach();
 
-        let model_search_input = cx.new(|cx| Composer::picker("Search models…", cx));
-        cx.subscribe(&model_search_input, |this, _, event, cx| match event {
-            ComposerEvent::Changed(query) => {
-                this.overlays.model_query = query.clone();
-                this.overlays.model_selection = this.initial_model_selection();
-                this.overlays
-                    .model_scroll
-                    .scroll_to_item(this.overlays.model_selection);
-                cx.notify();
-            }
-            ComposerEvent::Submit(_) => this.confirm_model(cx),
-            ComposerEvent::Navigate(direction) => this.navigate_model(*direction, cx),
-            ComposerEvent::Cancel => this.close_model_picker(cx),
-        })
+        let model_picker =
+            cx.new(|cx| ListState::new(ModelPickerDelegate::empty(), window, cx).searchable(true));
+        cx.subscribe_in(
+            &model_picker,
+            window,
+            |this, picker, event: &ListEvent, window, cx| {
+                let ListEvent::Confirm(index) = event else {
+                    return;
+                };
+                let model_id = picker.read(cx).delegate().selected_model_id(*index);
+                if let Some(model_id) = model_id {
+                    window.close_dialog(cx);
+                    this.select_model(model_id, cx);
+                }
+            },
+        )
+        .detach();
+
+        let prompt_picker =
+            cx.new(|cx| ListState::new(PromptPickerDelegate::empty(), window, cx).searchable(true));
+        cx.subscribe_in(
+            &prompt_picker,
+            window,
+            |this, picker, event: &ListEvent, window, cx| {
+                let ListEvent::Confirm(index) = event else {
+                    return;
+                };
+                let name = picker.read(cx).delegate().selected_name(*index);
+                if let Some(name) = name {
+                    window.close_dialog(cx);
+                    this.select_system_prompt_preset(name, cx);
+                }
+            },
+        )
+        .detach();
+
+        let message_width_slider = cx.new(|_| {
+            SliderState::new()
+                .min(crate::domain::MIN_MESSAGE_WIDTH_RATIO)
+                .max(crate::domain::MAX_MESSAGE_WIDTH_RATIO)
+                .step(0.01)
+                .default_value(AppSettings::default().message_width_ratio())
+        });
+        cx.subscribe(
+            &message_width_slider,
+            |this, _, event: &SliderEvent, cx| match event {
+                SliderEvent::Change(value) => {
+                    this.update_message_width_ratio(value.start(), cx);
+                }
+                SliderEvent::Release(value) => {
+                    this.update_message_width_ratio(value.start(), cx);
+                    this.save_settings(cx);
+                }
+            },
+        )
+        .detach();
+
+        let background_opacity_slider = cx.new(|_| {
+            SliderState::new()
+                .min(crate::domain::MIN_BACKGROUND_OPACITY)
+                .max(crate::domain::MAX_BACKGROUND_OPACITY)
+                .step(0.01)
+                .default_value(AppSettings::default().background_opacity())
+        });
+        cx.subscribe(
+            &background_opacity_slider,
+            |this, _, event: &SliderEvent, cx| match event {
+                SliderEvent::Change(value) => {
+                    this.update_background_opacity(value.start(), cx);
+                }
+                SliderEvent::Release(value) => {
+                    this.update_background_opacity(value.start(), cx);
+                    this.save_settings(cx);
+                }
+            },
+        )
+        .detach();
+
+        let primary_model_select =
+            cx.new(|cx| SelectState::new(Vec::<DefaultModelItem>::new(), None, window, cx));
+        cx.subscribe(
+            &primary_model_select,
+            |this, _, event: &SelectEvent<Vec<DefaultModelItem>>, cx| {
+                let SelectEvent::Confirm(value) = event;
+                this.select_default_model(DefaultModelRole::Primary, value.clone().flatten(), cx);
+            },
+        )
+        .detach();
+
+        let title_model_select =
+            cx.new(|cx| SelectState::new(Vec::<DefaultModelItem>::new(), None, window, cx));
+        cx.subscribe(
+            &title_model_select,
+            |this, _, event: &SelectEvent<Vec<DefaultModelItem>>, cx| {
+                let SelectEvent::Confirm(value) = event;
+                this.select_default_model(
+                    DefaultModelRole::TitleGeneration,
+                    value.clone().flatten(),
+                    cx,
+                );
+            },
+        )
+        .detach();
+
+        let default_prompt_select =
+            cx.new(|cx| SelectState::new(Vec::<PromptSelectItem>::new(), None, window, cx));
+        cx.subscribe(
+            &default_prompt_select,
+            |this, _, event: &SelectEvent<Vec<PromptSelectItem>>, cx| {
+                let SelectEvent::Confirm(value) = event;
+                this.select_default_prompt(value.clone().flatten(), cx);
+            },
+        )
         .detach();
 
         let text_selection = TextSelection::new(cx.focus_handle());
@@ -309,28 +486,21 @@ impl OneChat {
                 inspector_open: false,
                 inspector_tab: InspectorTab::default(),
                 pending_focus: None,
+                sidebar_motion: DrawerMotion::new(true),
                 inspector_motion: DrawerMotion::new(false),
+                inspector_pointer: InspectorPointerState::default(),
             },
             sidebar: SidebarState {
-                search_query: String::new(),
                 search_input,
                 hovered_conversation_id: None,
                 rename_editor: None,
             },
             overlays: OverlayState {
-                command_palette_open: false,
-                command_query: String::new(),
-                command_input,
-                command_selection: 0,
-                command_scroll: ScrollHandle::new(),
-                model_picker_open: false,
-                prompt_picker_open: false,
+                command_picker,
+                model_picker,
+                prompt_picker,
                 response_model_turn_id: None,
                 destructive_action: None,
-                model_query: String::new(),
-                model_search_input,
-                model_selection: 0,
-                model_scroll: ScrollHandle::new(),
             },
             chat: ChatState {
                 draft_model_id: None,
@@ -341,6 +511,7 @@ impl OneChat {
                 message_editor: None,
                 message_scroll: ScrollHandle::new(),
                 message_scroll_motion: MessageScrollMotion::new(),
+                jump_to_latest_motion: VisibilityMotion::new(false),
                 text_selection,
                 thinking_scrolls: HashMap::new(),
                 thinking_motions: HashMap::new(),
@@ -359,9 +530,14 @@ impl OneChat {
             },
             settings_ui: SettingsState {
                 section: SettingsSection::default(),
-                message_width_dragging: false,
-                default_model_menu: None,
-                default_prompt_menu_open: false,
+                background_opacity_slider,
+                message_width_slider,
+                primary_model_select,
+                title_model_select,
+                default_prompt_select,
+                synced_primary_models: Vec::new(),
+                synced_title_models: Vec::new(),
+                synced_prompts: Vec::new(),
                 viewed_prompt_preset: None,
                 prompt_preset_editor: None,
                 title_prompt_editor: None,
@@ -371,6 +547,7 @@ impl OneChat {
                 model_fetch_revision: 0,
                 form_error: None,
             },
+            applied_component_theme,
         };
         this.load_startup_snapshot(cx);
         this
@@ -378,16 +555,6 @@ impl OneChat {
 
     pub fn initial_focus_handle(&self, _: &gpui::App) -> FocusHandle {
         self.root_focus.clone()
-    }
-}
-
-fn moved_selection(current: usize, len: usize, direction: PickerDirection) -> usize {
-    if len == 0 {
-        return 0;
-    }
-    match direction {
-        PickerDirection::Previous => current.checked_sub(1).unwrap_or(len - 1),
-        PickerDirection::Next => (current + 1) % len,
     }
 }
 
@@ -400,6 +567,25 @@ impl Render for OneChat {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn composer_submits_only_on_unshifted_enter() {
+        assert!(is_composer_submit(&InputEvent::PressEnter {
+            secondary: false,
+            shift: false,
+        }));
+        assert!(!is_composer_submit(&InputEvent::PressEnter {
+            secondary: false,
+            shift: true,
+        }));
+    }
+
+    #[test]
+    fn composer_change_events_do_not_submit_during_ime_updates() {
+        assert!(!is_composer_submit(&InputEvent::Change));
+        assert!(!is_composer_submit(&InputEvent::Focus));
+        assert!(!is_composer_submit(&InputEvent::Blur));
+    }
 
     #[test]
     fn title_transition_deletes_before_typing() {
@@ -438,12 +624,5 @@ mod tests {
                 .into_iter()
                 .all(|command| command.matches(""))
         );
-    }
-
-    #[test]
-    fn picker_navigation_wraps_and_handles_empty_results() {
-        assert_eq!(moved_selection(0, 3, PickerDirection::Previous), 2);
-        assert_eq!(moved_selection(2, 3, PickerDirection::Next), 0);
-        assert_eq!(moved_selection(4, 0, PickerDirection::Next), 0);
     }
 }

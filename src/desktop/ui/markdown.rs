@@ -3,12 +3,12 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-use gpui::{AnyElement, FontWeight, Image, ImageFormat, SharedString, div, img, prelude::*, px};
-
-use super::{
-    selectable_text::{SelectableText, TextSelection, selection_color},
-    theme::Colors,
+use gpui::{
+    AnyElement, App, FontWeight, Image, ImageFormat, SharedString, div, img, prelude::*, px,
 };
+use gpui_component::{ActiveTheme as _, ThemeMode};
+
+use super::selectable_text::{SelectableText, TextSelection, selection_color};
 use crate::markdown::{
     Block, Formula, Inline, MarkdownDocument, TableAlignment, render_formula_cached,
 };
@@ -17,8 +17,8 @@ pub(crate) fn render(
     document: &MarkdownDocument,
     message_id: &str,
     selection: &TextSelection,
-    colors: Colors,
     scale_factor: f32,
+    cx: &App,
 ) -> AnyElement {
     let mut text_index = 0;
     render_blocks(
@@ -26,8 +26,8 @@ pub(crate) fn render(
         message_id,
         &mut text_index,
         selection,
-        colors,
         scale_factor,
+        cx,
     )
 }
 
@@ -35,19 +35,13 @@ pub(crate) fn render_plain(
     source: &str,
     message_id: &str,
     selection: &TextSelection,
-    colors: Colors,
+    cx: &App,
 ) -> AnyElement {
     div()
         .whitespace_normal()
         .line_height(px(24.0))
-        .child(selectable(
-            message_id,
-            0,
-            source.to_string(),
-            selection,
-            colors,
-        ))
-        .text_color(colors.text)
+        .child(selectable(message_id, 0, source.to_string(), selection, cx))
+        .text_color(cx.theme().foreground)
         .into_any_element()
 }
 
@@ -56,24 +50,19 @@ fn render_blocks(
     message_id: &str,
     text_index: &mut usize,
     selection: &TextSelection,
-    colors: Colors,
     scale_factor: f32,
+    cx: &App,
 ) -> AnyElement {
     div()
         .w_full()
         .flex()
         .flex_col()
         .gap_3()
-        .children(blocks.iter().map(|block| {
-            render_block(
-                block,
-                message_id,
-                text_index,
-                selection,
-                colors,
-                scale_factor,
-            )
-        }))
+        .children(
+            blocks.iter().map(|block| {
+                render_block(block, message_id, text_index, selection, scale_factor, cx)
+            }),
+        )
         .into_any_element()
 }
 
@@ -82,8 +71,8 @@ fn render_block(
     message_id: &str,
     text_index: &mut usize,
     selection: &TextSelection,
-    colors: Colors,
     scale_factor: f32,
+    cx: &App,
 ) -> AnyElement {
     match block {
         Block::Paragraph(inlines) => render_inlines(
@@ -91,8 +80,8 @@ fn render_block(
             message_id,
             text_index,
             selection,
-            colors,
             scale_factor,
+            cx,
             false,
         ),
         Block::Heading(level, inlines) => div()
@@ -109,25 +98,25 @@ fn render_block(
                 message_id,
                 text_index,
                 selection,
-                colors,
                 scale_factor,
+                cx,
                 false,
             ))
             .into_any_element(),
         Block::Quote(blocks) => div()
             .w_full()
             .border_l_2()
-            .border_color(colors.accent)
+            .border_color(cx.theme().primary)
             .pl_4()
             .py_1()
-            .text_color(colors.muted)
+            .text_color(cx.theme().muted_foreground)
             .child(render_blocks(
                 blocks,
                 message_id,
                 text_index,
                 selection,
-                colors,
                 scale_factor,
+                cx,
             ))
             .into_any_element(),
         Block::List {
@@ -149,7 +138,7 @@ fn render_block(
                         div()
                             .w(px(24.0))
                             .flex_none()
-                            .text_color(colors.muted)
+                            .text_color(cx.theme().muted_foreground)
                             .child(if *ordered {
                                 format!("{}.", start + index)
                             } else {
@@ -161,8 +150,8 @@ fn render_block(
                         message_id,
                         text_index,
                         selection,
-                        colors,
                         scale_factor,
+                        cx,
                     )))
             }))
             .into_any_element(),
@@ -170,16 +159,16 @@ fn render_block(
             .w_full()
             .rounded_lg()
             .border_1()
-            .border_color(colors.border)
-            .bg(colors.raised)
+            .border_color(cx.theme().border)
+            .bg(cx.theme().muted)
             .child(
                 div()
                     .px_3()
                     .py_2()
                     .border_b_1()
-                    .border_color(colors.border)
+                    .border_color(cx.theme().border)
                     .text_xs()
-                    .text_color(colors.muted)
+                    .text_color(cx.theme().muted_foreground)
                     .child(selectable(
                         message_id,
                         next_text_index(text_index),
@@ -189,7 +178,7 @@ fn render_block(
                             language.clone()
                         },
                         selection,
-                        colors,
+                        cx,
                     )),
             )
             .child(
@@ -206,11 +195,11 @@ fn render_block(
                         next_text_index(text_index),
                         content.clone(),
                         selection,
-                        colors,
+                        cx,
                     )),
             )
             .into_any_element(),
-        Block::Formula(formula) => render_formula_element(formula, colors, scale_factor),
+        Block::Formula(formula) => render_formula_element(formula, scale_factor, cx),
         Block::Table {
             alignments,
             header,
@@ -224,14 +213,14 @@ fn render_block(
             message_id,
             text_index,
             selection,
-            colors,
             scale_factor,
+            cx,
         ),
         Block::Rule => div()
             .w_full()
             .h(px(1.0))
             .my_2()
-            .bg(colors.border)
+            .bg(cx.theme().border)
             .into_any_element(),
     }
 }
@@ -241,8 +230,8 @@ fn render_inlines(
     message_id: &str,
     text_index: &mut usize,
     selection: &TextSelection,
-    colors: Colors,
     scale_factor: f32,
+    cx: &App,
     table_cell: bool,
 ) -> AnyElement {
     div()
@@ -265,29 +254,34 @@ fn render_inlines(
                     .when(style.code, |element| {
                         element
                             .rounded_md()
-                            .bg(colors.raised)
+                            .bg(cx.theme().muted)
                             .px_1()
                             .font_family("SFMono-Regular")
                             .text_sm()
                     })
-                    .when(style.link, |element| element.text_color(colors.accent))
+                    .when(style.link, |element| element.text_color(cx.theme().primary))
                     .child(selectable(
                         message_id,
                         next_text_index(text_index),
                         content,
                         selection,
-                        colors,
+                        cx,
                     ))
                     .into_any_element()
             }
-            Inline::Formula(formula) => render_formula_element(formula, colors, scale_factor),
+            Inline::Formula(formula) => render_formula_element(formula, scale_factor, cx),
             Inline::Break => div().w_full().h(px(1.0)).into_any_element(),
         }))
         .into_any_element()
 }
 
-fn render_formula_element(formula: &Formula, colors: Colors, scale_factor: f32) -> AnyElement {
-    match render_formula_cached(&formula.source, formula.display, colors.dark, scale_factor) {
+fn render_formula_element(formula: &Formula, scale_factor: f32, cx: &App) -> AnyElement {
+    match render_formula_cached(
+        &formula.source,
+        formula.display,
+        cx.theme().mode == ThemeMode::Dark,
+        scale_factor,
+    ) {
         Ok(rendered) => {
             let image =
                 std::sync::Arc::new(Image::from_bytes(ImageFormat::Svg, rendered.svg.clone()));
@@ -310,12 +304,12 @@ fn render_formula_element(formula: &Formula, colors: Colors, scale_factor: f32) 
         Err(error) => div()
             .rounded_md()
             .border_1()
-            .border_color(colors.danger)
-            .bg(colors.raised)
+            .border_color(cx.theme().danger)
+            .bg(cx.theme().muted)
             .px_2()
             .py_1()
             .text_sm()
-            .text_color(colors.danger)
+            .text_color(cx.theme().danger)
             .child(format!("{} · {error}", formula.source))
             .into_any_element(),
     }
@@ -332,8 +326,8 @@ fn render_table(
     message_id: &str,
     text_index: &mut usize,
     selection: &TextSelection,
-    colors: Colors,
     scale_factor: f32,
+    cx: &App,
 ) -> AnyElement {
     let columns = table
         .header
@@ -354,10 +348,12 @@ fn render_table(
                     .flex_1()
                     .border_r_1()
                     .border_b_1()
-                    .border_color(colors.border)
+                    .border_color(cx.theme().border)
                     .p_2()
                     .when(header_row, |element| {
-                        element.bg(colors.raised).font_weight(FontWeight::SEMIBOLD)
+                        element
+                            .bg(cx.theme().muted)
+                            .font_weight(FontWeight::SEMIBOLD)
                     })
                     .when(alignment == TableAlignment::Center, |element| {
                         element.text_center()
@@ -371,8 +367,8 @@ fn render_table(
                             message_id,
                             text_index,
                             selection,
-                            colors,
                             scale_factor,
+                            cx,
                             true,
                         )
                     }))
@@ -396,7 +392,7 @@ fn render_table(
         .overflow_scroll()
         .rounded_lg()
         .border_1()
-        .border_color(colors.border)
+        .border_color(cx.theme().border)
         .child(
             div()
                 .flex()
@@ -418,13 +414,13 @@ fn selectable(
     index: usize,
     content: String,
     selection: &TextSelection,
-    colors: Colors,
+    cx: &App,
 ) -> SelectableText {
     SelectableText::new(
         SharedString::from(format!("message-text-{message_id}-{index}")),
         content,
         selection.clone(),
-        selection_color(colors.dark),
+        selection_color(cx.theme().is_dark()),
     )
 }
 

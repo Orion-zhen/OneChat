@@ -1,22 +1,27 @@
 mod editor;
 
-pub use editor::{GenerationConfigEditor, GenerationParameter};
+pub use editor::{GenerationConfigEditor, GenerationParameter, GenerationParameterItem};
 
 use std::{fmt::Display, str::FromStr};
 
 use gpui::{
-    AnyElement, App, Context, Entity, FontWeight, SharedString, deferred, div, prelude::*, px,
+    AnyElement, App, Context, Entity, FontWeight, MouseButton, MouseDownEvent, MouseUpEvent,
+    SharedString, Window, div, prelude::*, px,
+};
+use gpui_component::{
+    ActiveTheme as _, Sizable as _,
+    alert::Alert,
+    button::{Button, ButtonVariants as _},
+    input::{Input, InputEvent, InputState, MaskPattern},
+    searchable_list::SearchableListItem,
+    select::{Select, SelectState},
+    tab::{Tab, TabBar},
 };
 use serde_json::{Map, Value};
 
-use super::{
-    components::{button, icon_button, large_icon_button, primary_button},
-    composer::Composer,
-    icons::{Icon, IconTone, render_icon},
-    theme::Colors,
-};
 use crate::{
     desktop::app::OneChat,
+    desktop::ui::icons::{AppIcon, IconTone, render_icon},
     domain::{Conversation, GenerationConfig, Model, RequestStatus},
 };
 
@@ -28,78 +33,122 @@ pub enum InspectorTab {
     Info,
 }
 
-impl InspectorTab {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Model => "Model",
-            Self::Context => "Context",
-            Self::Info => "Info",
-        }
+fn icon_action(
+    id: impl Into<gpui::ElementId>,
+    icon: AppIcon,
+    tone: IconTone,
+    tooltip: &'static str,
+    cx: &App,
+) -> Button {
+    Button::new(id)
+        .ghost()
+        .tooltip(tooltip)
+        .size(px(36.0))
+        .p_0()
+        .child(render_icon(icon, tone, 19.0, cx))
+}
+
+fn primary_icon_action(
+    id: impl Into<gpui::ElementId>,
+    icon: AppIcon,
+    tooltip: &'static str,
+    cx: &App,
+) -> Button {
+    icon_action(id, icon, IconTone::OnAccent, tooltip, cx).primary()
+}
+
+fn danger_icon_action(
+    id: impl Into<gpui::ElementId>,
+    icon: AppIcon,
+    tooltip: &'static str,
+    cx: &App,
+) -> Button {
+    icon_action(id, icon, IconTone::OnAccent, tooltip, cx).danger()
+}
+
+pub(crate) fn sync_controls(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>) {
+    app.sync_generation_config_editor(window, cx);
+    let capabilities = app.current_model().map(|model| model.capabilities.clone());
+    if let (Some(editor), Some(capabilities)) =
+        (&mut app.chat.generation_config_editor, capabilities)
+    {
+        editor.sync_parameter_select(&capabilities, window, cx);
     }
 }
 
-pub(crate) fn render(
-    app: &OneChat,
-    colors: Colors,
-    scale_factor: f32,
-    cx: &mut Context<OneChat>,
-) -> AnyElement {
-    let mut tabs = div().rounded_lg().bg(colors.raised).p_1().flex().gap_1();
-    for tab in [
-        InspectorTab::Model,
-        InspectorTab::Context,
-        InspectorTab::Info,
-    ] {
-        let id = match tab {
-            InspectorTab::Model => "inspector-tab-model",
-            InspectorTab::Context => "inspector-tab-context",
-            InspectorTab::Info => "inspector-tab-info",
-        };
-        let selected = app.navigation.inspector_tab == tab;
-        tabs = tabs.child(
-            div()
-                .id(id)
-                .flex_1()
-                .rounded_md()
-                .px_2()
-                .py_2()
-                .text_center()
-                .text_size(px(12.0))
-                .font_weight(if selected {
-                    FontWeight::SEMIBOLD
-                } else {
-                    FontWeight::NORMAL
-                })
-                .when(selected, |element| element.bg(colors.hover).shadow_sm())
-                .cursor_pointer()
-                .hover(move |style| style.bg(colors.hover))
-                .active(move |style| style.bg(colors.accent_soft))
-                .on_click(cx.listener(move |this, _, _, cx| this.set_inspector_tab(tab, cx)))
-                .child(tab.label()),
-        );
-    }
+pub(crate) fn render(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
+    let selected_tab = match app.navigation.inspector_tab {
+        InspectorTab::Model => 0,
+        InspectorTab::Context => 1,
+        InspectorTab::Info => 2,
+    };
+    let tabs = TabBar::new("inspector-tabs")
+        .segmented()
+        .large()
+        .w_full()
+        .selected_index(selected_tab)
+        .child(Tab::new().w(px(102.0)).label("Model"))
+        .child(Tab::new().w(px(102.0)).label("Context"))
+        .child(Tab::new().w(px(102.0)).label("Info"))
+        .on_click(cx.listener(|this, index: &usize, _, cx| {
+            let tab = [
+                InspectorTab::Model,
+                InspectorTab::Context,
+                InspectorTab::Info,
+            ][*index];
+            this.set_inspector_tab(tab, cx);
+        }));
 
     let content = match app.navigation.inspector_tab {
-        InspectorTab::Model => render_model(app, colors, scale_factor, cx),
-        InspectorTab::Context => render_context(app, colors, cx),
-        InspectorTab::Info => render_info(app, colors),
+        InspectorTab::Model => render_model(app, cx),
+        InspectorTab::Context => render_context(app, cx),
+        InspectorTab::Info => render_info(app, cx),
     };
 
     div()
         .absolute()
         .occlude()
-        .top_0()
-        .right_0()
-        .bottom_0()
-        .w(px(340.0))
+        .top(px(8.0))
+        .right(px(8.0))
+        .bottom(px(8.0))
+        .w(px(352.0))
         .shadow_lg()
-        .border_l_1()
-        .border_color(colors.border)
-        .bg(colors.toolbar)
+        .rounded(px(16.0))
+        .border_1()
+        .border_color(cx.theme().border)
+        .bg(cx.theme().popover)
         .p_4()
         .flex()
         .flex_col()
         .gap_4()
+        .when(app.navigation.inspector_open, |inspector| {
+            inspector
+                .capture_any_mouse_down(cx.listener(|this, event: &MouseDownEvent, _, _| {
+                    if event.button == MouseButton::Left {
+                        this.cancel_inspector_outside_press();
+                    }
+                }))
+                .on_mouse_down_out(cx.listener(|this, event: &MouseDownEvent, _, _| {
+                    if event.button == MouseButton::Left {
+                        this.begin_inspector_outside_press();
+                    }
+                }))
+                .capture_any_mouse_up(cx.listener(|this, event: &MouseUpEvent, _, _| {
+                    if event.button == MouseButton::Left {
+                        this.cancel_inspector_outside_press();
+                    }
+                }))
+                .on_mouse_up_out(
+                    MouseButton::Left,
+                    cx.listener(|this, _: &MouseUpEvent, window, cx| {
+                        if window.has_active_prompt() {
+                            this.cancel_inspector_outside_press();
+                        } else {
+                            this.release_inspector_outside(cx);
+                        }
+                    }),
+                )
+        })
         .child(
             div()
                 .flex()
@@ -112,14 +161,14 @@ pub(crate) fn render(
                         .child("Details"),
                 )
                 .child(
-                    large_icon_button(
+                    icon_action(
                         "close-inspector",
-                        Icon::Close,
+                        AppIcon::Close,
                         IconTone::Muted,
-                        colors,
-                        scale_factor,
+                        "Close details",
+                        cx,
                     )
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_inspector(cx))),
+                    .on_click(cx.listener(|this, _, _, cx| this.close_inspector(cx))),
                 ),
         )
         .child(tabs)
@@ -134,24 +183,24 @@ pub(crate) fn render(
         .into_any_element()
 }
 
-fn render_model(
-    app: &OneChat,
-    colors: Colors,
-    scale_factor: f32,
-    cx: &mut Context<OneChat>,
-) -> AnyElement {
+fn render_model(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
     let Some(conversation) = app.current_conversation() else {
-        return notice("Select a conversation to configure its model.", colors);
+        return notice("Select a conversation to configure its model.", cx);
     };
     let Some(model) = app.current_model() else {
         return div()
             .flex()
             .flex_col()
             .gap_3()
-            .child(notice("This conversation has no model.", colors))
+            .child(notice("This conversation has no model.", cx))
             .child(
-                button("inspector-choose-model-empty", "Choose model", colors)
-                    .on_click(cx.listener(|this, _, _, cx| this.open_model_picker(cx))),
+                primary_icon_action(
+                    "inspector-choose-model-empty",
+                    AppIcon::Layers,
+                    "Choose model",
+                    cx,
+                )
+                .on_click(cx.listener(|this, _, window, cx| this.open_model_picker(window, cx))),
             )
             .into_any_element();
     };
@@ -165,23 +214,23 @@ fn render_model(
         .filtered_for(&model.capabilities)
         .1;
     let Some(editor) = app.chat.generation_config_editor.as_ref() else {
-        return notice("Opening parameter editor…", colors);
+        return notice("Opening parameter editor…", cx);
     };
 
     let mut parameters = div()
         .flex()
         .flex_col()
         .gap_3()
-        .child(model_summary(model, provider, colors));
+        .child(model_summary(model, provider, cx));
 
     if !ignored.is_empty() {
         parameters = parameters.child(
             div()
                 .rounded_lg()
-                .bg(colors.accent_soft)
+                .bg(cx.theme().accent)
                 .p_3()
                 .text_sm()
-                .text_color(colors.muted)
+                .text_color(cx.theme().muted_foreground)
                 .child(format!(
                     "Not sent by this model: {}. The saved values are preserved.",
                     ignored.join(", ")
@@ -192,39 +241,24 @@ fn render_model(
     let capabilities = &model.capabilities;
     for parameter in GenerationParameter::ALL {
         if editor.is_active(parameter) && parameter.supported_by(capabilities) {
-            parameters = parameters.child(parameter_field(
-                parameter,
-                editor.input(parameter),
-                colors,
-                scale_factor,
-                cx,
-            ));
+            parameters = parameters.child(parameter_field(parameter, editor.input(parameter), cx));
         }
     }
 
     parameters
-        .child(add_parameter_select(
-            editor,
-            capabilities,
-            colors,
-            scale_factor,
-            cx,
-        ))
-        .children(app.chat.parameter_error.as_ref().map(|error| {
-            div()
-                .rounded_lg()
-                .bg(colors.raised)
-                .p_3()
-                .text_sm()
-                .text_color(colors.danger)
-                .child(error.clone())
-        }))
+        .child(add_parameter_select(editor, capabilities, cx))
+        .children(
+            app.chat
+                .parameter_error
+                .as_ref()
+                .map(|error| Alert::error("generation-parameter-error", error.clone()).small()),
+        )
         .into_any_element()
 }
 
-fn render_context(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> AnyElement {
+fn render_context(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
     let Some(conversation) = app.current_conversation() else {
-        return notice("Select a conversation to inspect its context.", colors);
+        return notice("Select a conversation to inspect its context.", cx);
     };
     let prompt = if conversation.system_prompt.trim().is_empty() {
         "None".to_string()
@@ -238,31 +272,52 @@ fn render_context(app: &OneChat, colors: Colors, cx: &mut Context<OneChat>) -> A
         .flex()
         .flex_col()
         .gap_3()
-        .child(inspector_field("System Prompt", &prompt, colors))
-        .child(inspector_field("Prompt source", &source, colors))
+        .child(inspector_field("System Prompt", &prompt, cx))
+        .child(inspector_field("Prompt source", &source, cx))
         .child(inspector_field(
             "Messages",
             &app.current_context_messages().len().to_string(),
-            colors,
+            cx,
         ))
         .child(inspector_field(
             "Estimated context tokens",
             &format!("~{estimated_tokens}"),
-            colors,
+            cx,
         ))
         .child(
-            primary_button("context-edit-system-prompt", "Edit System Prompt", colors)
-                .on_click(cx.listener(|this, _, _, cx| this.begin_edit_system_prompt(cx))),
-        )
-        .child(
-            button("clear-conversation-context", "Clear context", colors)
-                .text_color(colors.danger)
-                .on_click(cx.listener(|this, _, _, cx| this.request_clear_current_context(cx))),
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    primary_icon_action(
+                        "context-edit-system-prompt",
+                        AppIcon::Pencil,
+                        "Edit system prompt",
+                        cx,
+                    )
+                    .on_click(
+                        cx.listener(|this, _, window, cx| {
+                            this.begin_edit_system_prompt(window, cx)
+                        }),
+                    ),
+                )
+                .child(
+                    danger_icon_action(
+                        "clear-conversation-context",
+                        AppIcon::Trash,
+                        "Clear context",
+                        cx,
+                    )
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.request_clear_current_context(window, cx)
+                    })),
+                ),
         )
         .into_any_element()
 }
 
-fn render_info(app: &OneChat, colors: Colors) -> AnyElement {
+fn render_info(app: &OneChat, cx: &App) -> AnyElement {
     let request = app.inspected_request();
     let model = request
         .and_then(|request| request.model_id.as_deref())
@@ -287,24 +342,24 @@ fn render_info(app: &OneChat, colors: Colors) -> AnyElement {
             model
                 .map(|model| model.display_name.as_str())
                 .unwrap_or("None"),
-            colors,
+            cx,
         ))
         .child(inspector_field(
             "Remote ID",
             model.map(|model| model.remote_id.as_str()).unwrap_or("—"),
-            colors,
+            cx,
         ))
         .child(inspector_field(
             "Provider",
             provider
                 .map(|provider| provider.name.as_str())
                 .unwrap_or("None"),
-            colors,
+            cx,
         ));
 
     let Some(request) = request else {
         return content
-            .child(notice("No request information yet.", colors))
+            .child(notice("No request information yet.", cx))
             .into_any_element();
     };
     let status = match request.status {
@@ -316,48 +371,48 @@ fn render_info(app: &OneChat, colors: Colors) -> AnyElement {
         RequestStatus::Interrupted => "Interrupted",
     };
     content = content
-        .child(inspector_field("Request ID", &request.id, colors))
-        .child(inspector_field("Request status", status, colors))
+        .child(inspector_field("Request ID", &request.id, cx))
+        .child(inspector_field("Request status", status, cx))
         .child(inspector_field(
             "Input tokens",
             &format_token_count(request.usage.input_tokens, request.usage.estimated),
-            colors,
+            cx,
         ))
         .child(inspector_field(
             "Output tokens",
             &format_token_count(request.usage.output_tokens, request.usage.estimated),
-            colors,
+            cx,
         ))
         .child(inspector_field(
             "First token",
             &request
                 .ttft_ms
                 .map_or_else(|| "—".into(), |value| format!("{value} ms")),
-            colors,
+            cx,
         ))
         .child(inspector_field(
             "Total time",
             &request
                 .duration_ms
                 .map_or_else(|| "—".into(), |value| format!("{value} ms")),
-            colors,
+            cx,
         ));
     if let Some(error) = &request.error {
         content = content
-            .child(inspector_field("Error category", &error.kind, colors))
+            .child(inspector_field("Error category", &error.kind, cx))
             .child(
                 div()
                     .rounded_lg()
-                    .bg(colors.raised)
+                    .bg(cx.theme().muted)
                     .p_3()
                     .text_sm()
-                    .text_color(colors.danger)
+                    .text_color(cx.theme().danger)
                     .child(error.message.clone())
                     .children(error.detail.clone().map(|detail| {
                         div()
                             .pt_2()
                             .text_size(px(11.0))
-                            .text_color(colors.muted)
+                            .text_color(cx.theme().muted_foreground)
                             .child(detail)
                     })),
             );
@@ -412,145 +467,123 @@ fn format_token_count(value: Option<u64>, estimated: bool) -> String {
 
 fn parameter_field(
     parameter: GenerationParameter,
-    input: Entity<Composer>,
-    colors: Colors,
-    scale_factor: f32,
+    input: Entity<InputState>,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    div()
+    let label = div()
         .flex()
         .flex_col()
-        .gap_1()
         .child(
             div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .child(
-                    div()
-                        .text_size(px(11.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(colors.muted)
-                        .child(parameter.label()),
-                )
-                .child(
-                    icon_button(
-                        SharedString::from(format!("remove-parameter-{}", parameter.id())),
-                        Icon::Close,
-                        IconTone::Muted,
-                        colors,
-                        scale_factor,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.remove_generation_parameter(parameter, cx)
-                    })),
-                ),
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(parameter.label()),
         )
-        .child(input)
-        .into_any_element()
+        .child(
+            div()
+                .pt(px(2.0))
+                .text_size(px(11.0))
+                .text_color(cx.theme().muted_foreground)
+                .child(parameter.hint()),
+        );
+    let remove = Button::new(SharedString::from(format!(
+        "remove-parameter-{}",
+        parameter.id()
+    )))
+    .ghost()
+    .tooltip("Remove parameter")
+    .size(px(30.0))
+    .p_0()
+    .child(render_icon(AppIcon::Close, IconTone::Muted, 15.0, cx))
+    .on_click(cx.listener(move |this, _, window, cx| {
+        this.remove_generation_parameter(parameter, window, cx)
+    }));
+
+    if parameter.is_multiline() {
+        div()
+            .rounded(px(14.0))
+            .bg(cx.theme().muted)
+            .p_3()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .child(
+                div()
+                    .flex()
+                    .items_start()
+                    .justify_between()
+                    .gap_2()
+                    .child(label)
+                    .child(remove),
+            )
+            .child(
+                Input::new(&input)
+                    .aria_label(parameter.label())
+                    .h(if parameter == GenerationParameter::Extra {
+                        px(140.0)
+                    } else {
+                        px(92.0)
+                    })
+                    .rounded(px(10.0)),
+            )
+            .into_any_element()
+    } else {
+        div()
+            .rounded(px(14.0))
+            .bg(cx.theme().muted)
+            .p_3()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(div().min_w_0().flex_1().child(label))
+            .child(
+                Input::new(&input)
+                    .aria_label(parameter.label())
+                    .w(px(112.0))
+                    .h(px(40.0))
+                    .px_3()
+                    .rounded(px(10.0))
+                    .text_right(),
+            )
+            .child(remove)
+            .into_any_element()
+    }
 }
 
 fn add_parameter_select(
     editor: &GenerationConfigEditor,
     capabilities: &crate::domain::ModelCapabilities,
-    colors: Colors,
-    scale_factor: f32,
-    cx: &mut Context<OneChat>,
+    cx: &App,
 ) -> AnyElement {
-    let available = GenerationParameter::ALL
+    let disabled = GenerationParameter::ALL
         .into_iter()
-        .filter(|parameter| parameter.supported_by(capabilities) && !editor.is_active(*parameter))
-        .collect::<Vec<_>>();
-    let disabled = available.is_empty();
-    let mut menu = div()
-        .id("generation-parameter-options")
-        .occlude()
-        .absolute()
-        .top(px(42.0))
-        .left_0()
-        .right_0()
-        .rounded_lg()
-        .border_1()
-        .border_color(colors.border)
-        .bg(colors.panel)
-        .p_1()
-        .flex()
-        .flex_col()
-        .shadow_lg();
-    for parameter in available {
-        menu = menu.child(
-            div()
-                .id(SharedString::from(format!(
-                    "generation-parameter-option-{}",
-                    parameter.id()
-                )))
-                .w_full()
-                .px_3()
-                .py_2()
-                .rounded_md()
-                .text_sm()
-                .cursor_pointer()
-                .hover(move |style| style.bg(colors.hover))
-                .on_click(
-                    cx.listener(move |this, _, _, cx| this.add_generation_parameter(parameter, cx)),
-                )
-                .child(parameter.label()),
-        );
-    }
-
-    let trigger = div()
-        .id("add-generation-parameter")
-        .w_full()
-        .px_3()
-        .py_2()
-        .rounded_lg()
-        .bg(colors.raised)
-        .flex()
-        .items_center()
-        .justify_between()
-        .text_sm()
-        .text_color(if disabled { colors.muted } else { colors.text })
-        .when(!disabled, |element| {
-            element
-                .cursor_pointer()
-                .hover(move |style| style.bg(colors.hover))
-                .active(move |style| style.bg(colors.accent_soft))
-                .on_click(cx.listener(|this, _, _, cx| this.toggle_generation_parameter_menu(cx)))
-        })
-        .child(if disabled {
+        .all(|parameter| !parameter.supported_by(capabilities) || editor.is_active(parameter));
+    Select::new(&editor.parameter_select)
+        .large()
+        .h(px(44.0))
+        .px(px(14.0))
+        .rounded(px(12.0))
+        .border_color(cx.theme().border)
+        .bg(cx.theme().muted)
+        .placeholder(if disabled {
             "All available parameters added"
         } else {
             "Add parameter"
         })
-        .child(render_icon(
-            if editor.parameter_menu_open {
-                Icon::ChevronUp
-            } else {
-                Icon::ChevronDown
-            },
-            IconTone::Muted,
-            colors,
-            scale_factor,
-            14.0,
-        ));
-
-    div()
-        .relative()
+        .disabled(disabled)
         .w_full()
-        .child(trigger)
-        .children((editor.parameter_menu_open && !disabled).then(|| deferred(menu).priority(1)))
         .into_any_element()
 }
 
-fn model_summary(model: &Model, provider: &str, colors: Colors) -> AnyElement {
+fn model_summary(model: &Model, provider: &str, cx: &App) -> AnyElement {
     div()
         .rounded_lg()
-        .bg(colors.raised)
+        .bg(cx.theme().muted)
         .p_3()
         .child(
             div()
                 .text_size(px(11.0))
-                .text_color(colors.muted)
+                .text_color(cx.theme().muted_foreground)
                 .child("Model"),
         )
         .child(
@@ -564,35 +597,35 @@ fn model_summary(model: &Model, provider: &str, colors: Colors) -> AnyElement {
             div()
                 .pt_1()
                 .text_size(px(11.0))
-                .text_color(colors.muted)
+                .text_color(cx.theme().muted_foreground)
                 .child(format!("{} · {}", provider, capability_summary(model))),
         )
         .into_any_element()
 }
 
-fn inspector_field(label: &str, value: &str, colors: Colors) -> AnyElement {
+fn inspector_field(label: &str, value: &str, cx: &App) -> AnyElement {
     div()
         .rounded_lg()
-        .bg(colors.raised)
+        .bg(cx.theme().muted)
         .p_3()
         .child(
             div()
                 .text_size(px(11.0))
-                .text_color(colors.muted)
+                .text_color(cx.theme().muted_foreground)
                 .child(label.to_string()),
         )
         .child(div().pt_1().text_sm().child(value.to_string()))
         .into_any_element()
 }
 
-fn notice(message: &str, colors: Colors) -> AnyElement {
+fn notice(message: &str, cx: &App) -> AnyElement {
     div()
         .rounded_xl()
-        .bg(colors.raised)
+        .bg(cx.theme().muted)
         .p_4()
         .text_sm()
         .line_height(px(21.0))
-        .text_color(colors.muted)
+        .text_color(cx.theme().muted_foreground)
         .child(message.to_string())
         .into_any_element()
 }

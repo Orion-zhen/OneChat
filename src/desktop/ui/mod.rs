@@ -1,6 +1,4 @@
 pub mod chat;
-pub mod components;
-pub mod composer;
 pub(crate) mod icons;
 pub mod inspector;
 pub mod markdown;
@@ -11,9 +9,33 @@ pub mod shell;
 pub mod stream;
 pub mod theme;
 
-use gpui::App;
+use std::borrow::Cow;
+
+use gpui::{App, Div, IntoElement, div, prelude::*, px};
+use gpui_component::ActiveTheme as _;
+use lucide_icons::LUCIDE_FONT_BYTES;
+
+pub(crate) const SIDEBAR_WIDTH: f32 = 260.0;
+
+pub(crate) fn spaced_select_item(content: impl IntoElement, cx: &App) -> Div {
+    // gpui-component paints hover/selection on the outer row and does not expose its margins.
+    // Cover the row's top edge, including its padding and check column, to keep highlights apart.
+    div().relative().w_full().child(content).child(
+        div()
+            .absolute()
+            .top(px(-4.0))
+            .left(px(-8.0))
+            .right(px(-28.0))
+            .h(px(2.0))
+            .bg(cx.theme().popover),
+    )
+}
 
 pub fn init(cx: &mut App) {
-    composer::init(cx);
+    gpui_component::init(cx);
+    cx.text_system()
+        .add_fonts(vec![Cow::Borrowed(LUCIDE_FONT_BYTES)])
+        .expect("failed to register Lucide icon font");
+    theme::init(cx);
     shell::init(cx);
 }

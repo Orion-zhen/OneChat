@@ -2,65 +2,49 @@ use super::*;
 
 pub(super) fn render_composer(
     app: &OneChat,
-    colors: Colors,
-    scale_factor: f32,
+    message_max_width: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let generating = app.is_current_generating();
-    let can_send = !app.chat.composer.read(cx).text().trim().is_empty()
+    let can_send = !app.chat.composer.read(cx).value().trim().is_empty()
         && app.current_model().is_some()
         && app.current_conversation().is_some();
     let action = if generating {
-        div()
-            .id("composer-stop")
+        Button::new("composer-stop")
+            .danger()
+            .bg(cx.theme().danger)
+            .rounded(px(17.0))
+            .tooltip("Stop generating")
+            .size(px(34.0))
+            .p_0()
             .absolute()
-            .right(px(9.0))
-            .bottom(px(9.0))
-            .size(px(32.0))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded_full()
-            .bg(colors.danger)
-            .cursor_pointer()
-            .hover(|style| style.opacity(0.88))
-            .active(|style| style.opacity(0.72))
-            .child(render_icon(
-                Icon::Stop,
-                IconTone::OnAccent,
-                colors,
-                scale_factor,
-                18.0,
-            ))
+            .right(px(7.0))
+            .bottom(px(7.0))
+            .child(render_icon(AppIcon::Stop, IconTone::OnAccent, 16.0, cx))
             .on_click(cx.listener(|this, _, _, cx| this.stop_current_generation(cx)))
             .into_any_element()
-    } else if can_send {
-        primary_icon_button("composer-send", Icon::ArrowUp, colors, scale_factor)
-            .absolute()
-            .right(px(9.0))
-            .bottom(px(9.0))
-            .on_click(cx.listener(|this, _, _, cx| this.send_composer(cx)))
-            .into_any_element()
     } else {
-        div()
-            .id("composer-send-disabled")
+        Button::new("composer-send")
+            .primary()
+            .rounded(px(17.0))
+            .tooltip("Send message")
+            .disabled(!can_send)
+            .size(px(34.0))
+            .p_0()
             .absolute()
-            .right(px(9.0))
-            .bottom(px(9.0))
-            .size(px(32.0))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded_full()
-            .bg(colors.raised)
-            .cursor_default()
+            .right(px(7.0))
+            .bottom(px(7.0))
             .child(render_icon(
-                Icon::ArrowUp,
-                IconTone::Muted,
-                colors,
-                scale_factor,
+                AppIcon::ArrowUp,
+                if can_send {
+                    IconTone::OnAccent
+                } else {
+                    IconTone::Muted
+                },
                 20.0,
+                cx,
             ))
+            .on_click(cx.listener(|this, _, window, cx| this.send_composer(window, cx)))
             .into_any_element()
     };
 
@@ -68,14 +52,36 @@ pub(super) fn render_composer(
         .relative()
         .min_w_0()
         .flex_1()
-        .child(app.chat.composer.clone())
+        .overflow_hidden()
+        .rounded(px(22.0))
+        .border_1()
+        .border_color(cx.theme().border)
+        .bg(cx.theme().popover)
+        .shadow_md()
+        .child(
+            Input::new(&app.chat.composer)
+                .aria_label("Message")
+                .appearance(false)
+                .pl_4()
+                .pr(px(56.0))
+                .py(px(12.0))
+                .text_size(px(15.0))
+                .line_height(px(24.0)),
+        )
         .child(action);
 
     div()
         .flex_none()
         .w_full()
         .px_6()
-        .pb_5()
-        .child(div().mx_auto().w_full().max_w(px(800.0)).child(input))
+        .pt_2()
+        .pb_4()
+        .child(
+            div()
+                .mx_auto()
+                .w_full()
+                .max_w(px(message_max_width))
+                .child(input),
+        )
         .into_any_element()
 }

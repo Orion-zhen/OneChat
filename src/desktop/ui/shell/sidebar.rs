@@ -1,69 +1,11 @@
 use super::*;
 
-pub(super) const COLLAPSED_SIDEBAR_WIDTH: f32 = 68.0;
-pub(super) const EXPANDED_SIDEBAR_WIDTH: f32 = 260.0;
-
 pub(super) fn render_sidebar(
     app: &mut OneChat,
     animated_title: Option<&str>,
-    colors: Colors,
-    scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    if app.settings().sidebar_collapsed {
-        let sidebar = div()
-            .w(px(COLLAPSED_SIDEBAR_WIDTH))
-            .h_full()
-            .flex_none()
-            .flex()
-            .flex_col()
-            .items_center()
-            .border_r_1()
-            .border_color(colors.border)
-            .bg(colors.sidebar)
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .gap_2()
-                    .pt_3()
-                    .child(
-                        large_icon_button(
-                            "expand-sidebar",
-                            Icon::Menu,
-                            IconTone::Muted,
-                            colors,
-                            scale_factor,
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
-                    )
-                    .child(
-                        primary_icon_button(
-                            "new-conversation-collapsed",
-                            Icon::Plus,
-                            colors,
-                            scale_factor,
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| this.create_conversation(cx))),
-                    ),
-            )
-            .child(div().flex_1())
-            .child(
-                large_icon_button(
-                    "settings-collapsed",
-                    Icon::Settings,
-                    IconTone::Muted,
-                    colors,
-                    scale_factor,
-                )
-                .mb_3()
-                .on_click(cx.listener(|this, _, _, cx| this.set_page(Page::Settings, cx))),
-            );
-        return animate_sidebar(sidebar, true);
-    }
-
-    let groups = app.conversation_groups();
+    let groups = app.conversation_groups(cx);
     let current_id = app
         .settings()
         .current_conversation_id
@@ -74,20 +16,23 @@ pub(super) fn render_sidebar(
         .min_h_0()
         .flex_1()
         .overflow_y_scroll()
-        .px_2()
+        .px_3()
         .pb_3();
+
     if groups.is_empty() {
         list = list.child(
             div()
                 .px_3()
                 .py_5()
                 .text_sm()
-                .text_color(colors.muted)
-                .child(if app.sidebar.search_query.trim().is_empty() {
-                    "No conversations yet"
-                } else {
-                    "No matching conversations"
-                }),
+                .text_color(cx.theme().muted_foreground)
+                .child(
+                    if app.sidebar.search_input.read(cx).value().trim().is_empty() {
+                        "No conversations yet"
+                    } else {
+                        "No matching conversations"
+                    },
+                ),
         );
     } else {
         for (group, conversations) in groups {
@@ -95,11 +40,11 @@ pub(super) fn render_sidebar(
                 div()
                     .pt_4()
                     .pb_2()
-                    .px_2()
-                    .text_size(px(11.0))
+                    .px_1()
+                    .text_size(px(12.0))
                     .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(colors.muted)
-                    .child(group.label().to_uppercase()),
+                    .text_color(cx.theme().muted_foreground)
+                    .child(group.label()),
             );
             for conversation in conversations {
                 list = list.child(render_conversation_row(
@@ -107,100 +52,104 @@ pub(super) fn render_sidebar(
                     conversation,
                     current_id.as_deref(),
                     animated_title,
-                    colors,
-                    scale_factor,
                     cx,
                 ));
             }
         }
     }
 
-    let sidebar = div()
-        .w(px(EXPANDED_SIDEBAR_WIDTH))
+    div()
+        .w(px(SIDEBAR_WIDTH))
         .h_full()
         .flex_none()
         .flex()
         .flex_col()
         .border_r_1()
-        .border_color(colors.border)
-        .bg(colors.sidebar)
+        .border_color(cx.theme().border)
+        .bg(cx.theme().sidebar)
+        .child(render_sidebar_header(app, cx))
+        .child(list)
+        .child(render_sidebar_footer(cx))
+        .into_any_element()
+}
+
+fn render_sidebar_header(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
+    div()
+        .px_3()
+        .pt_3()
+        .pb_2()
+        .flex()
+        .flex_col()
+        .gap_2()
         .child(
             div()
-                .px_3()
-                .pt_3()
-                .pb_3()
+                .h(px(36.0))
+                .pl_1()
                 .flex()
-                .flex_col()
-                .gap_2()
+                .items_center()
+                .justify_between()
                 .child(
                     div()
-                        .h(px(32.0))
-                        .px_1()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .child(
-                            div()
-                                .text_size(px(12.0))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .text_color(colors.muted)
-                                .child("Conversations"),
-                        )
-                        .child(
-                            large_icon_button(
-                                "collapse-sidebar",
-                                Icon::ChevronLeft,
-                                IconTone::Muted,
-                                colors,
-                                scale_factor,
-                            )
-                            .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
-                        ),
+                        .text_size(px(20.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("Chats"),
                 )
                 .child(
-                    primary_button_base("new-conversation", colors)
-                        .w_full()
+                    div()
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .child(
+                            icon_button("new-conversation", AppIcon::Compose, IconTone::Muted, cx)
+                                .on_click(
+                                    cx.listener(|this, _, _, cx| this.create_conversation(cx)),
+                                ),
+                        )
+                        .child(
+                            icon_button("collapse-sidebar", AppIcon::Sidebar, IconTone::Muted, cx)
+                                .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),
+                        ),
+                ),
+        )
+        .child(
+            Input::new(&app.sidebar.search_input)
+                .prefix(render_icon(AppIcon::Search, IconTone::Muted, 14.0, cx))
+                .cleanable(true)
+                .aria_label("Search conversations"),
+        )
+        .into_any_element()
+}
+
+fn render_sidebar_footer(cx: &mut Context<OneChat>) -> AnyElement {
+    div()
+        .flex_none()
+        .p_2()
+        .child(
+            button_base("open-settings")
+                .ghost()
+                .w_full()
+                .h(px(34.0))
+                .px_2()
+                .rounded(px(7.0))
+                .tooltip("Open settings")
+                .flex()
+                .items_center()
+                .justify_between()
+                .child(
+                    div()
                         .flex()
                         .items_center()
                         .gap_2()
-                        .child(render_icon(
-                            Icon::Plus,
-                            IconTone::OnAccent,
-                            colors,
-                            scale_factor,
-                            16.0,
-                        ))
-                        .child("New Conversation")
-                        .on_click(cx.listener(|this, _, _, cx| this.create_conversation(cx))),
+                        .child(render_icon(AppIcon::Settings, IconTone::Muted, 16.0, cx))
+                        .child("Settings"),
                 )
-                .child(app.sidebar.search_input.clone()),
-        )
-        .child(list)
-        .child(render_connection_footer(app, colors, scale_factor, cx));
-    animate_sidebar(sidebar, false)
-}
-
-fn animate_sidebar(sidebar: Div, collapsed: bool) -> AnyElement {
-    let id = if collapsed {
-        "sidebar-collapsed"
-    } else {
-        "sidebar-expanded"
-    };
-    sidebar
-        .overflow_hidden()
-        .with_animation(
-            id,
-            Animation::new(Duration::from_millis(220)).with_easing(ease_out_quint()),
-            move |sidebar, delta| {
-                let width = if collapsed {
-                    EXPANDED_SIDEBAR_WIDTH
-                        - (EXPANDED_SIDEBAR_WIDTH - COLLAPSED_SIDEBAR_WIDTH) * delta
-                } else {
-                    COLLAPSED_SIDEBAR_WIDTH
-                        + (EXPANDED_SIDEBAR_WIDTH - COLLAPSED_SIDEBAR_WIDTH) * delta
-                };
-                sidebar.opacity(0.8 + delta * 0.2).w(px(width))
-            },
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(cx.theme().muted_foreground)
+                        .child(shortcut_label(",")),
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.set_page(Page::Settings, cx))),
         )
         .into_any_element()
 }
@@ -210,17 +159,16 @@ fn render_conversation_row(
     conversation: Conversation,
     current_id: Option<&str>,
     animated_title: Option<&str>,
-    colors: Colors,
-    scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     if let Some(input) = app.rename_input(&conversation.id) {
         return div()
             .mb_1()
             .rounded_lg()
-            .bg(colors.raised)
+            .bg(cx.theme().muted)
             .p_1()
-            .child(input)
+            .on_action(cx.listener(|this, _: &InputEscape, _, cx| this.cancel_rename(cx)))
+            .child(Input::new(&input).aria_label("Rename conversation"))
             .into_any_element();
     }
 
@@ -236,12 +184,17 @@ fn render_conversation_row(
     let title_waiting = selected && conversation.auto_title_state == AutoTitleState::Running;
     let title_animation_id: SharedString =
         format!("waiting-sidebar-title-{}", conversation.id).into();
+    let displayed_title = if selected {
+        animated_title.unwrap_or(&conversation.title).to_string()
+    } else {
+        conversation.title.clone()
+    };
 
     let mut actions = div()
         .w(px(if hovered {
-            80.0
+            92.0
         } else if pinned {
-            24.0
+            28.0
         } else {
             0.0
         }))
@@ -254,14 +207,13 @@ fn render_conversation_row(
         actions = actions.child(
             icon_button(
                 SharedString::from(format!("pin-{}", pin_id)),
-                Icon::Pin,
+                AppIcon::Pin,
                 if pinned {
                     IconTone::Accent
                 } else {
                     IconTone::Muted
                 },
-                colors,
-                scale_factor,
+                cx,
             )
             .on_click(cx.listener(move |this, _, _, cx| this.toggle_pin(pin_id.clone(), cx))),
         );
@@ -271,10 +223,9 @@ fn render_conversation_row(
             .child(
                 icon_button(
                     SharedString::from(format!("rename-{}", rename_id)),
-                    Icon::Pencil,
+                    AppIcon::Pencil,
                     IconTone::Muted,
-                    colors,
-                    scale_factor,
+                    cx,
                 )
                 .on_click(cx.listener(move |this, _, window, cx| {
                     this.start_rename(rename_id.clone(), window, cx)
@@ -283,22 +234,16 @@ fn render_conversation_row(
             .child(
                 icon_button(
                     SharedString::from(format!("delete-{}", delete_id)),
-                    Icon::Close,
+                    AppIcon::Trash,
                     IconTone::Danger,
-                    colors,
-                    scale_factor,
+                    cx,
                 )
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.request_delete_conversation(delete_id.clone(), cx)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.request_delete_conversation(delete_id.clone(), window, cx)
                 })),
             );
     }
 
-    let displayed_title = if selected {
-        animated_title.unwrap_or(&conversation.title).to_string()
-    } else {
-        conversation.title.clone()
-    };
     let title = waiting_title(
         div()
             .id(SharedString::from(format!("select-{}", conversation.id)))
@@ -325,23 +270,26 @@ fn render_conversation_row(
         title_waiting,
     );
 
+    let selected_background = cx.theme().sidebar_accent;
+    let hover_background = cx.theme().list_hover;
     div()
         .id(row_id)
         .mb_1()
-        .h(px(38.0))
-        .rounded_lg()
+        .h(px(40.0))
+        .rounded(px(10.0))
         .bg(if selected {
-            colors.accent_soft
+            selected_background
         } else {
-            rgba(0x00000000)
+            cx.theme().transparent
         })
         .hover(move |style| {
             style.bg(if selected {
-                colors.accent_soft
+                selected_background
             } else {
-                colors.hover
+                hover_background
             })
         })
+        .active(move |style| style.bg(selected_background))
         .on_hover(cx.listener(move |this, hovering, _, cx| {
             let changed = if *hovering {
                 if this.sidebar.hovered_conversation_id.as_deref() == Some(hover_id.as_str()) {
@@ -365,55 +313,5 @@ fn render_conversation_row(
         .px_2()
         .child(title)
         .child(actions)
-        .into_any_element()
-}
-
-fn render_connection_footer(
-    app: &OneChat,
-    colors: Colors,
-    scale_factor: f32,
-    cx: &mut Context<OneChat>,
-) -> AnyElement {
-    let enabled = app
-        .data
-        .snapshot
-        .providers
-        .iter()
-        .filter(|provider| provider.enabled)
-        .count();
-    div()
-        .flex_none()
-        .border_t_1()
-        .border_color(colors.border)
-        .p_3()
-        .flex()
-        .items_center()
-        .justify_between()
-        .child(
-            div()
-                .min_w_0()
-                .child(
-                    div()
-                        .text_sm()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child("Settings"),
-                )
-                .child(
-                    div()
-                        .text_size(px(11.0))
-                        .text_color(colors.muted)
-                        .child(format!("{enabled} providers enabled")),
-                ),
-        )
-        .child(
-            large_icon_button(
-                "open-settings",
-                Icon::Settings,
-                IconTone::Muted,
-                colors,
-                scale_factor,
-            )
-            .on_click(cx.listener(|this, _, _, cx| this.set_page(Page::Settings, cx))),
-        )
         .into_any_element()
 }

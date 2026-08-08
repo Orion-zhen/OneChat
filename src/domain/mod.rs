@@ -54,6 +54,7 @@ mod tests {
             settings.title_generation_system_prompt,
             DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT
         );
+        assert_eq!(settings.background_opacity(), 0.5);
     }
 
     #[test]

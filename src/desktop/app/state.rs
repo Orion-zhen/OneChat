@@ -17,17 +17,105 @@ pub(crate) struct NavigationState {
     pub(crate) inspector_open: bool,
     pub(crate) inspector_tab: InspectorTab,
     pub(crate) pending_focus: Option<PendingFocus>,
+    pub(crate) sidebar_motion: DrawerMotion,
     pub(crate) inspector_motion: DrawerMotion,
+    pub(crate) inspector_pointer: InspectorPointerState,
 }
 
-const DRAWER_DURATION: Duration = Duration::from_millis(220);
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum InspectorPointerState {
+    #[default]
+    Idle,
+    PressedOutside,
+}
+
+impl InspectorPointerState {
+    pub(crate) fn begin_outside(&mut self) {
+        *self = Self::PressedOutside;
+    }
+
+    pub(crate) fn cancel(&mut self) {
+        *self = Self::Idle;
+    }
+
+    pub(crate) fn release_outside(&mut self) -> bool {
+        std::mem::take(self) == Self::PressedOutside
+    }
+}
+
+const DRAWER_RESPONSE_SECONDS: f32 = 0.34;
+const DRAWER_DAMPING_RATIO: f32 = 1.0;
 
 pub(crate) struct DrawerMotion {
+    value: f32,
+    velocity: f32,
+    target: f32,
+    last_frame: Option<Instant>,
+}
+
+const VISIBILITY_MOTION_DURATION: Duration = Duration::from_millis(180);
+
+pub(crate) struct VisibilityMotion {
     value: f32,
     from: f32,
     target: f32,
     started_at: Option<Instant>,
-    duration: Duration,
+}
+
+impl VisibilityMotion {
+    pub(crate) fn new(visible: bool) -> Self {
+        let value = f32::from(visible);
+        Self {
+            value,
+            from: value,
+            target: value,
+            started_at: None,
+        }
+    }
+
+    pub(crate) fn set_visible(&mut self, visible: bool) {
+        self.set_visible_at(visible, Instant::now());
+    }
+
+    fn set_visible_at(&mut self, visible: bool, now: Instant) {
+        self.advance(now);
+        let target = f32::from(visible);
+        if (target - self.target).abs() < f32::EPSILON {
+            return;
+        }
+
+        self.from = self.value;
+        self.target = target;
+        self.started_at = Some(now);
+    }
+
+    pub(crate) fn progress(&mut self, window: &mut Window) -> f32 {
+        self.advance(Instant::now());
+        if self.started_at.is_some() {
+            window.request_animation_frame();
+        }
+        self.value
+    }
+
+    fn snap(&mut self) {
+        self.value = self.target;
+        self.from = self.target;
+        self.started_at = None;
+    }
+
+    fn advance(&mut self, now: Instant) {
+        let Some(started_at) = self.started_at else {
+            return;
+        };
+        let delta = (now - started_at).as_secs_f32() / VISIBILITY_MOTION_DURATION.as_secs_f32();
+        if delta >= 1.0 {
+            self.snap();
+            return;
+        }
+
+        let eased = gpui::ease_out_quint()(delta);
+        self.value = self.from + (self.target - self.from) * eased;
+    }
 }
 
 impl DrawerMotion {
@@ -35,10 +123,9 @@ impl DrawerMotion {
         let value = f32::from(open);
         Self {
             value,
-            from: value,
+            velocity: 0.0,
             target: value,
-            started_at: None,
-            duration: Duration::ZERO,
+            last_frame: None,
         }
     }
 
@@ -54,65 +141,72 @@ impl DrawerMotion {
             return;
         }
 
-        self.from = self.value;
         self.target = target;
-        self.duration = DRAWER_DURATION.mul_f32((target - self.value).abs());
-        self.started_at = Some(now);
+        self.last_frame = Some(now);
     }
 
     pub(crate) fn snap(&mut self, open: bool) {
         let value = f32::from(open);
         self.value = value;
-        self.from = value;
+        self.velocity = 0.0;
         self.target = value;
-        self.started_at = None;
-        self.duration = Duration::ZERO;
+        self.last_frame = None;
     }
 
-    pub(crate) fn progress(&mut self, window: &mut Window) -> f32 {
+    pub(crate) fn progress(&mut self, window: &mut Window, reduce_motion: bool) -> f32 {
+        if reduce_motion {
+            self.snap(self.target > 0.5);
+            return self.value;
+        }
         self.advance(Instant::now());
-        if self.started_at.is_some() {
+        if self.last_frame.is_some() {
             window.request_animation_frame();
         }
         self.value
     }
 
     fn advance(&mut self, now: Instant) {
-        let Some(started_at) = self.started_at else {
+        let Some(last_frame) = self.last_frame else {
             return;
         };
-        let delta = (now - started_at).as_secs_f32() / self.duration.as_secs_f32();
-        if delta >= 1.0 {
-            self.value = self.target;
-            self.started_at = None;
-            return;
+
+        let elapsed = (now - last_frame).as_secs_f32().min(0.064);
+        self.last_frame = Some(now);
+        self.step(elapsed);
+    }
+
+    fn step(&mut self, elapsed: f32) {
+        let steps = (elapsed / (1.0 / 120.0)).ceil().max(1.0) as usize;
+        let delta = elapsed / steps as f32;
+        let omega = std::f32::consts::TAU / DRAWER_RESPONSE_SECONDS;
+        for _ in 0..steps {
+            let acceleration = omega * omega * (self.target - self.value)
+                - 2.0 * DRAWER_DAMPING_RATIO * omega * self.velocity;
+            self.velocity += acceleration * delta;
+            self.value += self.velocity * delta;
         }
-        let eased = ease_out_quint()(delta);
-        self.value = self.from + (self.target - self.from) * eased;
+
+        self.value = self.value.clamp(0.0, 1.0);
+        if (self.target - self.value).abs() < 0.001 && self.velocity.abs() < 0.001 {
+            self.value = self.target;
+            self.velocity = 0.0;
+            self.last_frame = None;
+        }
     }
 }
 
 pub(crate) struct SidebarState {
-    pub(crate) search_query: String,
-    pub(crate) search_input: Entity<Composer>,
+    pub(crate) search_input: Entity<InputState>,
     pub(crate) hovered_conversation_id: Option<String>,
     pub(super) rename_editor: Option<RenameEditor>,
 }
 
 pub(crate) struct OverlayState {
-    pub(crate) command_palette_open: bool,
-    pub(crate) command_query: String,
-    pub(crate) command_input: Entity<Composer>,
-    pub(crate) command_selection: usize,
-    pub(crate) command_scroll: ScrollHandle,
-    pub(crate) model_picker_open: bool,
-    pub(crate) prompt_picker_open: bool,
+    pub(crate) command_picker: Entity<ListState<CommandPaletteDelegate>>,
+    pub(crate) model_picker: Entity<ListState<ModelPickerDelegate>>,
+    pub(crate) prompt_picker: Entity<ListState<PromptPickerDelegate>>,
     pub(crate) response_model_turn_id: Option<String>,
     pub(crate) destructive_action: Option<DestructiveAction>,
-    pub(crate) model_query: String,
-    pub(crate) model_search_input: Entity<Composer>,
-    pub(crate) model_selection: usize,
-    pub(crate) model_scroll: ScrollHandle,
 }
 
 #[derive(Clone, Copy)]
@@ -198,17 +292,18 @@ pub(crate) struct ChatState {
     pub(super) message_editor: Option<MessageEditor>,
     pub(crate) message_scroll: ScrollHandle,
     pub(crate) message_scroll_motion: MessageScrollMotion,
+    pub(crate) jump_to_latest_motion: VisibilityMotion,
     pub(crate) text_selection: TextSelection,
     pub(crate) thinking_scrolls: HashMap<String, ScrollHandle>,
     pub(crate) thinking_motions: HashMap<String, ThinkingMotion>,
     pub(crate) thinking_started_at: HashMap<String, Instant>,
     pub(crate) follow_latest: bool,
     pub(crate) system_prompt_mode: SystemPromptMode,
-    pub(crate) system_prompt_editor: Option<Entity<Composer>>,
+    pub(crate) system_prompt_editor: Option<Entity<InputState>>,
     pub(crate) generation_config_editor: Option<GenerationConfigEditor>,
     pub(crate) generation_config_save_revision: u64,
     pub(crate) parameter_error: Option<String>,
-    pub(crate) composer: Entity<Composer>,
+    pub(crate) composer: Entity<InputState>,
     pub(super) generations: GenerationManager,
     pub(super) markdown_documents: HashMap<String, CachedMarkdown>,
     pub(super) pending_title_transitions: HashMap<String, PendingTitleTransition>,
@@ -217,12 +312,17 @@ pub(crate) struct ChatState {
 
 pub(crate) struct SettingsState {
     pub(crate) section: SettingsSection,
-    pub(crate) message_width_dragging: bool,
-    pub(crate) default_model_menu: Option<DefaultModelRole>,
-    pub(crate) default_prompt_menu_open: bool,
+    pub(crate) background_opacity_slider: Entity<SliderState>,
+    pub(crate) message_width_slider: Entity<SliderState>,
+    pub(crate) primary_model_select: Entity<SelectState<Vec<DefaultModelItem>>>,
+    pub(crate) title_model_select: Entity<SelectState<Vec<DefaultModelItem>>>,
+    pub(crate) default_prompt_select: Entity<SelectState<Vec<PromptSelectItem>>>,
+    pub(crate) synced_primary_models: Vec<DefaultModelItem>,
+    pub(crate) synced_title_models: Vec<DefaultModelItem>,
+    pub(crate) synced_prompts: Vec<PromptSelectItem>,
     pub(crate) viewed_prompt_preset: Option<String>,
     pub(crate) prompt_preset_editor: Option<PromptPresetEditor>,
-    pub(crate) title_prompt_editor: Option<Entity<Composer>>,
+    pub(crate) title_prompt_editor: Option<Entity<InputState>>,
     pub(crate) connection_tests: BTreeMap<String, ConnectionTestStatus>,
     pub(crate) provider_editor: Option<ProviderEditor>,
     pub(crate) model_editor: Option<ModelEditor>,
@@ -232,7 +332,21 @@ pub(crate) struct SettingsState {
 
 #[cfg(test)]
 mod tests {
-    use super::strong_ease_in_out;
+    use super::{DrawerMotion, InspectorPointerState, VisibilityMotion, strong_ease_in_out};
+
+    #[test]
+    fn inspector_outside_press_requires_an_outside_release() {
+        let mut pointer = InspectorPointerState::default();
+        assert!(!pointer.release_outside());
+
+        pointer.begin_outside();
+        pointer.cancel();
+        assert!(!pointer.release_outside());
+
+        pointer.begin_outside();
+        assert!(pointer.release_outside());
+        assert_eq!(pointer, InspectorPointerState::Idle);
+    }
 
     #[test]
     fn message_scroll_easing_is_bounded_and_monotonic() {
@@ -247,5 +361,52 @@ mod tests {
         }
 
         assert_eq!(previous, 1.0);
+    }
+
+    #[test]
+    fn drawer_spring_settles_at_its_target_without_leaving_bounds() {
+        let mut motion = DrawerMotion::new(false);
+        motion.target = 1.0;
+        motion.last_frame = Some(std::time::Instant::now());
+
+        for _ in 0..240 {
+            motion.step(1.0 / 120.0);
+            assert!((0.0..=1.0).contains(&motion.value));
+        }
+
+        assert_eq!(motion.value, 1.0);
+        assert_eq!(motion.velocity, 0.0);
+        assert!(motion.last_frame.is_none());
+    }
+
+    #[test]
+    fn drawer_spring_keeps_velocity_when_retargeted() {
+        let mut motion = DrawerMotion::new(false);
+        motion.target = 1.0;
+        motion.last_frame = Some(std::time::Instant::now());
+        motion.step(0.08);
+        let outgoing_velocity = motion.velocity;
+
+        motion.target = 0.0;
+        motion.step(1.0 / 120.0);
+
+        assert!(outgoing_velocity > 0.0);
+        assert_ne!(motion.velocity, 0.0);
+    }
+
+    #[test]
+    fn visibility_motion_retargets_from_its_current_value() {
+        let mut motion = VisibilityMotion::new(false);
+        let start = std::time::Instant::now();
+        motion.set_visible_at(true, start);
+        motion.advance(start + std::time::Duration::from_millis(90));
+        let interrupted_at = motion.value;
+
+        motion.set_visible_at(false, start + std::time::Duration::from_millis(90));
+        assert_eq!(motion.value, interrupted_at);
+
+        motion.advance(start + std::time::Duration::from_millis(270));
+        assert_eq!(motion.value, 0.0);
+        assert!(motion.started_at.is_none());
     }
 }

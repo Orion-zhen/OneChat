@@ -20,6 +20,9 @@ impl OneChat {
     fn apply_snapshot(&mut self, result: StorageResult<StorageSnapshot>, cx: &mut Context<Self>) {
         match result {
             Ok(mut snapshot) => {
+                self.navigation
+                    .sidebar_motion
+                    .set_open(!snapshot.settings.sidebar_collapsed, false);
                 let completed_title_transitions = snapshot
                     .conversations
                     .iter()
@@ -83,8 +86,6 @@ impl OneChat {
                     if self.current_conversation().is_some() {
                         self.navigation.pending_focus = Some(PendingFocus::Composer);
                     }
-                } else {
-                    self.sync_generation_config_editor(cx);
                 }
                 self.sync_thinking_scrolls();
                 self.refresh_markdown_documents(cx);
@@ -155,7 +156,11 @@ impl OneChat {
             .map(|cached| &cached.document)
     }
 
-    pub(super) fn sync_generation_config_editor(&mut self, cx: &mut Context<Self>) {
+    pub(crate) fn sync_generation_config_editor(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let conversation = self.current_conversation().cloned();
         match conversation {
             Some(conversation)
@@ -165,8 +170,25 @@ impl OneChat {
                     .as_ref()
                     .is_none_or(|editor| !editor.is_for(&conversation.id)) =>
             {
-                self.chat.generation_config_editor =
-                    Some(GenerationConfigEditor::new(&conversation, cx));
+                let editor = GenerationConfigEditor::new(&conversation, window, cx);
+                let parameter_select = editor.parameter_select.clone();
+                self.chat.generation_config_editor = Some(editor);
+                cx.subscribe_in(
+                    &parameter_select,
+                    window,
+                    |this,
+                     select,
+                     event: &SelectEvent<Vec<GenerationParameterItem>>,
+                     window,
+                     cx| {
+                        let SelectEvent::Confirm(Some(parameter)) = event else {
+                            return;
+                        };
+                        this.add_generation_parameter(*parameter, cx);
+                        select.update(cx, |select, cx| select.set_selected_index(None, window, cx));
+                    },
+                )
+                .detach();
                 self.chat.parameter_error = None;
             }
             None => {
@@ -177,13 +199,10 @@ impl OneChat {
         }
     }
 
-    pub(super) fn reset_conversation_ui(&mut self, cx: &mut Context<Self>) {
+    pub(super) fn reset_conversation_ui(&mut self, _cx: &mut Context<Self>) {
         self.chat.draft_model_id = None;
         self.chat.system_prompt_mode = SystemPromptMode::Compact;
         self.chat.system_prompt_editor = None;
-        self.overlays.command_palette_open = false;
-        self.overlays.model_picker_open = false;
-        self.overlays.prompt_picker_open = false;
         self.chat.selected_request_id = None;
         self.chat.visible_response_ids.clear();
         self.overlays.response_model_turn_id = None;
@@ -200,7 +219,6 @@ impl OneChat {
         self.chat.generation_config_save_revision =
             self.chat.generation_config_save_revision.wrapping_add(1);
         self.chat.parameter_error = None;
-        self.sync_generation_config_editor(cx);
     }
 
     fn sync_thinking_scrolls(&mut self) {
@@ -428,78 +446,6 @@ impl OneChat {
             return Err("Streaming disabled");
         }
         Ok(())
-    }
-
-    pub(crate) fn filtered_commands(&self) -> Vec<PaletteCommand> {
-        PaletteCommand::ALL
-            .into_iter()
-            .filter(|command| command.matches(&self.overlays.command_query))
-            .collect()
-    }
-
-    pub(crate) fn filtered_models(&self) -> Vec<&Model> {
-        let query = self.overlays.model_query.trim().to_lowercase();
-        let replied_model_ids = self
-            .overlays
-            .response_model_turn_id
-            .as_deref()
-            .and_then(|turn_id| {
-                self.data
-                    .snapshot
-                    .current_turns
-                    .iter()
-                    .find(|turn| turn.id == turn_id)
-            })
-            .map(|turn| {
-                turn.responses
-                    .iter()
-                    .map(|response| response.model_id.as_str())
-                    .collect::<HashSet<_>>()
-            })
-            .unwrap_or_default();
-        self.data
-            .snapshot
-            .models
-            .iter()
-            .filter(|model| !replied_model_ids.contains(model.id.as_str()))
-            .filter(|model| {
-                if query.is_empty() {
-                    return true;
-                }
-                let provider = self
-                    .provider_for_model(model)
-                    .map(|provider| provider.name.as_str())
-                    .unwrap_or_default();
-                [
-                    model.display_name.as_str(),
-                    model.remote_id.as_str(),
-                    provider,
-                ]
-                .into_iter()
-                .any(|value| value.to_lowercase().contains(&query))
-            })
-            .collect()
-    }
-
-    pub(super) fn initial_model_selection(&self) -> usize {
-        let models = self.filtered_models();
-        let selected_id = self
-            .overlays
-            .response_model_turn_id
-            .is_none()
-            .then(|| self.selected_model().map(|model| model.id.as_str()))
-            .flatten();
-        models
-            .iter()
-            .position(|model| {
-                selected_id == Some(model.id.as_str()) && self.model_availability(model).is_ok()
-            })
-            .or_else(|| {
-                models
-                    .iter()
-                    .position(|model| self.model_availability(model).is_ok())
-            })
-            .unwrap_or(0)
     }
 
     pub(crate) fn current_turns(&self) -> Vec<&Turn> {

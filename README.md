@@ -11,7 +11,7 @@ xcode-select --install
 xcodebuild -downloadComponent MetalToolchain
 ```
 
-GPUI and the provider crates evolve quickly. All direct dependencies intentionally track their latest published versions with `"*"`; `Cargo.lock` is local build output and is not committed. Breaking upstream changes are fixed directly instead of maintaining compatibility code.
+GPUI and the provider crates evolve quickly. Published dependencies intentionally use `"*"`; `gpui`/`gpui_platform` and `gpui-component`/`gpui-component-assets` track the respective upstream Git HEADs. `Cargo.lock` is local build output and is not committed, so ordinary local builds keep using the commits recorded there. Run `cargo update` (or delete the local lockfile) only when intentionally updating upstream HEADs. Breaking upstream changes are fixed directly instead of maintaining compatibility code.
 
 ## Architecture
 
@@ -23,6 +23,8 @@ The crate keeps reusable code independent from the GPUI desktop shell:
 - `storage`: JSONC/JSON persistence behind the `Storage` facade
 - `markdown`: UI-independent Markdown AST, parsing, and formula rendering
 - `desktop`: GPUI application state and presentation
+
+The desktop shell starts through `gpui_platform`, installs `gpui_component_assets`, and wraps each window in `gpui_component::Root`. Standard inputs, buttons, pickers, dialogs, forms, tabs, switches, sliders, alerts, and notifications come from `gpui-component`. `desktop/ui/theme.rs` is the single bridge from OneChat appearance settings to component theme tokens, while `desktop/ui/icons.rs` maps product semantics to component or Lucide icons. Chat layout, glass materials, product motion, Markdown/LaTeX rendering, and cross-node message selection remain OneChat-owned.
 
 `src/main.rs` only starts `desktop::run()`. Another UI or CLI can reuse the library modules without depending on desktop internals.
 
@@ -49,7 +51,12 @@ The primary shortcuts use Command on macOS and Ctrl on Linux/Windows:
 - `Cmd/Ctrl+Shift+S`: toggle sidebar
 - `Cmd/Ctrl+,`: settings
 - `Enter`: send or confirm; `Shift+Enter`: insert a newline
-- `Escape`: close the active overlay or editor; it never stops generation
+- `Escape`: close the innermost dialog, picker, or editor; it never stops generation
+
+## Third-party UI assets
+
+- [`gpui-component`](https://github.com/longbridge/gpui-component) and `gpui-component-assets` are available under Apache-2.0.
+- [`lucide-icons`](https://github.com/lucide-icons/lucide) glyphs are available under ISC. Lucide is derived from Feather Icons, whose original glyphs are available under MIT.
 
 ## Local data
 
