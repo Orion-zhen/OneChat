@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TableAlignment {
     None,
@@ -24,6 +26,7 @@ pub enum Block {
     Code {
         language: String,
         content: String,
+        highlights: CodeHighlights,
     },
     Formula(Formula),
     Table {
@@ -32,6 +35,18 @@ pub enum Block {
         rows: Vec<Vec<Vec<Inline>>>,
     },
     Rule,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct CodeHighlights {
+    pub light: Vec<CodeHighlight>,
+    pub dark: Vec<CodeHighlight>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CodeHighlight {
+    pub range: Range<usize>,
+    pub rgba: u32,
 }
 
 #[derive(Clone, Debug)]

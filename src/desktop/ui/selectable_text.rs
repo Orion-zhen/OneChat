@@ -2,9 +2,9 @@ use std::{cell::RefCell, collections::HashMap, ops::Range, rc::Rc};
 
 use gpui::{
     App, Bounds, ClipboardItem, CursorStyle, Element, ElementId, FocusHandle, GlobalElementId,
-    Hitbox, HitboxBehavior, InspectorElementId, IntoElement, KeyDownEvent, LayoutId, MouseButton,
-    MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point, Rgba, SharedString,
-    StyledText, Window, fill, rgba, size,
+    HighlightStyle, Hitbox, HitboxBehavior, InspectorElementId, IntoElement, KeyDownEvent,
+    LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
+    Rgba, SharedString, StyledText, Window, fill, rgba, size,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -228,6 +228,17 @@ impl SelectableText {
             selection,
             selection_color,
         }
+    }
+
+    pub(crate) fn with_highlights(
+        mut self,
+        highlights: impl IntoIterator<Item = (Range<usize>, HighlightStyle)>,
+    ) -> Self {
+        let highlights = highlights.into_iter().collect::<Vec<_>>();
+        if !highlights.is_empty() {
+            self.text = self.text.with_highlights(highlights);
+        }
+        self
     }
 }
 

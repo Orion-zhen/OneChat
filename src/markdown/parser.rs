@@ -4,6 +4,7 @@ use comrak::{
     parse_document,
 };
 
+use super::highlight::highlight_code;
 use super::{Block, Formula, Inline, InlineStyle, MarkdownDocument, TableAlignment};
 
 fn table_alignment(alignment: ComrakTableAlignment) -> TableAlignment {
@@ -75,10 +76,7 @@ fn parse_block<'a>(node: &'a AstNode<'a>) -> Option<Block> {
             if matches!(language.as_str(), "math" | "latex" | "tex") {
                 Some(Block::Formula(formula(&code.literal, true)))
             } else {
-                Some(Block::Code {
-                    language,
-                    content: code.literal,
-                })
+                Some(code_block(language, code.literal))
             }
         }
         NodeValue::Table(table) => Some(parse_table(
@@ -86,10 +84,7 @@ fn parse_block<'a>(node: &'a AstNode<'a>) -> Option<Block> {
             table.alignments.into_iter().map(table_alignment).collect(),
         )),
         NodeValue::ThematicBreak => Some(Block::Rule),
-        NodeValue::HtmlBlock(html) => Some(Block::Code {
-            language: "html".into(),
-            content: html.literal,
-        }),
+        NodeValue::HtmlBlock(html) => Some(code_block("html".into(), html.literal)),
         NodeValue::DescriptionList
         | NodeValue::DescriptionItem(_)
         | NodeValue::DescriptionTerm
@@ -115,6 +110,22 @@ fn parse_block<'a>(node: &'a AstNode<'a>) -> Option<Block> {
             let inlines = parse_inlines(node);
             (!inlines.is_empty()).then_some(Block::Paragraph(inlines))
         }
+    }
+}
+
+fn code_block(language: String, mut content: String) -> Block {
+    if content.ends_with('\n') {
+        content.pop();
+        if content.ends_with('\r') {
+            content.pop();
+        }
+    }
+
+    let highlights = highlight_code(&language, &content);
+    Block::Code {
+        language,
+        content,
+        highlights,
     }
 }
 

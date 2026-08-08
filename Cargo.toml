@@ -24,6 +24,7 @@ serde = { version = "*", features = ["derive"] }
 serde_json = "*"
 tokio = { version = "*", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
 tokio-util = { version = "*", features = ["rt"] }
+two-face = "*"
 unicode-segmentation = "*"
 
 [profile.dev]

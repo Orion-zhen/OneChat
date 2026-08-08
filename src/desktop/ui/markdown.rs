@@ -4,7 +4,8 @@ use std::{
 };
 
 use gpui::{
-    AnyElement, App, FontWeight, Image, ImageFormat, SharedString, div, img, prelude::*, px,
+    AnyElement, App, FontWeight, HighlightStyle, Image, ImageFormat, SharedString, div, img,
+    prelude::*, px, rgba,
 };
 use gpui_component::{ActiveTheme as _, ThemeMode};
 
@@ -155,7 +156,11 @@ fn render_block(
                     )))
             }))
             .into_any_element(),
-        Block::Code { language, content } => div()
+        Block::Code {
+            language,
+            content,
+            highlights,
+        } => div()
             .w_full()
             .rounded_lg()
             .border_1()
@@ -190,13 +195,29 @@ fn render_block(
                     .font(super::theme::code_font(cx))
                     .text_sm()
                     .whitespace_nowrap()
-                    .child(selectable(
-                        message_id,
-                        next_text_index(text_index),
-                        content.clone(),
-                        selection,
-                        cx,
-                    )),
+                    .child(
+                        selectable(
+                            message_id,
+                            next_text_index(text_index),
+                            content.clone(),
+                            selection,
+                            cx,
+                        )
+                        .with_highlights(
+                            if cx.theme().is_dark() {
+                                &highlights.dark
+                            } else {
+                                &highlights.light
+                            }
+                            .iter()
+                            .map(|highlight| {
+                                (
+                                    highlight.range.clone(),
+                                    HighlightStyle::from(rgba(highlight.rgba)),
+                                )
+                            }),
+                        ),
+                    ),
             )
             .into_any_element(),
         Block::Formula(formula) => render_formula_element(formula, scale_factor, cx),

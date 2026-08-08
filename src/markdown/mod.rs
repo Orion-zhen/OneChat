@@ -1,5 +1,6 @@
 mod ast;
 mod formula;
+mod highlight;
 mod parser;
 
 pub use ast::*;
@@ -170,7 +171,71 @@ $$\frac{1}{2}$$
         let document = MarkdownDocument::parse("<script>alert('no')</script>");
         assert!(matches!(
             document.blocks.as_slice(),
-            [Block::Code { language, content }] if language == "html" && content.contains("script")
+            [Block::Code { language, content, .. }] if language == "html" && content.contains("script")
         ));
+    }
+
+    #[test]
+    fn highlights_common_code_fence_languages_for_both_themes() {
+        let document = MarkdownDocument::parse(
+            "```typescript\nconst answer: number = 42;\nconsole.log(answer);\n```",
+        );
+        let Block::Code {
+            content,
+            highlights,
+            ..
+        } = &document.blocks[0]
+        else {
+            panic!("expected code block");
+        };
+
+        for theme in [&highlights.light, &highlights.dark] {
+            assert!(!theme.is_empty());
+            assert_eq!(theme.first().unwrap().range.start, 0);
+            assert_eq!(theme.last().unwrap().range.end, content.len());
+            assert!(
+                theme
+                    .windows(2)
+                    .all(|pair| pair[0].range.end == pair[1].range.start)
+            );
+            assert!(theme.iter().all(|highlight| {
+                content.is_char_boundary(highlight.range.start)
+                    && content.is_char_boundary(highlight.range.end)
+            }));
+            assert!(
+                theme
+                    .iter()
+                    .map(|highlight| highlight.rgba)
+                    .collect::<std::collections::HashSet<_>>()
+                    .len()
+                    > 1
+            );
+        }
+        assert_ne!(highlights.light, highlights.dark);
+    }
+
+    #[test]
+    fn unknown_code_fence_language_falls_back_to_plain_text() {
+        let document = MarkdownDocument::parse("```not-a-language\nhello\n```");
+        assert!(matches!(
+            document.blocks.as_slice(),
+            [Block::Code { highlights, .. }]
+                if highlights.light.is_empty() && highlights.dark.is_empty()
+        ));
+    }
+
+    #[test]
+    fn removes_only_the_structural_code_fence_line_ending() {
+        for (markdown, expected) in [
+            ("```text\nhello\n```", "hello"),
+            ("```text\nhello\n\n```", "hello\n"),
+            ("```text\r\nhello\r\n```", "hello"),
+        ] {
+            let document = MarkdownDocument::parse(markdown);
+            assert!(matches!(
+                document.blocks.as_slice(),
+                [Block::Code { content, .. }] if content == expected
+            ));
+        }
     }
 }
