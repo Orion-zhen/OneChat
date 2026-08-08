@@ -12,7 +12,7 @@ pub use navigation::{ConversationGroup, Page};
 use state::*;
 
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -49,18 +49,21 @@ use crate::{
         },
         selectable_text::TextSelection,
         settings::{
-            Capability, DefaultModelItem, FontFamilyItem, ModelEditor, PromptPresetEditor,
-            PromptSelectItem, ProviderEditor, SearchableItems, SettingsSection,
+            Capability, DefaultModelItem, FontFamilyItem, McpServerEditor, McpServerEditorMode,
+            McpServerTransportEditor, ModelEditor, PromptPresetEditor, PromptSelectItem,
+            ProviderEditor, SearchableItems, SettingsSection,
         },
         shell::{self, CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate},
         stream::follow_after_scroll,
     },
     domain::{
-        AppSettings, AssistantResponse, AutoTitleState, ChatMessage, Conversation,
-        DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, MessageStatus, Model, Provider, RequestInfo,
-        SystemPromptPreset, Theme, Turn, active_turns, new_id, now_timestamp, user_branches,
+        AppSettings, AssistantResponse, AutoTitleState, Conversation,
+        DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, Message, MessageStatus, Model, Provider,
+        RequestInfo, SystemPromptPreset, Theme, ToolRef, ToolSelection, Turn, active_turns, new_id,
+        now_timestamp, user_branches,
     },
     markdown::MarkdownDocument,
+    mcp::{McpConfig, McpManager, McpServerConfig, McpSnapshot},
     providers::{self, AvailableModel},
     storage::{Storage, StorageError, StorageResult, StorageSnapshot},
 };
@@ -78,6 +81,7 @@ pub(crate) enum DestructiveAction {
     DeleteProvider { id: String },
     DeleteModel { id: String },
     DeletePromptPreset { name: String },
+    DeleteMcpServer { id: String },
     ClearContext { conversation_id: String },
 }
 
@@ -88,6 +92,7 @@ impl DestructiveAction {
             Self::DeleteProvider { .. } => "Delete Provider?",
             Self::DeleteModel { .. } => "Delete Model?",
             Self::DeletePromptPreset { .. } => "Delete Prompt Preset?",
+            Self::DeleteMcpServer { .. } => "Delete MCP Server?",
             Self::ClearContext { .. } => "Clear Conversation?",
         }
     }
@@ -305,6 +310,7 @@ pub struct OneChat {
     pub(crate) root_focus: FocusHandle,
     services: Services,
     pub(crate) data: DataState,
+    pub(crate) mcp: McpState,
     pub(crate) navigation: NavigationState,
     pub(crate) sidebar: SidebarState,
     pub(crate) overlays: OverlayState,
@@ -317,6 +323,7 @@ impl OneChat {
     pub fn new(
         storage: Arc<Storage>,
         runtime: Arc<Runtime>,
+        mcp: Arc<McpManager>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -546,15 +553,30 @@ impl OneChat {
         )
         .detach();
 
+        let mcp_json_import = cx.new(|cx| {
+            InputState::new(window, cx)
+                .multi_line(true)
+                .soft_wrap(true)
+                .placeholder("Paste a JSON or JSONC object containing mcpServers")
+        });
         let text_selection = TextSelection::new(cx.focus_handle());
+        let mcp_snapshot = McpSnapshot::empty(mcp.config_path());
         let mut this = Self {
             root_focus,
-            services: Services { storage, runtime },
+            services: Services {
+                storage,
+                runtime,
+                mcp,
+            },
             data: DataState {
                 snapshot: StorageSnapshot::default(),
                 loading: true,
                 error: None,
                 storage_task: Task::ready(()),
+            },
+            mcp: McpState {
+                snapshot: mcp_snapshot,
+                loading: false,
             },
             navigation: NavigationState {
                 page: Page::Chat,
@@ -583,6 +605,8 @@ impl OneChat {
                 visible_response_ids: HashMap::new(),
                 expanded_error_ids: HashSet::new(),
                 thinking_expansion_overrides: HashSet::new(),
+                expanded_tool_execution_ids: HashSet::new(),
+                expanded_conversation_tool_server_ids: HashSet::new(),
                 message_editor: None,
                 message_scroll: ScrollHandle::new(),
                 message_scroll_motion: MessageScrollMotion::new(),
@@ -619,6 +643,11 @@ impl OneChat {
                 viewed_prompt_preset: None,
                 prompt_preset_editor: None,
                 title_prompt_editor: None,
+                mcp_json_import,
+                mcp_server_editor: None,
+                mcp_error: None,
+                expanded_mcp_server_ids: HashSet::new(),
+                mcp_connection_tests: BTreeMap::new(),
                 connection_tests: BTreeMap::new(),
                 provider_editor: None,
                 model_editor: None,
@@ -628,6 +657,7 @@ impl OneChat {
             applied_component_theme,
         };
         this.load_startup_snapshot(cx);
+        this.reload_mcp(cx);
         this
     }
 

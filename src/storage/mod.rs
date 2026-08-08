@@ -70,6 +70,7 @@ pub struct StorageSnapshot {
 #[derive(Debug)]
 pub struct Storage {
     settings_path: PathBuf,
+    mcp_path: PathBuf,
     conversations_dir: PathBuf,
     prompts_dir: PathBuf,
     access: Mutex<()>,
@@ -86,10 +87,9 @@ impl Storage {
     pub fn open(settings_path: impl Into<PathBuf>, state_dir: impl Into<PathBuf>) -> Result<Self> {
         let settings_path = settings_path.into();
         let conversations_dir = state_dir.into().join("conversations");
-        let prompts_dir = settings_path
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .join("prompts");
+        let config_dir = settings_path.parent().unwrap_or_else(|| Path::new("."));
+        let mcp_path = config_dir.join("mcp.jsonc");
+        let prompts_dir = config_dir.join("prompts");
         if let Some(parent) = settings_path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -98,6 +98,7 @@ impl Storage {
 
         let storage = Self {
             settings_path,
+            mcp_path,
             conversations_dir,
             prompts_dir,
             access: Mutex::new(()),
@@ -105,11 +106,18 @@ impl Storage {
         if !storage.settings_path.exists() {
             write_json(&storage.settings_path, &SettingsFile::default())?;
         }
+        if !storage.mcp_path.exists() {
+            codec::write_text(&storage.mcp_path, "{\n  \"mcpServers\": {}\n}\n")?;
+        }
         Ok(storage)
     }
 
     pub fn settings_path(&self) -> &Path {
         &self.settings_path
+    }
+
+    pub fn mcp_path(&self) -> &Path {
+        &self.mcp_path
     }
 
     pub fn conversations_dir(&self) -> &Path {
@@ -212,11 +220,11 @@ fn default_state_dir(home: &Path) -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     use crate::domain::{
-        AssistantResponse, AutoTitleState, Model, ProviderKind, Theme, Turn, active_turns,
-        now_timestamp,
+        AssistantResponse, AutoTitleState, Message, Model, ProviderKind, Theme, ToolExecution,
+        ToolExecutionStatus, ToolRef, ToolSelection, Turn, active_turns, now_timestamp,
     };
 
     use super::*;
@@ -300,6 +308,34 @@ mod tests {
         turn.responses[0].request_id = Some(request.id.clone());
         let response = turn.responses[0].clone();
         (turn, response, request)
+    }
+
+    #[test]
+    fn mcp_config_is_created_next_to_settings_without_overwriting_it() {
+        let test = TestStorage::new();
+        assert_eq!(
+            test.storage.mcp_path(),
+            test.storage
+                .settings_path()
+                .parent()
+                .unwrap()
+                .join("mcp.jsonc")
+        );
+        assert_eq!(
+            fs::read_to_string(test.storage.mcp_path()).unwrap(),
+            "{\n  \"mcpServers\": {}\n}\n"
+        );
+
+        fs::write(test.storage.mcp_path(), "// keep me\n{ mcpServers: {} }\n").unwrap();
+        let reopened = Storage::open(
+            test.storage.settings_path().to_path_buf(),
+            test.root.join("state"),
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(reopened.mcp_path()).unwrap(),
+            "// keep me\n{ mcpServers: {} }\n"
+        );
     }
 
     #[test]
@@ -481,6 +517,7 @@ mod tests {
 
         test.storage.begin_turn(&turn, &request).unwrap();
         response.content = "Hi".into();
+        response.transcript = vec![Message::assistant("Hi")];
         response.status = MessageStatus::Completed;
         request.status = RequestStatus::Completed;
         request.usage.output_tokens = Some(4);
@@ -491,7 +528,14 @@ mod tests {
         let snapshot = test.storage.load_snapshot().unwrap();
         assert_eq!(snapshot.current_turns.len(), 1);
         assert_eq!(snapshot.current_turns[0].user.content, "Hello");
-        assert_eq!(snapshot.current_turns[0].responses, vec![response]);
+        let stored_response = &snapshot.current_turns[0].responses[0];
+        assert_eq!(stored_response.id, response.id);
+        assert_eq!(stored_response.content, response.content);
+        assert_eq!(stored_response.status, response.status);
+        assert_eq!(
+            serde_json::to_value(&stored_response.transcript).unwrap(),
+            serde_json::to_value(&response.transcript).unwrap()
+        );
         assert_eq!(snapshot.current_requests, vec![request]);
     }
 
@@ -708,7 +752,11 @@ mod tests {
     #[test]
     fn forking_copies_only_the_path_through_the_selected_response() {
         let test = TestStorage::new();
-        let (provider, model, conversation, mut settings) = configured_conversation(&test.storage);
+        let (provider, model, mut conversation, mut settings) =
+            configured_conversation(&test.storage);
+        conversation.tool_selection =
+            ToolSelection::Only(BTreeSet::from([ToolRef::new("filesystem", "read_file")]));
+        test.storage.update_conversation(&conversation).unwrap();
 
         let (mut root, _, mut root_request) =
             generation_records(&conversation, &provider, &model, "Root");
@@ -740,6 +788,18 @@ mod tests {
         let mut selected_response = AssistantResponse::new(&other_model, &provider);
         selected_response.content = "Selected answer".into();
         selected_response.status = MessageStatus::Completed;
+        let mut tool_execution = ToolExecution::new(
+            "provider-tool-call",
+            None,
+            "filesystem",
+            "read_file",
+            serde_json::json!({"path": "/tmp/file"}),
+        );
+        tool_execution.status = ToolExecutionStatus::Completed;
+        tool_execution.result = Some("contents".into());
+        selected_response
+            .tool_executions
+            .push(tool_execution.clone());
         let mut selected_request =
             RequestInfo::new(&conversation.id, &branch.id, &selected_response.id);
         selected_request.status = RequestStatus::Completed;
@@ -800,6 +860,15 @@ mod tests {
                 .auto_title_state,
             AutoTitleState::Finished
         );
+        assert_eq!(
+            snapshot
+                .conversations
+                .iter()
+                .find(|conversation| conversation.id == fork.id)
+                .unwrap()
+                .tool_selection,
+            conversation.tool_selection
+        );
         assert_eq!(snapshot.current_turns.len(), 2);
         assert_eq!(snapshot.current_requests.len(), 2);
         assert_eq!(snapshot.current_turns[0].user.content, "Root");
@@ -811,6 +880,10 @@ mod tests {
         assert_eq!(
             snapshot.current_turns[1].responses[0].content,
             "Selected answer"
+        );
+        assert_eq!(
+            snapshot.current_turns[1].responses[0].tool_executions,
+            vec![tool_execution]
         );
         assert_eq!(snapshot.current_turns[0].responses.len(), 1);
         assert_eq!(snapshot.current_turns[1].responses.len(), 1);
@@ -945,8 +1018,18 @@ mod tests {
     fn restart_marks_unfinished_generation_as_interrupted() {
         let test = TestStorage::new();
         let (provider, model, mut conversation, settings) = configured_conversation(&test.storage);
-        let (turn, _, mut request) = generation_records(&conversation, &provider, &model, "Hello");
+        let (mut turn, _, mut request) =
+            generation_records(&conversation, &provider, &model, "Hello");
         request.status = RequestStatus::Streaming;
+        let mut execution = ToolExecution::new(
+            "provider-tool-call",
+            None,
+            "filesystem",
+            "read_file",
+            serde_json::json!({}),
+        );
+        execution.status = ToolExecutionStatus::Running;
+        turn.responses[0].tool_executions.push(execution);
         test.storage.begin_turn(&turn, &request).unwrap();
         assert!(test.storage.claim_auto_title(&conversation.id).unwrap());
 
@@ -973,6 +1056,9 @@ mod tests {
             snapshot.current_requests[0].status,
             RequestStatus::Interrupted
         );
+        let execution = &snapshot.current_turns[0].responses[0].tool_executions[0];
+        assert_eq!(execution.status, ToolExecutionStatus::Interrupted);
+        assert!(execution.finished_at.is_some());
     }
 
     #[test]

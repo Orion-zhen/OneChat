@@ -156,6 +156,169 @@ impl OneChat {
         );
     }
 
+    fn globally_enabled_tool_refs(&self) -> BTreeSet<ToolRef> {
+        self.mcp
+            .snapshot
+            .servers
+            .iter()
+            .filter(|server| server.enabled)
+            .flat_map(|server| {
+                server
+                    .tools
+                    .iter()
+                    .filter(|tool| tool.enabled)
+                    .map(|tool| ToolRef::new(server.id.clone(), tool.name.clone()))
+            })
+            .collect()
+    }
+
+    fn configurable_tool_refs(&self) -> BTreeSet<ToolRef> {
+        self.mcp
+            .snapshot
+            .servers
+            .iter()
+            .filter(|server| server.enabled)
+            .flat_map(|server| {
+                server
+                    .tools
+                    .iter()
+                    .map(|tool| ToolRef::new(server.id.clone(), tool.name.clone()))
+            })
+            .collect()
+    }
+
+    pub(crate) fn set_conversation_tool_enabled(
+        &mut self,
+        server_id: String,
+        tool_name: String,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.is_current_generating() {
+            return;
+        }
+        let Some(conversation) = self.current_conversation() else {
+            return;
+        };
+        let tool = ToolRef::new(server_id, tool_name);
+        let mut tools = match &conversation.tool_selection {
+            ToolSelection::Default => self.globally_enabled_tool_refs(),
+            ToolSelection::Only(current) => current.clone(),
+        };
+        if enabled {
+            tools.insert(tool);
+        } else {
+            tools.remove(&tool);
+        }
+        let selection = ToolSelection::Only(tools);
+        self.save_conversation_tool_selection(selection, cx);
+    }
+
+    pub(crate) fn set_conversation_server_tools_enabled(
+        &mut self,
+        server_id: String,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if self.is_current_generating() {
+            return;
+        }
+        let Some(conversation) = self.current_conversation() else {
+            return;
+        };
+        let Some(server) = self
+            .mcp
+            .snapshot
+            .servers
+            .iter()
+            .find(|server| server.id == server_id && server.enabled)
+        else {
+            return;
+        };
+        let server_tools = server
+            .tools
+            .iter()
+            .map(|tool| ToolRef::new(server.id.clone(), tool.name.clone()))
+            .collect::<Vec<_>>();
+        let mut tools = match &conversation.tool_selection {
+            ToolSelection::Default => self.globally_enabled_tool_refs(),
+            ToolSelection::Only(current) => current.clone(),
+        };
+        for tool in server_tools {
+            if enabled {
+                tools.insert(tool);
+            } else {
+                tools.remove(&tool);
+            }
+        }
+        self.save_conversation_tool_selection(ToolSelection::Only(tools), cx);
+    }
+
+    pub(crate) fn toggle_conversation_tool_server(
+        &mut self,
+        server_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        if !self
+            .chat
+            .expanded_conversation_tool_server_ids
+            .remove(&server_id)
+        {
+            self.chat
+                .expanded_conversation_tool_server_ids
+                .insert(server_id);
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn set_all_conversation_tools(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if self.is_current_generating() || self.current_conversation().is_none() {
+            return;
+        }
+        let selection = ToolSelection::Only(if enabled {
+            self.configurable_tool_refs()
+        } else {
+            BTreeSet::new()
+        });
+        self.save_conversation_tool_selection(selection, cx);
+    }
+
+    pub(crate) fn reset_conversation_tool_selection(&mut self, cx: &mut Context<Self>) {
+        if self.is_current_generating() || self.current_conversation().is_none() {
+            return;
+        }
+        let selection = ToolSelection::Default;
+        self.save_conversation_tool_selection(selection, cx);
+    }
+
+    fn save_conversation_tool_selection(
+        &mut self,
+        selection: ToolSelection,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(mut conversation) = self.current_conversation().cloned() else {
+            return;
+        };
+        if conversation.tool_selection == selection {
+            return;
+        }
+        conversation.tool_selection = selection;
+        conversation.updated_at = now_timestamp();
+        if let Some(current) = self
+            .data
+            .snapshot
+            .conversations
+            .iter_mut()
+            .find(|current| current.id == conversation.id)
+        {
+            current.clone_from(&conversation);
+        }
+        self.mutate_and_reload(
+            move |storage| storage.update_conversation(&conversation),
+            cx,
+        );
+    }
+
     pub(crate) fn request_clear_current_context(
         &mut self,
         window: &mut Window,

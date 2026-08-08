@@ -1,0 +1,5 @@
+data: {"choices":[{"delta":{"content":"Tool complete."},"finish_reason":"stop"}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":8,"completion_tokens":3,"total_tokens":11}}
+
+data: [DONE]

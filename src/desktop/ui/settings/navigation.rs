@@ -4,6 +4,7 @@ pub(super) fn settings_sidebar(app: &OneChat, cx: &mut Context<OneChat>) -> AnyE
     let general_selected = app.settings_ui.section == SettingsSection::General;
     let default_models_selected = app.settings_ui.section == SettingsSection::DefaultModels;
     let prompts_selected = app.settings_ui.section == SettingsSection::SystemPrompts;
+    let mcp_selected = app.settings_ui.section == SettingsSection::Mcp;
     let mut providers = div().flex().flex_col().gap_1();
 
     for provider in &app.data.snapshot.providers {
@@ -82,6 +83,19 @@ pub(super) fn settings_sidebar(app: &OneChat, cx: &mut Context<OneChat>) -> AnyE
                     )
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.select_settings_section(SettingsSection::SystemPrompts, cx)
+                    })),
+                )
+                .child(
+                    settings_nav_row(
+                        "settings-mcp",
+                        AppIcon::Plug,
+                        "MCP Servers",
+                        "Local tools over stdio",
+                        mcp_selected,
+                        cx,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.select_settings_section(SettingsSection::Mcp, cx)
                     })),
                 ),
         )

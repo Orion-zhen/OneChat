@@ -28,7 +28,7 @@ use super::{
 use crate::{
     desktop::app::{ConnectionTestStatus, OneChat, Page, PendingFocus},
     desktop::ui::{chat, inspector, settings},
-    domain::{AutoTitleState, Conversation},
+    domain::{AutoTitleState, Conversation, ToolSelection},
 };
 
 actions!(
@@ -342,6 +342,13 @@ fn render_top_bar(
         .map(|conversation| app.system_prompt_label(&conversation.system_prompt))
         .unwrap_or_else(|| "None".into());
     let can_choose_prompt = current_conversation.is_some() && !app.is_current_generating();
+    let tool_label = current_conversation.map_or_else(
+        || "Tools".to_string(),
+        |conversation| match &conversation.tool_selection {
+            ToolSelection::Default => "Default".to_string(),
+            ToolSelection::Only(tools) => format!("{} selected", tools.len()),
+        },
+    );
     let (connection, connection_color) = provider.map_or(
         ("Not configured", cx.theme().muted_foreground),
         |provider| match app.settings_ui.connection_tests.get(&provider.id) {
@@ -455,6 +462,29 @@ fn render_top_bar(
                                 .child(prompt_label),
                         )
                         .child(render_icon(AppIcon::ChevronDown, IconTone::Muted, 14.0, cx)),
+                )
+                .child(
+                    button_base("open-tools-inspector")
+                        .large()
+                        .h(px(40.0))
+                        .px(px(12.0))
+                        .rounded(px(12.0))
+                        .tooltip("Configure tools for this conversation")
+                        .disabled(current_conversation.is_none())
+                        .max_w(px(170.0))
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(render_icon(AppIcon::Plug, IconTone::Muted, 14.0, cx))
+                        .child(
+                            div()
+                                .min_w_0()
+                                .overflow_hidden()
+                                .whitespace_nowrap()
+                                .text_ellipsis()
+                                .child(tool_label),
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.open_tools_inspector(cx))),
                 )
                 .child(
                     large_icon_button(

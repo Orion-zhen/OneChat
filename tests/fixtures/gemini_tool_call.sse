@@ -1,0 +1,2 @@
+data: {"responseId":"response-tool","modelVersion":"gemini-test","candidates":[{"content":{"parts":[{"functionCall":{"name":"fixture__environment","args":{},"id":"call-1"},"thoughtSignature":"signed-tool-call"}],"role":"model"},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":2,"totalTokenCount":7}}
+

@@ -51,22 +51,28 @@ impl ProviderKind {
 
     pub fn default_capabilities(self) -> ModelCapabilities {
         match self {
-            Self::OpenAi | Self::OpenAiCompatible => ModelCapabilities {
-                thinking: true,
+            Self::OpenAi => ModelCapabilities {
+                tools: true,
+                frequency_penalty: true,
+                presence_penalty: true,
+                seed: true,
+                ..ModelCapabilities::default()
+            },
+            Self::OpenAiCompatible => ModelCapabilities {
                 frequency_penalty: true,
                 presence_penalty: true,
                 seed: true,
                 ..ModelCapabilities::default()
             },
             Self::Anthropic => ModelCapabilities {
-                thinking: true,
+                tools: true,
                 top_k: true,
                 thinking_budget: true,
                 ..ModelCapabilities::default()
             },
             Self::Gemini => ModelCapabilities {
+                tools: true,
                 vision: true,
-                thinking: true,
                 top_k: true,
                 frequency_penalty: true,
                 presence_penalty: true,
@@ -112,8 +118,9 @@ impl Provider {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ModelCapabilities {
     pub streaming: bool,
+    #[serde(default)]
+    pub tools: bool,
     pub vision: bool,
-    pub thinking: bool,
     pub temperature: bool,
     pub top_p: bool,
     pub top_k: bool,
@@ -129,8 +136,8 @@ impl Default for ModelCapabilities {
     fn default() -> Self {
         Self {
             streaming: true,
+            tools: false,
             vision: false,
-            thinking: false,
             temperature: true,
             top_p: true,
             top_k: false,

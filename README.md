@@ -21,6 +21,7 @@ The crate keeps reusable code independent from the GPUI desktop shell:
 - `application`: UI-independent generation preparation, reduction, cancellation, and streaming runner
 - `providers`: OpenAI, Anthropic, and Gemini adapters
 - `storage`: JSONC/JSON persistence behind the `Storage` facade
+- `mcp`: JSONC configuration and stdio/Streamable HTTP MCP server lifecycle
 - `markdown`: UI-independent Markdown AST, parsing, and formula rendering
 - `desktop`: GPUI application state and presentation
 
@@ -79,3 +80,77 @@ Each conversation, including its messages and request history, has one JSON file
 - Windows: `%LOCALAPPDATA%\OneChat\conversations\`
 
 The settings parser accepts JSONC comments and trailing commas. Files written by OneChat are formatted as plain JSON, which is also valid JSONC. Existing comments are not preserved when the app writes the settings file. Legacy SQLite files are neither imported nor deleted.
+
+## MCP servers
+
+OneChat reads stdio and Streamable HTTP MCP server definitions from `~/.config/onechat/mcp.jsonc`. It creates an empty file on first launch. The MCP settings UI can add, edit, delete, or import server definitions and updates the JSONC syntax tree in place so existing comments and unrelated formatting remain intact. Servers use commands already installed on the system; OneChat does not install Node or Python runtimes and does not interpret commands as shell expressions. Windows may use `cmd.exe` internally when launching `.cmd` or `.bat` wrappers such as `npx.cmd`.
+
+```jsonc
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem",
+        "/Users/orion/repo"
+      ]
+    },
+    "fetch": {
+      "command": "uv",
+      "args": ["tool", "run", "mcp-server-fetch"]
+    },
+    "exa": {
+      "url": "https://mcp.exa.ai/mcp",
+      "headers": { "X-API-Key": "plain-text-value" },
+      "proxy": "socks5://127.0.0.1:1080",
+      "disabledTools": ["web_fetch_exa"]
+    },
+    "secure-api": {
+      "url": "https://example.com/mcp",
+      "bearerToken": "plain-text-token"
+    },
+    "oauth-api": {
+      "url": "https://example.com/mcp",
+      "oauth": {
+        "flow": "authorizationCode",
+        "clientId": "optional-pre-registered-client",
+        "scopes": ["read", "write"],
+        "callbackPort": 0
+      }
+    },
+    "machine-api": {
+      "url": "https://example.com/mcp",
+      "oauth": {
+        "flow": "clientCredentials",
+        "clientId": "client-id",
+        "clientSecret": "client-secret",
+        "scopes": ["tools"]
+      }
+    },
+    "local-python": {
+      "enabled": false,
+      "command": "uv",
+      "args": ["run", "python", "server.py"],
+      "cwd": "/absolute/path/to/project",
+      "env": {
+        "API_TOKEN": "plain-text-value"
+      }
+    }
+  }
+}
+```
+
+`enabled` defaults to `true`; `args`, `env`, `headers`, and `disabledTools` default to empty values. Server and tool switches in the MCP settings page update `enabled` and `disabledTools` directly. `cwd`, when present, must be absolute. A relative command containing a path separator is resolved from `cwd` and therefore requires it; an absolute command is always used directly. Arguments and environment values are literal: `~`, `$HOME`, and shell syntax are not expanded.
+
+For bare commands such as `npx` or `uv`, OneChat reconstructs the user's execution PATH instead of relying only on the environment inherited by a GUI launcher. macOS and Linux read PATH from the user's login shell with a timeout, then fall back to the inherited PATH and standard system/user binary directories. Windows refreshes the current user's environment block and honors `PATHEXT`, including `.exe`, `.cmd`, and `.bat` wrappers. The resulting PATH is also passed to the MCP child process so interpreter-based launchers can find dependencies such as `node`. A server's explicit `env.PATH` overrides automatic discovery. Absolute paths remain the most deterministic option.
+
+Native macOS App Bundles, Windows desktop installers, AppImage, deb, and rpm packages can start host executables directly. Sandboxed distributions such as macOS App Sandbox, Windows AppContainer, strict Snap, and Flatpak require a separate host-execution integration and are not supported for local stdio MCP servers.
+
+HTTP servers support custom `headers`, HTTP/SOCKS `proxy`, `bearerToken`, interactive authorization-code OAuth with PKCE, and OAuth client credentials. `bearerToken`, `oauth`, and an explicit `Authorization` header are mutually exclusive. Client credentials require both `clientId` and `clientSecret`. Interactive OAuth can omit `clientId` when the authorization server supports dynamic client registration; use the key action on the server card to open browser authorization. Access and refresh tokens are cached in `mcp-oauth/` next to `mcp.jsonc` with owner-only file permissions and are invalidated when the server URL or OAuth configuration changes. Configured secrets remain plain text in `mcp.jsonc`.
+
+The MCP Servers settings page shows resolved executables, connection failures, and discovered tools. Server cards are collapsed by default and can run an isolated connection test. Servers can be configured field by field, or imported by pasting a JSON/JSONC object containing `mcpServers`; imports merge by server ID and replace matching definitions. Open Config and Reload actions remain available.
+
+OneChat exposes discovered MCP tools to models with the Tools capability and automatically runs tool-call loops. New OpenAI, Anthropic, and Gemini models enable Tools by default; OpenAI-compatible models require enabling it in the model editor. Each conversation initially follows the global tool defaults, but the Tools inspector can override each tool—including enabling a globally disabled tool—without changing the global configuration. A disabled MCP server remains unavailable. Forks inherit the conversation selection, and the controls are locked during an active generation. Each assistant response shows live, expandable tool cards with arguments, results, errors, and durations; these traces are persisted, copied when a conversation is forked, cleared on regeneration, and marked interrupted after an unexpected restart. The request inspector reports cumulative tool count and execution time.
+
+Tool results currently support text, structured JSON, and embedded text resources. Calls run automatically and may run in parallel, with a maximum of eight model steps and 256 KiB per tool result. Direct resource browsing, prompts, sampling, and per-call approval are not supported.

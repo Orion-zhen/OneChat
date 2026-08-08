@@ -88,6 +88,7 @@ impl OneChat {
                     }
                 }
                 self.sync_thinking_scrolls();
+                self.sync_tool_execution_expansions();
                 self.refresh_markdown_documents(cx);
             }
             Err(error) => self.data.error = Some(format!("Storage error: {error}")),
@@ -208,6 +209,8 @@ impl OneChat {
         self.overlays.response_model_turn_id = None;
         self.chat.expanded_error_ids.clear();
         self.chat.thinking_expansion_overrides.clear();
+        self.chat.expanded_tool_execution_ids.clear();
+        self.chat.expanded_conversation_tool_server_ids.clear();
         self.chat.message_editor = None;
         self.chat.follow_latest = true;
         self.chat.message_scroll_motion.cancel();
@@ -219,6 +222,18 @@ impl OneChat {
         self.chat.generation_config_save_revision =
             self.chat.generation_config_save_revision.wrapping_add(1);
         self.chat.parameter_error = None;
+    }
+
+    fn sync_tool_execution_expansions(&mut self) {
+        self.chat.expanded_tool_execution_ids.retain(|id| {
+            self.data
+                .snapshot
+                .current_turns
+                .iter()
+                .flat_map(|turn| &turn.responses)
+                .flat_map(|response| &response.tool_executions)
+                .any(|execution| execution.id == *id)
+        });
     }
 
     fn sync_thinking_scrolls(&mut self) {
@@ -532,7 +547,7 @@ impl OneChat {
             .is_some_and(|turn| turn.id == turn_id)
     }
 
-    pub(crate) fn current_context_messages(&self) -> Vec<ChatMessage> {
+    pub(crate) fn current_context_messages(&self) -> Vec<Message> {
         crate::application::generation::history_for_new_turn(&self.data.snapshot.current_turns)
     }
 }

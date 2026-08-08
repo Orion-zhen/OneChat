@@ -5,6 +5,7 @@ description = "A minimal cross-platform LLM chat app"
 
 [dependencies]
 async-channel = "*"
+async-trait = "*"
 chrono = "*"
 comrak = { version = "*", default-features = false }
 futures-util = "*"
@@ -13,20 +14,33 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["fo
 gpui-component = { git = "https://github.com/longbridge/gpui-component" }
 gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
 json5 = "*"
+jsonc-parser = { version = "*", features = ["cst", "serde_json"] }
 lucide-icons = "*"
 reqwest = { version = "*", features = ["socks"] }
 rig-core = "*"
+rmcp = { version = "*", default-features = false, features = ["auth", "client", "transport-child-process", "transport-streamable-http-client-reqwest"] }
 ratex-layout = "*"
 ratex-parser = "*"
 ratex-svg = { version = "*", features = ["embed-fonts"] }
 ratex-types = "*"
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"
-tokio = { version = "*", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }
+tokio = { version = "*", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }
 tokio-util = { version = "*", features = ["rt"] }
 two-face = "*"
 unicode-segmentation = "*"
 unicode-linebreak = "*"
+
+[target.'cfg(unix)'.dependencies]
+libc = "*"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "*", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_System_Environment",
+    "Win32_System_Threading",
+] }
 
 [profile.dev]
 opt-level = 1

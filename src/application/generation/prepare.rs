@@ -3,8 +3,8 @@ use std::collections::HashSet;
 use super::reducer::estimate_tokens;
 
 use crate::domain::{
-    AssistantResponse, ChatMessage, Conversation, GenerationConfig, GenerationRequest, MessageRole,
-    MessageStatus, Model, Provider, RequestInfo, Turn, active_turns, now_timestamp,
+    AssistantResponse, Conversation, GenerationConfig, GenerationRequest, Message, MessageStatus,
+    Model, Provider, RequestInfo, ToolSelection, Turn, active_turns, now_timestamp,
 };
 
 #[derive(Clone)]
@@ -20,6 +20,7 @@ pub struct PreparedGeneration {
     pub response: AssistantResponse,
     pub request_info: RequestInfo,
     pub provider_request: GenerationRequest,
+    pub tool_selection: ToolSelection,
 }
 
 impl PreparedGeneration {
@@ -35,10 +36,7 @@ impl PreparedGeneration {
             .as_deref()
             .map(|response_id| history_through_response(turns, response_id))
             .unwrap_or_default();
-        messages.push(ChatMessage {
-            role: MessageRole::User,
-            content: prompt.clone(),
-        });
+        messages.push(Message::user(prompt.clone()));
 
         let response = AssistantResponse::new(model, provider);
         let mut turn = Turn::new(conversation, parent_response_id, prompt, response);
@@ -65,6 +63,7 @@ impl PreparedGeneration {
             response,
             request_info,
             provider_request,
+            tool_selection: conversation.tool_selection.clone(),
         }
     }
 
@@ -100,6 +99,7 @@ impl PreparedGeneration {
             response,
             request_info,
             provider_request,
+            tool_selection: conversation.tool_selection.clone(),
         }
     }
 
@@ -136,24 +136,22 @@ impl PreparedGeneration {
             response,
             request_info,
             provider_request,
+            tool_selection: conversation.tool_selection.clone(),
         }
     }
 }
 
-pub fn history_for_turn(turns: &[Turn], turn: &Turn) -> Vec<ChatMessage> {
+pub fn history_for_turn(turns: &[Turn], turn: &Turn) -> Vec<Message> {
     let mut messages = turn
         .parent_response_id
         .as_deref()
         .map(|response_id| history_through_response(turns, response_id))
         .unwrap_or_default();
-    messages.push(ChatMessage {
-        role: MessageRole::User,
-        content: turn.user.content.clone(),
-    });
+    messages.push(Message::user(turn.user.content.clone()));
     messages
 }
 
-pub fn history_for_new_turn(turns: &[Turn]) -> Vec<ChatMessage> {
+pub fn history_for_new_turn(turns: &[Turn]) -> Vec<Message> {
     active_turns(turns)
         .last()
         .and_then(|turn| turn.continuation_response_id.as_deref())
@@ -161,12 +159,12 @@ pub fn history_for_new_turn(turns: &[Turn]) -> Vec<ChatMessage> {
         .unwrap_or_default()
 }
 
-fn history_through_response(turns: &[Turn], response_id: &str) -> Vec<ChatMessage> {
+fn history_through_response(turns: &[Turn], response_id: &str) -> Vec<Message> {
     fn visit(
         turns: &[Turn],
         response_id: &str,
         visited: &mut HashSet<String>,
-        messages: &mut Vec<ChatMessage>,
+        messages: &mut Vec<Message>,
     ) {
         if !visited.insert(response_id.to_string()) {
             return;
@@ -180,15 +178,13 @@ fn history_through_response(turns: &[Turn], response_id: &str) -> Vec<ChatMessag
         if let Some(parent_id) = turn.parent_response_id.as_deref() {
             visit(turns, parent_id, visited, messages);
         }
-        messages.push(ChatMessage {
-            role: MessageRole::User,
-            content: turn.user.content.clone(),
-        });
-        if !response.content.is_empty() {
-            messages.push(ChatMessage {
-                role: MessageRole::Assistant,
-                content: response.content.clone(),
-            });
+        messages.push(Message::user(turn.user.content.clone()));
+        if response.transcript.is_empty() {
+            if !response.content.is_empty() {
+                messages.push(Message::assistant(response.content.clone()));
+            }
+        } else {
+            messages.extend(response.transcript.clone());
         }
     }
 
@@ -204,11 +200,13 @@ fn prepare_response(
     provider: &Provider,
     model: &Model,
     system_prompt: &str,
-    messages: &[ChatMessage],
+    messages: &[Message],
 ) -> RequestInfo {
     response.status = MessageStatus::Streaming;
     response.content.clear();
     response.thinking.clear();
+    response.transcript.clear();
+    response.tool_executions.clear();
     response.updated_at = now_timestamp();
     let mut request = RequestInfo::new(conversation_id, turn_id, &response.id);
     request.provider_id = Some(provider.id.clone());
@@ -218,7 +216,7 @@ fn prepare_response(
     let input_text_len = system_prompt.chars().count()
         + messages
             .iter()
-            .map(|message| message.content.chars().count())
+            .map(|message| serde_json::to_string(message).map_or(0, |value| value.chars().count()))
             .sum::<usize>();
     request.usage.input_tokens = Some(estimate_tokens(input_text_len));
     request.usage.estimated = true;
@@ -231,7 +229,7 @@ fn provider_request(
     model: &Model,
     system_prompt: &str,
     config: &GenerationConfig,
-    messages: Vec<ChatMessage>,
+    messages: Vec<Message>,
 ) -> GenerationRequest {
     let (config, _) = config.filtered_for(&model.capabilities);
     GenerationRequest {
@@ -240,5 +238,6 @@ fn provider_request(
         system_prompt: system_prompt.to_string(),
         config,
         messages,
+        tools: Vec::new(),
     }
 }

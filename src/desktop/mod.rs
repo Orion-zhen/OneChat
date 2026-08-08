@@ -12,7 +12,7 @@ use gpui_component::Root;
 use gpui_component_assets::Assets;
 use tokio::runtime::Builder;
 
-use crate::storage::Storage;
+use crate::{mcp::McpManager, storage::Storage};
 
 struct WindowContent {
     one_chat: Entity<OneChat>,
@@ -43,6 +43,7 @@ pub fn run() {
             .build()
             .expect("failed to start network runtime"),
     );
+    let mcp = Arc::new(McpManager::new(storage.mcp_path()));
     gpui_platform::application()
         .with_assets(Assets)
         .run(move |cx: &mut App| {
@@ -64,8 +65,9 @@ pub fn run() {
                 {
                     let storage = storage.clone();
                     let runtime = runtime.clone();
+                    let mcp = mcp.clone();
                     move |window, cx| {
-                        let one_chat = cx.new(|cx| OneChat::new(storage, runtime, window, cx));
+                        let one_chat = cx.new(|cx| OneChat::new(storage, runtime, mcp, window, cx));
                         let initial_focus = one_chat.read(cx).initial_focus_handle(cx);
                         window.focus(&initial_focus, cx);
                         let content = cx.new(|_| WindowContent { one_chat });

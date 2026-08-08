@@ -36,7 +36,31 @@ mod tests {
         let model = Model::new("provider", "model", "Model");
         let conversation = Conversation::new("Conversation", Some(&model), "");
         assert_eq!(conversation.generation_config, GenerationConfig::default());
+        assert_eq!(conversation.tool_selection, ToolSelection::Default);
         assert_eq!(conversation.auto_title_state, AutoTitleState::Pending);
+    }
+
+    #[test]
+    fn legacy_all_tool_selection_reads_as_global_defaults() {
+        let selection: ToolSelection = serde_json::from_value(serde_json::json!({
+            "mode": "all"
+        }))
+        .unwrap();
+        assert_eq!(selection, ToolSelection::Default);
+    }
+
+    #[test]
+    fn explicit_tool_selection_uses_stable_server_and_tool_names() {
+        let selection = ToolSelection::Only(std::collections::BTreeSet::from([ToolRef::new(
+            "filesystem",
+            "read_file",
+        )]));
+
+        assert!(selection.resolves("filesystem", "read_file", false));
+        assert!(!selection.resolves("other", "read_file", true));
+        assert!(!selection.resolves("filesystem", "write_file", true));
+        assert!(ToolSelection::Default.resolves("filesystem", "write_file", true));
+        assert!(!ToolSelection::Default.resolves("filesystem", "write_file", false));
     }
 
     #[test]
@@ -212,17 +236,28 @@ mod tests {
             "Claude",
             ProviderKind::Anthropic,
         );
-        assert!(anthropic.capabilities.thinking);
+        assert!(anthropic.capabilities.tools);
         assert!(anthropic.capabilities.top_k);
         assert!(anthropic.capabilities.thinking_budget);
         assert!(!anthropic.capabilities.frequency_penalty);
 
         let mut gemini =
             Model::new_for_provider("gemini", "gemini-test", "Gemini", ProviderKind::Gemini);
+        assert!(gemini.capabilities.tools);
         assert!(gemini.capabilities.vision);
         assert!(gemini.capabilities.frequency_penalty);
         assert!(!gemini.capabilities.seed);
         gemini.capabilities.seed = true;
         assert!(gemini.capabilities.seed);
+
+        let openai = Model::new_for_provider("openai", "gpt-test", "GPT", ProviderKind::OpenAi);
+        let compatible = Model::new_for_provider(
+            "compatible",
+            "local-test",
+            "Local",
+            ProviderKind::OpenAiCompatible,
+        );
+        assert!(openai.capabilities.tools);
+        assert!(!compatible.capabilities.tools);
     }
 }

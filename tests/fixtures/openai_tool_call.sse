@@ -1,0 +1,9 @@
+data: {"type":"response.output_item.added","sequence_number":1,"output_index":0,"item":{"type":"function_call","id":"fc_1","arguments":"","call_id":"call_1","name":"fixture__environment","status":"in_progress"}}
+
+data: {"type":"response.function_call_arguments.delta","item_id":"fc_1","output_index":0,"sequence_number":2,"delta":"{}"}
+
+data: {"type":"response.output_item.done","sequence_number":3,"output_index":0,"item":{"type":"function_call","id":"fc_1","arguments":"{}","call_id":"call_1","name":"fixture__environment","status":"completed"}}
+
+data: {"type":"response.completed","sequence_number":4,"response":{"id":"resp_tool","object":"response","created_at":0,"status":"completed","error":null,"incomplete_details":null,"instructions":"Be concise","max_output_tokens":null,"model":"gpt-test","usage":{"input_tokens":5,"input_tokens_details":null,"output_tokens":2,"output_tokens_details":null,"total_tokens":7},"output":[],"tools":[]}}
+
+data: [DONE]

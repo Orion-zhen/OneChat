@@ -9,12 +9,15 @@ pub mod openai;
 use async_channel::Sender;
 use tokio_util::sync::CancellationToken;
 
-use crate::domain::{GenerationError, GenerationEvent, GenerationRequest, Provider, ProviderKind};
+use crate::domain::{
+    GenerationError, GenerationErrorKind, GenerationEvent, GenerationRequest, Message, Provider,
+    ProviderKind, message_tool_calls,
+};
 
 pub use catalog::{AvailableModel, list_models};
 pub(crate) use common::{
-    emit_usage, insert_optional, reasoning_text, remove_keys, sdk_base_url, sdk_headers,
-    sdk_http_client, sdk_request,
+    consume_stream, insert_optional, remove_keys, sdk_base_url, sdk_headers, sdk_http_client,
+    sdk_request,
 };
 pub(crate) use error::{classify_provider_error, sdk_completion_error, sdk_verify_error};
 
@@ -28,20 +31,40 @@ pub async fn test_connection(provider: &Provider) -> Result<(), GenerationError>
     }
 }
 
+pub async fn stream_step(
+    request: GenerationRequest,
+    events: &Sender<GenerationEvent>,
+    cancellation: CancellationToken,
+) -> Result<Message, GenerationError> {
+    match request.provider.kind {
+        ProviderKind::OpenAi | ProviderKind::OpenAiCompatible => {
+            openai::stream(request, events, cancellation).await
+        }
+        ProviderKind::Anthropic => anthropic::stream(request, events, cancellation).await,
+        ProviderKind::Gemini => gemini::stream(request, events, cancellation).await,
+    }
+}
+
 pub async fn generate(
     request: GenerationRequest,
     events: Sender<GenerationEvent>,
     cancellation: CancellationToken,
 ) {
-    let result = match request.provider.kind {
-        ProviderKind::OpenAi | ProviderKind::OpenAiCompatible => {
-            openai::stream(request, &events, cancellation).await
+    match stream_step(request, &events, cancellation).await {
+        Ok(message) if message_tool_calls(&message).is_empty() => {
+            let _ = events.send(GenerationEvent::Completed).await;
         }
-        ProviderKind::Anthropic => anthropic::stream(request, &events, cancellation).await,
-        ProviderKind::Gemini => gemini::stream(request, &events, cancellation).await,
-    };
-    if let Err(error) = result {
-        let _ = events.send(GenerationEvent::Failed(error)).await;
+        Ok(_) => {
+            let _ = events
+                .send(GenerationEvent::Failed(GenerationError::new(
+                    GenerationErrorKind::Unknown,
+                    "Unexpected tool call",
+                )))
+                .await;
+        }
+        Err(error) => {
+            let _ = events.send(GenerationEvent::Failed(error)).await;
+        }
     }
 }
 
@@ -90,6 +113,33 @@ pub(crate) mod test_support {
         });
 
         (format!("http://{address}"), request_receiver)
+    }
+
+    pub(crate) async fn sequence_server(
+        responses: Vec<String>,
+    ) -> (String, async_channel::Receiver<Vec<String>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (captured_sender, captured_receiver) = async_channel::bounded(1);
+
+        tokio::spawn(async move {
+            let mut captured = Vec::new();
+            for response in responses {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let request = read_request(&mut stream).await;
+                captured.push(String::from_utf8_lossy(&request).into_owned());
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    response.len()
+                );
+                stream.write_all(header.as_bytes()).await.unwrap();
+                stream.write_all(response.as_bytes()).await.unwrap();
+                stream.flush().await.unwrap();
+            }
+            let _ = captured_sender.send(captured).await;
+        });
+
+        (format!("http://{address}"), captured_receiver)
     }
 
     pub(crate) fn fragmented(value: &str, width: usize) -> Vec<(Duration, String)> {

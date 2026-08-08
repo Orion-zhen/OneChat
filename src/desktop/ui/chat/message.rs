@@ -413,11 +413,7 @@ fn render_assistant_message(
             .line_height(px(typography.metadata_line_height))
             .text_color(cx.theme().muted_foreground)
             .child(div().size(px(7.0)).rounded_full().bg(cx.theme().primary))
-            .child(if message.thinking.is_empty() {
-                "Contacting provider…"
-            } else {
-                "Thinking…"
-            })
+            .child(waiting_label(message))
             .into_any_element()
     } else if let Some(document) = app.markdown_for(message) {
         markdown::render(
@@ -686,6 +682,7 @@ fn render_assistant_message(
         .max_w(px(message_max_width))
         .child(header)
         .children(render_reasoning(app, message, request, typography, cx))
+        .children(render_tool_executions(app, message, typography, cx))
         .child(content)
         .children(render_error_card(
             app, message, request, latest, generating, typography, cx,
@@ -711,6 +708,267 @@ fn render_assistant_message(
                 })),
         )
         .into_any_element()
+}
+
+pub(super) fn waiting_label(message: &AssistantResponse) -> String {
+    if let Some(execution) = message
+        .tool_executions
+        .iter()
+        .rev()
+        .find(|execution| execution.status.is_active())
+    {
+        let action = match execution.status {
+            ToolExecutionStatus::Queued => "Preparing",
+            ToolExecutionStatus::Running => "Using",
+            _ => unreachable!(),
+        };
+        return format!(
+            "{action} {} · {}…",
+            execution.server_id, execution.tool_name
+        );
+    }
+    if !message.tool_executions.is_empty() {
+        "Waiting for model…".into()
+    } else if message.thinking.is_empty() {
+        "Contacting provider…".into()
+    } else {
+        "Thinking…".into()
+    }
+}
+
+fn render_tool_executions(
+    app: &OneChat,
+    message: &AssistantResponse,
+    typography: MessageTypography,
+    cx: &mut Context<OneChat>,
+) -> Option<AnyElement> {
+    if message.tool_executions.is_empty() {
+        return None;
+    }
+
+    Some(
+        div()
+            .mb_4()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .children(
+                message
+                    .tool_executions
+                    .iter()
+                    .map(|execution| render_tool_execution(app, execution, typography, cx)),
+            )
+            .into_any_element(),
+    )
+}
+
+fn render_tool_execution(
+    app: &OneChat,
+    execution: &ToolExecution,
+    typography: MessageTypography,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    let expanded = app.tool_execution_expanded(&execution.id);
+    let status = tool_status_text(execution);
+    let danger = matches!(
+        execution.status,
+        ToolExecutionStatus::Failed | ToolExecutionStatus::Interrupted
+    );
+    let active = execution.status.is_active();
+    let execution_id = execution.id.clone();
+    let mut card = div()
+        .id(SharedString::from(format!(
+            "tool-execution-{}",
+            execution.id
+        )))
+        .rounded_xl()
+        .border_1()
+        .border_color(cx.theme().border)
+        .bg(cx.theme().muted)
+        .px_3()
+        .py_2()
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(render_icon(
+                    AppIcon::Plug,
+                    if danger {
+                        IconTone::Danger
+                    } else if active {
+                        IconTone::Accent
+                    } else {
+                        IconTone::Muted
+                    },
+                    16.0,
+                    cx,
+                ))
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex_1()
+                        .text_size(px(typography.metadata_size))
+                        .line_height(px(typography.metadata_line_height))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(format!("{} · {}", execution.server_id, execution.tool_name)),
+                )
+                .child(
+                    div()
+                        .rounded_full()
+                        .bg(if danger {
+                            if cx.theme().is_dark() {
+                                rgba(0xff453a24).into()
+                            } else {
+                                rgba(0xd7001518).into()
+                            }
+                        } else {
+                            cx.theme().popover
+                        })
+                        .px_2()
+                        .py_1()
+                        .text_size(px(typography.micro_size))
+                        .line_height(px(typography.micro_line_height))
+                        .text_color(if danger {
+                            cx.theme().danger
+                        } else if active {
+                            cx.theme().primary
+                        } else {
+                            cx.theme().muted_foreground
+                        })
+                        .child(status),
+                )
+                .child(
+                    icon_button(
+                        SharedString::from(format!("toggle-tool-{}", execution.id)),
+                        if expanded {
+                            AppIcon::ChevronUp
+                        } else {
+                            AppIcon::ChevronDown
+                        },
+                        IconTone::Muted,
+                        cx,
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.toggle_tool_execution(execution_id.clone(), cx)
+                    })),
+                ),
+        );
+
+    if expanded {
+        let arguments = serde_json::to_string_pretty(&execution.arguments)
+            .unwrap_or_else(|_| execution.arguments.to_string());
+        card = card.child(
+            div()
+                .pt_3()
+                .border_t_1()
+                .border_color(cx.theme().border)
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(tool_detail(
+                    &execution.id,
+                    "ARGUMENTS",
+                    arguments,
+                    false,
+                    app,
+                    typography,
+                    cx,
+                ))
+                .children(execution.result.as_ref().map(|result| {
+                    tool_detail(
+                        &execution.id,
+                        "RESULT",
+                        result.clone(),
+                        false,
+                        app,
+                        typography,
+                        cx,
+                    )
+                }))
+                .children(execution.error.as_ref().map(|error| {
+                    tool_detail(
+                        &execution.id,
+                        "ERROR",
+                        error.clone(),
+                        true,
+                        app,
+                        typography,
+                        cx,
+                    )
+                })),
+        );
+    }
+    card.into_any_element()
+}
+
+fn tool_detail(
+    execution_id: &str,
+    label: &'static str,
+    content: String,
+    danger: bool,
+    app: &OneChat,
+    typography: MessageTypography,
+    cx: &App,
+) -> AnyElement {
+    div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(
+            div()
+                .text_size(px(typography.micro_size))
+                .line_height(px(typography.micro_line_height))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(if danger {
+                    cx.theme().danger
+                } else {
+                    cx.theme().muted_foreground
+                })
+                .child(label),
+        )
+        .child(
+            div()
+                .font(crate::desktop::ui::theme::code_font(cx))
+                .text_size(px(typography.micro_size))
+                .line_height(px(typography.micro_line_height + 4.0))
+                .text_color(if danger {
+                    cx.theme().danger
+                } else {
+                    cx.theme().foreground
+                })
+                .whitespace_normal()
+                .child(SelectableText::new(
+                    SharedString::from(format!("tool-{}-{}", label.to_lowercase(), execution_id)),
+                    content,
+                    app.chat.text_selection.clone(),
+                    selection_color(cx.theme().is_dark()),
+                )),
+        )
+        .into_any_element()
+}
+
+pub(super) fn tool_status_text(execution: &ToolExecution) -> String {
+    let label = match execution.status {
+        ToolExecutionStatus::Queued => "Queued",
+        ToolExecutionStatus::Running => "Running",
+        ToolExecutionStatus::Completed => "Completed",
+        ToolExecutionStatus::Failed => "Failed",
+        ToolExecutionStatus::Stopped => "Stopped",
+        ToolExecutionStatus::Interrupted => "Interrupted",
+    };
+    execution.duration_ms.map_or_else(
+        || label.to_string(),
+        |duration| format!("{label} · {}", format_tool_duration(duration)),
+    )
+}
+
+pub(super) fn format_tool_duration(duration_ms: u64) -> String {
+    if duration_ms < 1_000 {
+        format!("{duration_ms} ms")
+    } else {
+        format!("{}.{:01} s", duration_ms / 1_000, duration_ms % 1_000 / 100)
+    }
 }
 
 fn render_reasoning(

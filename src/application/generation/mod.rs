@@ -14,6 +14,11 @@ pub use runner::{
 mod tests {
     use std::time::Duration;
 
+    use rig_core::{
+        OneOrMany,
+        completion::AssistantContent,
+        message::{ToolCall, ToolFunction},
+    };
     use tokio_util::sync::CancellationToken;
 
     use super::*;
@@ -34,6 +39,11 @@ mod tests {
         let mut conversation = Conversation::new("Test", Some(&model), "");
         conversation.generation_config.temperature = Some(0.4);
         conversation.generation_config.top_k = Some(20);
+        conversation.tool_selection =
+            ToolSelection::Only(std::collections::BTreeSet::from([ToolRef::new(
+                "filesystem",
+                "read_file",
+            )]));
 
         let prepared =
             PreparedGeneration::new(&conversation, &provider, &model, &[], None, "Next".into());
@@ -52,6 +62,7 @@ mod tests {
         assert_eq!(prepared.provider_request.messages.len(), 1);
         assert_eq!(prepared.provider_request.config.temperature, Some(0.4));
         assert_eq!(prepared.provider_request.config.top_k, None);
+        assert_eq!(prepared.tool_selection, conversation.tool_selection);
     }
 
     #[test]
@@ -95,18 +106,73 @@ mod tests {
 
         assert_eq!(alternate.provider_request.system_prompt, "Current prompt");
         assert_eq!(
-            alternate
-                .provider_request
-                .messages
-                .iter()
-                .map(|message| (message.role, message.content.as_str()))
-                .collect::<Vec<_>>(),
+            alternate.provider_request.messages,
             vec![
-                (MessageRole::User, "Question one"),
-                (MessageRole::Assistant, "Chosen answer"),
-                (MessageRole::User, "Question two"),
+                Message::user("Question one"),
+                Message::assistant("Chosen answer"),
+                Message::user("Question two"),
             ]
         );
+    }
+
+    #[test]
+    fn subsequent_turns_preserve_rich_tool_history_and_provider_metadata() {
+        let provider = Provider::new("Gemini", ProviderKind::Gemini);
+        let model = Model::new_for_provider(
+            &provider.id,
+            "gemini-test",
+            "Gemini Test",
+            ProviderKind::Gemini,
+        );
+        let conversation = Conversation::new("Test", Some(&model), "");
+        let call = ToolCall::new(
+            "environment".into(),
+            ToolFunction {
+                name: "fixture__environment".into(),
+                arguments: serde_json::json!({}),
+            },
+        )
+        .with_call_id("provider-call".into())
+        .with_signature(Some("signed".into()));
+        let assistant = Message::Assistant {
+            id: Some("provider-message".into()),
+            content: OneOrMany::one(AssistantContent::ToolCall(call)),
+        };
+        let result =
+            Message::tool_result_with_call_id("environment", Some("provider-call".into()), "value");
+        let mut response = response(&provider, &model);
+        response.content = "Done".into();
+        response.transcript = vec![
+            assistant.clone(),
+            result.clone(),
+            Message::assistant("Done"),
+        ];
+        response.replace_content("Edited".into());
+        let turn = Turn::new(&conversation, None, "Question", response);
+
+        let prepared = PreparedGeneration::new(
+            &conversation,
+            &provider,
+            &model,
+            std::slice::from_ref(&turn),
+            turn.continuation_response_id.clone(),
+            "Next".into(),
+        );
+
+        assert_eq!(
+            prepared.provider_request.messages,
+            vec![
+                Message::user("Question"),
+                assistant,
+                result,
+                Message::assistant("Edited"),
+                Message::user("Next"),
+            ]
+        );
+        let serialized = serde_json::to_string(&prepared.provider_request.messages).unwrap();
+        assert!(serialized.contains("provider-message"));
+        assert!(serialized.contains("provider-call"));
+        assert!(serialized.contains("signed"));
     }
 
     #[test]
@@ -149,16 +215,11 @@ mod tests {
         );
 
         assert_eq!(
-            edited
-                .provider_request
-                .messages
-                .iter()
-                .map(|message| (message.role, message.content.as_str()))
-                .collect::<Vec<_>>(),
+            edited.provider_request.messages,
             vec![
-                (MessageRole::User, "Question one"),
-                (MessageRole::Assistant, "Answer one"),
-                (MessageRole::User, "Edited question"),
+                Message::user("Question one"),
+                Message::assistant("Answer one"),
+                Message::user("Edited question"),
             ]
         );
     }
@@ -171,6 +232,13 @@ mod tests {
         let mut previous = response(&provider, &model);
         previous.content = "Old answer".into();
         previous.thinking = "Old thinking".into();
+        previous.tool_executions.push(ToolExecution::new(
+            "call",
+            None,
+            "server",
+            "tool",
+            serde_json::json!({}),
+        ));
         let turn = Turn::new(&conversation, None, "Question", previous.clone());
         conversation.system_prompt = "Current prompt".into();
 
@@ -188,7 +256,47 @@ mod tests {
         assert_eq!(prepared.response.status, MessageStatus::Streaming);
         assert!(prepared.response.content.is_empty());
         assert!(prepared.response.thinking.is_empty());
+        assert!(prepared.response.tool_executions.is_empty());
         assert_ne!(prepared.response.request_id, previous.request_id);
+    }
+
+    #[test]
+    fn tool_execution_events_upsert_records_and_request_metrics() {
+        let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+        let model = Model::new(&provider.id, "model", "Model");
+        let mut response = response(&provider, &model);
+        let mut request = request(&response);
+        let mut execution = ToolExecution::new(
+            "provider-tool-call",
+            Some("provider-call".into()),
+            "filesystem",
+            "read_file",
+            serde_json::json!({"path": "/tmp/file"}),
+        );
+
+        apply_event(
+            GenerationEvent::ToolExecutionUpdated(Box::new(execution.clone())),
+            &mut response,
+            &mut request,
+            Duration::from_millis(20),
+        );
+        assert_eq!(response.tool_executions, vec![execution.clone()]);
+        assert_eq!(request.tool_call_count, 1);
+        assert_eq!(request.tool_duration_ms, None);
+
+        execution.status = ToolExecutionStatus::Completed;
+        execution.result = Some("contents".into());
+        execution.duration_ms = Some(42);
+        apply_event(
+            GenerationEvent::ToolExecutionUpdated(Box::new(execution.clone())),
+            &mut response,
+            &mut request,
+            Duration::from_millis(80),
+        );
+
+        assert_eq!(response.tool_executions, vec![execution]);
+        assert_eq!(request.tool_call_count, 1);
+        assert_eq!(request.tool_duration_ms, Some(42));
     }
 
     #[test]
@@ -311,6 +419,48 @@ mod tests {
         assert_eq!(request.usage.output_tokens, Some(9));
         assert_eq!(request.status, RequestStatus::Failed);
         assert_eq!(request.error.unwrap().kind, "rate_limited");
+    }
+
+    #[test]
+    fn real_usage_replaces_estimates_and_accumulates_across_model_steps() {
+        let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+        let model = Model::new(&provider.id, "model", "Model");
+        let mut response = response(&provider, &model);
+        let mut request = request(&response);
+        request.usage = TokenUsage {
+            input_tokens: Some(100),
+            output_tokens: None,
+            estimated: true,
+        };
+
+        for usage in [
+            TokenUsage {
+                input_tokens: Some(4),
+                output_tokens: Some(2),
+                estimated: false,
+            },
+            TokenUsage {
+                input_tokens: Some(5),
+                output_tokens: Some(3),
+                estimated: false,
+            },
+        ] {
+            apply_event(
+                GenerationEvent::UsageUpdated(usage),
+                &mut response,
+                &mut request,
+                Duration::ZERO,
+            );
+        }
+
+        assert_eq!(
+            request.usage,
+            TokenUsage {
+                input_tokens: Some(9),
+                output_tokens: Some(5),
+                estimated: false,
+            }
+        );
     }
 
     #[test]

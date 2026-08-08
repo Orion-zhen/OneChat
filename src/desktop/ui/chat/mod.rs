@@ -7,7 +7,10 @@ use message::render_turn;
 use system_prompt::render_system_prompt_card;
 
 #[cfg(test)]
-use message::{format_message_stats, format_reasoning_duration, user_editor_width};
+use message::{
+    format_message_stats, format_reasoning_duration, format_tool_duration, tool_status_text,
+    user_editor_width, waiting_label,
+};
 #[cfg(test)]
 use system_prompt::prompt_preview;
 
@@ -34,7 +37,7 @@ use crate::{
     desktop::app::{COLLAPSED_THINKING_HEIGHT, OneChat, SystemPromptMode},
     domain::{
         AssistantResponse, MAX_MESSAGE_WIDTH_RATIO, MIN_MESSAGE_WIDTH_RATIO, MessageStatus,
-        RequestInfo, Turn,
+        RequestInfo, ToolExecution, ToolExecutionStatus, Turn,
     },
 };
 
@@ -393,6 +396,37 @@ mod tests {
             format_message_stats(&request),
             "120 tokens  ·  60.0 tok/s  ·  TTFT 250 ms"
         );
+    }
+
+    #[test]
+    fn tool_status_and_waiting_labels_follow_live_execution_state() {
+        let provider =
+            crate::domain::Provider::new("Provider", crate::domain::ProviderKind::OpenAi);
+        let model = crate::domain::Model::new(&provider.id, "model", "Model");
+        let mut response = AssistantResponse::new(&model, &provider);
+        response.status = MessageStatus::Streaming;
+        let mut execution = ToolExecution::new(
+            "call",
+            None,
+            "filesystem",
+            "read_file",
+            serde_json::json!({}),
+        );
+        response.tool_executions.push(execution.clone());
+
+        assert_eq!(
+            waiting_label(&response),
+            "Preparing filesystem · read_file…"
+        );
+        execution.status = ToolExecutionStatus::Running;
+        response.tool_executions[0] = execution.clone();
+        assert_eq!(waiting_label(&response), "Using filesystem · read_file…");
+        execution.status = ToolExecutionStatus::Completed;
+        execution.duration_ms = Some(1_250);
+        response.tool_executions[0] = execution.clone();
+        assert_eq!(waiting_label(&response), "Waiting for model…");
+        assert_eq!(tool_status_text(&execution), "Completed · 1.2 s");
+        assert_eq!(format_tool_duration(999), "999 ms");
     }
 
     #[test]

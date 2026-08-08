@@ -1,6 +1,11 @@
+use std::collections::BTreeSet;
+
+use rig_core::completion::AssistantContent;
 use serde::{Deserialize, Serialize};
 
-use super::{GenerationConfig, Model, Provider, Timestamp, new_id, now_timestamp};
+use super::{
+    GenerationConfig, Message, Model, Provider, Timestamp, ToolExecution, new_id, now_timestamp,
+};
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -11,6 +16,39 @@ pub enum AutoTitleState {
     Finished,
 }
 
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub struct ToolRef {
+    pub server_id: String,
+    pub tool_name: String,
+}
+
+impl ToolRef {
+    pub fn new(server_id: impl Into<String>, tool_name: impl Into<String>) -> Self {
+        Self {
+            server_id: server_id.into(),
+            tool_name: tool_name.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "mode", content = "tools", rename_all = "snake_case")]
+pub enum ToolSelection {
+    #[default]
+    #[serde(alias = "all")]
+    Default,
+    Only(BTreeSet<ToolRef>),
+}
+
+impl ToolSelection {
+    pub fn resolves(&self, server_id: &str, tool_name: &str, default: bool) -> bool {
+        match self {
+            Self::Default => default,
+            Self::Only(tools) => tools.contains(&ToolRef::new(server_id, tool_name)),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Conversation {
     pub id: String,
@@ -18,6 +56,8 @@ pub struct Conversation {
     pub model_id: Option<String>,
     pub system_prompt: String,
     pub generation_config: GenerationConfig,
+    #[serde(default)]
+    pub tool_selection: ToolSelection,
     pub auto_title_state: AutoTitleState,
     pub pinned: bool,
     pub created_at: Timestamp,
@@ -34,26 +74,11 @@ impl Conversation {
             model_id: model.map(|model| model.id.clone()),
             system_prompt,
             generation_config: GenerationConfig::default(),
+            tool_selection: ToolSelection::default(),
             auto_title_state: AutoTitleState::Pending,
             pinned: false,
             created_at: now,
             updated_at: now,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum MessageRole {
-    User,
-    Assistant,
-}
-
-impl MessageRole {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::User => "user",
-            Self::Assistant => "assistant",
         }
     }
 }
@@ -114,6 +139,10 @@ pub struct AssistantResponse {
     pub status: MessageStatus,
     pub content: String,
     pub thinking: String,
+    #[serde(default)]
+    pub transcript: Vec<Message>,
+    #[serde(default)]
+    pub tool_executions: Vec<ToolExecution>,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
 }
@@ -131,8 +160,48 @@ impl AssistantResponse {
             status: MessageStatus::Completed,
             content: String::new(),
             thinking: String::new(),
+            transcript: Vec::new(),
+            tool_executions: Vec::new(),
             created_at: now,
             updated_at: now,
+        }
+    }
+
+    pub fn replace_content(&mut self, content: String) {
+        self.content.clone_from(&content);
+        let mut last_assistant = None;
+        for (index, message) in self.transcript.iter_mut().enumerate() {
+            let Message::Assistant {
+                content: assistant_content,
+                ..
+            } = message
+            else {
+                continue;
+            };
+            last_assistant = Some(index);
+            for item in assistant_content.iter_mut() {
+                if let AssistantContent::Text(text) = item {
+                    text.text.clear();
+                }
+            }
+        }
+        let Some(index) = last_assistant else {
+            return;
+        };
+        let Message::Assistant {
+            content: assistant_content,
+            ..
+        } = &mut self.transcript[index]
+        else {
+            unreachable!();
+        };
+        if let Some(AssistantContent::Text(text)) = assistant_content
+            .iter_mut()
+            .find(|item| matches!(item, AssistantContent::Text(_)))
+        {
+            text.text = content;
+        } else {
+            assistant_content.push(AssistantContent::text(content));
         }
     }
 }

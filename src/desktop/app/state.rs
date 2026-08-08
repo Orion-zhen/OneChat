@@ -3,6 +3,7 @@ use super::*;
 pub(super) struct Services {
     pub(super) storage: Arc<Storage>,
     pub(super) runtime: Arc<Runtime>,
+    pub(super) mcp: Arc<McpManager>,
 }
 
 pub(crate) struct DataState {
@@ -10,6 +11,11 @@ pub(crate) struct DataState {
     pub(crate) loading: bool,
     pub(crate) error: Option<String>,
     pub(super) storage_task: Task<()>,
+}
+
+pub(crate) struct McpState {
+    pub(crate) snapshot: McpSnapshot,
+    pub(crate) loading: bool,
 }
 
 pub(crate) struct NavigationState {
@@ -289,6 +295,8 @@ pub(crate) struct ChatState {
     pub(crate) visible_response_ids: HashMap<String, String>,
     pub(super) expanded_error_ids: HashSet<String>,
     pub(super) thinking_expansion_overrides: HashSet<String>,
+    pub(super) expanded_tool_execution_ids: HashSet<String>,
+    pub(crate) expanded_conversation_tool_server_ids: HashSet<String>,
     pub(super) message_editor: Option<MessageEditor>,
     pub(crate) message_scroll: ScrollHandle,
     pub(crate) message_scroll_motion: MessageScrollMotion,
@@ -326,6 +334,11 @@ pub(crate) struct SettingsState {
     pub(crate) viewed_prompt_preset: Option<String>,
     pub(crate) prompt_preset_editor: Option<PromptPresetEditor>,
     pub(crate) title_prompt_editor: Option<Entity<InputState>>,
+    pub(crate) mcp_json_import: Entity<InputState>,
+    pub(crate) mcp_server_editor: Option<McpServerEditor>,
+    pub(crate) mcp_error: Option<String>,
+    pub(crate) expanded_mcp_server_ids: HashSet<String>,
+    pub(crate) mcp_connection_tests: BTreeMap<String, ConnectionTestStatus>,
     pub(crate) connection_tests: BTreeMap<String, ConnectionTestStatus>,
     pub(crate) provider_editor: Option<ProviderEditor>,
     pub(crate) model_editor: Option<ModelEditor>,

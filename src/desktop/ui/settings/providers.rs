@@ -362,11 +362,11 @@ pub(super) fn model_capability_summary(capabilities: &ModelCapabilities) -> Stri
     if capabilities.streaming {
         labels.push("Streaming");
     }
+    if capabilities.tools {
+        labels.push("Tools");
+    }
     if capabilities.vision {
         labels.push("Vision");
-    }
-    if capabilities.thinking {
-        labels.push("Thinking");
     }
     if labels.is_empty() {
         "No core capabilities".into()

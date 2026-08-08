@@ -175,6 +175,11 @@ impl OneChat {
         cx.notify();
     }
 
+    pub(crate) fn open_tools_inspector(&mut self, cx: &mut Context<Self>) {
+        self.navigation.inspector_tab = InspectorTab::Tools;
+        self.set_inspector_visible(true, cx);
+    }
+
     pub(crate) fn open_model_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.open_model_picker_for_turn(None, window, cx);
     }

@@ -290,10 +290,11 @@ impl OneChat {
             .thinking_started_at
             .insert(request_id.clone(), Instant::now());
         let storage = self.services.storage.clone();
+        let mcp = self.services.mcp.clone();
         let (sender, receiver) = async_channel::bounded(32);
         self.services
             .runtime
-            .spawn(run_generation(prepared, storage, cancellation, sender));
+            .spawn(run_generation(prepared, storage, mcp, cancellation, sender));
 
         let timer_request_id = request_id.clone();
         cx.spawn(async move |this, cx| {

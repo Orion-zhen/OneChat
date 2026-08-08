@@ -1,10 +1,8 @@
 use async_channel::Sender;
-use futures_util::StreamExt;
 use rig_core::{
     client::{CompletionClient, VerifyClient},
-    completion::{CompletionModel, GetTokenUsage},
+    completion::{CompletionModel, Message},
     providers::anthropic as rig_anthropic,
-    streaming::StreamedAssistantContent,
 };
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
@@ -12,8 +10,8 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     domain::{GenerationError, GenerationErrorKind, GenerationEvent, GenerationRequest, Provider},
     providers::{
-        emit_usage, insert_optional, reasoning_text, remove_keys, sdk_base_url,
-        sdk_completion_error, sdk_headers, sdk_http_client, sdk_request, sdk_verify_error,
+        consume_stream, insert_optional, remove_keys, sdk_base_url, sdk_completion_error,
+        sdk_headers, sdk_http_client, sdk_request, sdk_verify_error,
     },
 };
 
@@ -28,7 +26,7 @@ pub async fn stream(
     request: GenerationRequest,
     events: &Sender<GenerationEvent>,
     cancellation: CancellationToken,
-) -> Result<(), GenerationError> {
+) -> Result<Message, GenerationError> {
     if cancellation.is_cancelled() {
         return Err(GenerationError::cancelled());
     }
@@ -39,78 +37,18 @@ pub async fn stream(
     if sdk_request.max_tokens.is_none() {
         sdk_request.max_tokens = Some(4096);
     }
-    let mut response = tokio::select! {
+    let response = tokio::select! {
         _ = cancellation.cancelled() => return Err(GenerationError::cancelled()),
         response = model.stream(sdk_request) => response.map_err(|error| sdk_completion_error(error, false))?,
     };
 
-    events
-        .send(GenerationEvent::Started)
-        .await
-        .map_err(|_| GenerationError::cancelled())?;
-
-    let mut had_output = false;
-    let mut had_reasoning_delta = false;
-    let mut saw_final = false;
-    let mut saw_usage = false;
-    loop {
-        let item = tokio::select! {
-            _ = cancellation.cancelled() => return Err(GenerationError::cancelled()),
-            item = response.next() => item,
-        };
-        let Some(item) = item else { break };
-        match item.map_err(|error| sdk_completion_error(error, had_output))? {
-            StreamedAssistantContent::Text(text) if !text.text().is_empty() => {
-                had_output = true;
-                events
-                    .send(GenerationEvent::TextDelta(text.text().to_string()))
-                    .await
-                    .map_err(|_| GenerationError::cancelled())?;
-            }
-            StreamedAssistantContent::ReasoningDelta { reasoning, .. } if !reasoning.is_empty() => {
-                had_output = true;
-                had_reasoning_delta = true;
-                events
-                    .send(GenerationEvent::ThinkingDelta(reasoning))
-                    .await
-                    .map_err(|_| GenerationError::cancelled())?;
-            }
-            StreamedAssistantContent::Reasoning(reasoning) if !had_reasoning_delta => {
-                let text = reasoning_text(&reasoning.content);
-                if !text.is_empty() {
-                    had_output = true;
-                    events
-                        .send(GenerationEvent::ThinkingDelta(text))
-                        .await
-                        .map_err(|_| GenerationError::cancelled())?;
-                }
-            }
-            StreamedAssistantContent::Final(final_response) => {
-                saw_final = true;
-                saw_usage |= emit_usage(final_response.token_usage(), events).await?;
-            }
-            _ => {}
-        }
-    }
-
-    if !saw_final || !saw_usage {
-        return Err(GenerationError::new(
-            GenerationErrorKind::StreamInterrupted,
-            "Provider stream ended before completion",
-        ));
-    }
-    events
-        .send(GenerationEvent::Completed)
-        .await
-        .map_err(|_| GenerationError::cancelled())?;
-    Ok(())
+    consume_stream(response, events, cancellation, true, |_| Ok(())).await
 }
 
 fn additional_parameters(request: &GenerationRequest) -> Map<String, Value> {
     let capabilities = &request.model.capabilities;
     let config = &request.config;
     let mut parameters = config.extra.clone();
-    let raw_thinking = parameters.remove("thinking");
     remove_keys(
         &mut parameters,
         &[
@@ -127,7 +65,11 @@ fn additional_parameters(request: &GenerationRequest) -> Map<String, Value> {
             "seed",
             "stop",
             "stop_sequences",
+            "thinking",
             "thinking_budget",
+            "tools",
+            "tool_choice",
+            "parallel_tool_calls",
         ],
     );
     insert_optional(
@@ -142,11 +84,6 @@ fn additional_parameters(request: &GenerationRequest) -> Map<String, Value> {
     );
     if capabilities.stop_sequences && !config.stop_sequences.is_empty() {
         parameters.insert("stop_sequences".into(), json!(config.stop_sequences));
-    }
-    if capabilities.thinking
-        && let Some(thinking) = raw_thinking
-    {
-        parameters.insert("thinking".into(), thinking);
     }
     if capabilities.thinking_budget
         && let Some(budget) = config.thinking_budget
@@ -178,9 +115,8 @@ fn build_client(provider: &Provider) -> Result<rig_anthropic::Client, Generation
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        domain::ChatMessage,
-        domain::{GenerationConfig, Model, ProviderKind},
+    use crate::domain::{
+        GenerationConfig, Model, ProviderKind, ToolDefinition, message_tool_calls,
     };
 
     fn request() -> GenerationRequest {
@@ -199,13 +135,15 @@ mod tests {
                 frequency_penalty: Some(1.0),
                 stop_sequences: vec!["stop".into()],
                 thinking_budget: Some(2048),
-                extra: Map::from_iter([("top_k".into(), json!(999))]),
+                extra: Map::from_iter([
+                    ("top_k".into(), json!(999)),
+                    ("tools".into(), json!([{"name": "override"}])),
+                    ("tool_choice".into(), json!({"type": "any"})),
+                ]),
                 ..GenerationConfig::default()
             },
-            messages: vec![ChatMessage {
-                role: crate::domain::MessageRole::User,
-                content: "Hello".into(),
-            }],
+            messages: vec![Message::user("Hello")],
+            tools: Vec::new(),
         }
     }
 
@@ -222,6 +160,8 @@ mod tests {
         assert_eq!(parameters["stop_sequences"], json!(["stop"]));
         assert_eq!(parameters["thinking"]["budget_tokens"], 2048);
         assert!(parameters.get("frequency_penalty").is_none());
+        assert!(parameters.get("tools").is_none());
+        assert!(parameters.get("tool_choice").is_none());
         assert_eq!(sdk_request.preamble.as_deref(), Some("Be concise"));
     }
 
@@ -274,7 +214,37 @@ mod tests {
                 estimated: false,
             }))
         );
-        assert_eq!(events.last(), Some(&GenerationEvent::Completed));
+        assert!(!events.contains(&GenerationEvent::Completed));
+    }
+
+    #[tokio::test]
+    async fn stream_returns_tool_calls_and_sends_definitions() {
+        use crate::providers::test_support::{fragmented, request_json, server};
+
+        let fixture = include_str!("../../tests/fixtures/anthropic_tool_call.sse");
+        let (endpoint, captured) =
+            server("200 OK", "text/event-stream", fragmented(fixture, 13)).await;
+        let mut request = request();
+        request.provider.endpoint = endpoint;
+        request.tools.push(ToolDefinition {
+            name: "fixture__environment".into(),
+            description: "Read the environment".into(),
+            parameters: json!({"type": "object", "properties": {}}),
+        });
+        let (sender, _receiver) = async_channel::unbounded();
+
+        let message = stream(request, &sender, CancellationToken::new())
+            .await
+            .unwrap();
+        let calls = message_tool_calls(&message);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].id, "toolu_1");
+        assert_eq!(calls[0].function.name, "fixture__environment");
+        assert_eq!(calls[0].function.arguments, json!({}));
+
+        let body = request_json(&captured.await.unwrap());
+        assert_eq!(body["tools"][0]["name"], "fixture__environment");
+        assert_eq!(body["tools"][0]["input_schema"]["type"], "object");
     }
 
     #[tokio::test]

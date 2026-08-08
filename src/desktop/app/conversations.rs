@@ -297,6 +297,7 @@ impl OneChat {
             DestructiveAction::DeleteProvider { id } => self.delete_provider(id, cx),
             DestructiveAction::DeleteModel { id } => self.delete_model(id, cx),
             DestructiveAction::DeletePromptPreset { name } => self.delete_prompt_preset(name, cx),
+            DestructiveAction::DeleteMcpServer { id } => self.delete_mcp_server(id, cx),
             DestructiveAction::ClearContext { conversation_id } => {
                 self.clear_current_context(conversation_id, cx)
             }

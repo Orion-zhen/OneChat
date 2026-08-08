@@ -5,18 +5,24 @@ mod pages;
 mod providers;
 
 pub(crate) use editors::{
-    Capability, DefaultModelItem, FontFamilyItem, ModelEditor, ModelFetchStatus, ModelIdDelegate,
-    PromptPresetEditor, PromptSelectItem, ProviderEditor, ProviderKindItem, SearchableItems,
-    SettingsSection, font_family_label,
+    Capability, DefaultModelItem, FontFamilyItem, McpServerEditor, McpServerEditorMode,
+    McpServerTransportEditor, ModelEditor, ModelFetchStatus, ModelIdDelegate, PromptPresetEditor,
+    PromptSelectItem, ProviderEditor, ProviderKindItem, SearchableItems, SettingsSection,
+    font_family_label,
 };
-use forms::{model_form, provider_form};
+use forms::{mcp_server_form, model_form, provider_form};
 use navigation::settings_sidebar;
-use pages::{default_models_page, general_page, prompt_preset_dialog_body, system_prompts_page};
+use pages::{
+    default_models_page, general_page, mcp_page, prompt_preset_dialog_body, system_prompts_page,
+};
 #[cfg(test)]
 use providers::model_capability_summary;
 use providers::{new_provider_page, provider_page};
 
-use std::collections::BTreeMap;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::PathBuf,
+};
 
 use gpui::{
     AlignItems, AnyElement, App, Context, Div, ElementId, Entity, FontWeight, SharedString,
@@ -48,6 +54,10 @@ use crate::{
     domain::{
         DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, Model, ModelCapabilities, Provider, ProviderKind,
         SystemPromptPreset, Theme, now_timestamp,
+    },
+    mcp::{
+        McpConfig, McpHttpServerConfig, McpOAuthConfig, McpOAuthFlow, McpServerConfig,
+        McpServerSnapshot, McpServerStatus, McpServerTransportSnapshot, McpStdioServerConfig,
     },
     providers::AvailableModel,
 };
@@ -418,6 +428,7 @@ pub(crate) fn render(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
         SettingsSection::General => general_page(app, cx),
         SettingsSection::DefaultModels => default_models_page(app, cx),
         SettingsSection::SystemPrompts => system_prompts_page(app, cx),
+        SettingsSection::Mcp => mcp_page(app, cx),
         SettingsSection::Provider(provider_id) => app
             .data
             .snapshot
@@ -673,13 +684,13 @@ mod tests {
     #[test]
     fn model_summary_stays_scannable() {
         let capabilities = ModelCapabilities {
+            tools: true,
             vision: true,
-            thinking: true,
             ..ModelCapabilities::default()
         };
         assert_eq!(
             model_capability_summary(&capabilities),
-            "Streaming, Vision, Thinking"
+            "Streaming, Tools, Vision"
         );
     }
 }

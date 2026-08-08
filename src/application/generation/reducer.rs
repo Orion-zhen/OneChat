@@ -42,7 +42,46 @@ pub fn apply_event(
             EventOutcome::default()
         }
         GenerationEvent::UsageUpdated(usage) => {
-            request.usage = usage;
+            if request.usage.estimated || usage.estimated {
+                request.usage = usage;
+            } else {
+                request.usage.input_tokens =
+                    sum_tokens(request.usage.input_tokens, usage.input_tokens);
+                request.usage.output_tokens =
+                    sum_tokens(request.usage.output_tokens, usage.output_tokens);
+            }
+            EventOutcome::default()
+        }
+        GenerationEvent::ProviderOutput => {
+            mark_first_token(request, elapsed);
+            EventOutcome::default()
+        }
+        GenerationEvent::ToolExecutionUpdated(execution) => {
+            if let Some(stored) = assistant
+                .tool_executions
+                .iter_mut()
+                .find(|stored| stored.id == execution.id)
+            {
+                *stored = *execution;
+            } else {
+                assistant.tool_executions.push(*execution);
+            }
+            request.tool_call_count = assistant.tool_executions.len() as u64;
+            request.tool_duration_ms = assistant
+                .tool_executions
+                .iter()
+                .filter_map(|execution| execution.duration_ms)
+                .reduce(u64::saturating_add);
+            request.status = RequestStatus::Streaming;
+            assistant.updated_at = now_timestamp();
+            EventOutcome::default()
+        }
+        GenerationEvent::TranscriptAppended(message) => {
+            if matches!(message.as_ref(), crate::domain::Message::Assistant { .. }) {
+                mark_first_token(request, elapsed);
+            }
+            assistant.transcript.push(*message);
+            assistant.updated_at = now_timestamp();
             EventOutcome::default()
         }
         GenerationEvent::Completed => {
@@ -87,6 +126,13 @@ pub fn interrupted_event() -> GenerationEvent {
         GenerationErrorKind::StreamInterrupted,
         "Provider stream closed unexpectedly",
     ))
+}
+
+fn sum_tokens(left: Option<u64>, right: Option<u64>) -> Option<u64> {
+    match (left, right) {
+        (Some(left), Some(right)) => Some(left.saturating_add(right)),
+        (left, right) => left.or(right),
+    }
 }
 
 fn mark_first_token(request: &mut RequestInfo, elapsed: Duration) {

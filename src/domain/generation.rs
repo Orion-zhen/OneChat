@@ -1,12 +1,8 @@
+pub use rig_core::completion::{Message, ToolDefinition};
+use rig_core::{completion::AssistantContent, message::ToolCall};
 use serde::{Deserialize, Serialize};
 
-use super::{GenerationConfig, MessageRole, Model, Provider, Timestamp, new_id, now_timestamp};
-
-#[derive(Clone, Debug)]
-pub struct ChatMessage {
-    pub role: MessageRole,
-    pub content: String,
-}
+use super::{GenerationConfig, Model, Provider, Timestamp, new_id, now_timestamp};
 
 #[derive(Clone, Debug)]
 pub struct GenerationRequest {
@@ -14,7 +10,8 @@ pub struct GenerationRequest {
     pub model: Model,
     pub system_prompt: String,
     pub config: GenerationConfig,
-    pub messages: Vec<ChatMessage>,
+    pub messages: Vec<Message>,
+    pub tools: Vec<ToolDefinition>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -23,8 +20,24 @@ pub enum GenerationEvent {
     TextDelta(String),
     ThinkingDelta(String),
     UsageUpdated(TokenUsage),
+    ProviderOutput,
+    ToolExecutionUpdated(Box<ToolExecution>),
+    TranscriptAppended(Box<Message>),
     Completed,
     Failed(GenerationError),
+}
+
+pub fn message_tool_calls(message: &Message) -> Vec<ToolCall> {
+    let Message::Assistant { content, .. } = message else {
+        return Vec::new();
+    };
+    content
+        .iter()
+        .filter_map(|content| match content {
+            AssistantContent::ToolCall(call) => Some(call.clone()),
+            _ => None,
+        })
+        .collect()
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -100,6 +113,65 @@ impl std::error::Error for GenerationError {}
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+pub enum ToolExecutionStatus {
+    #[default]
+    Queued,
+    Running,
+    Completed,
+    Failed,
+    Stopped,
+    Interrupted,
+}
+
+impl ToolExecutionStatus {
+    pub fn is_active(self) -> bool {
+        matches!(self, Self::Queued | Self::Running)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+pub struct ToolExecution {
+    pub id: String,
+    pub provider_tool_call_id: String,
+    pub provider_call_id: Option<String>,
+    pub server_id: String,
+    pub tool_name: String,
+    pub arguments: serde_json::Value,
+    pub status: ToolExecutionStatus,
+    pub result: Option<String>,
+    pub error: Option<String>,
+    pub started_at: Option<Timestamp>,
+    pub finished_at: Option<Timestamp>,
+    pub duration_ms: Option<u64>,
+}
+
+impl ToolExecution {
+    pub fn new(
+        provider_tool_call_id: impl Into<String>,
+        provider_call_id: Option<String>,
+        server_id: impl Into<String>,
+        tool_name: impl Into<String>,
+        arguments: serde_json::Value,
+    ) -> Self {
+        Self {
+            id: new_id("tool"),
+            provider_tool_call_id: provider_tool_call_id.into(),
+            provider_call_id,
+            server_id: server_id.into(),
+            tool_name: tool_name.into(),
+            arguments,
+            status: ToolExecutionStatus::Queued,
+            result: None,
+            error: None,
+            started_at: None,
+            finished_at: None,
+            duration_ms: None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RequestStatus {
     Sending,
     Streaming,
@@ -153,6 +225,10 @@ pub struct RequestInfo {
     pub finished_at: Option<Timestamp>,
     pub ttft_ms: Option<u64>,
     pub thinking_duration_ms: Option<u64>,
+    #[serde(default)]
+    pub tool_call_count: u64,
+    #[serde(default)]
+    pub tool_duration_ms: Option<u64>,
     pub duration_ms: Option<u64>,
 }
 
@@ -177,6 +253,8 @@ impl RequestInfo {
             finished_at: None,
             ttft_ms: None,
             thinking_duration_ms: None,
+            tool_call_count: 0,
+            tool_duration_ms: None,
             duration_ms: None,
         }
     }

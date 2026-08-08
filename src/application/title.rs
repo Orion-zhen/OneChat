@@ -4,8 +4,8 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
     domain::{
-        ChatMessage, GenerationConfig, GenerationError, GenerationErrorKind, GenerationEvent,
-        GenerationRequest, MessageRole, Model, Provider,
+        GenerationConfig, GenerationError, GenerationErrorKind, GenerationEvent, GenerationRequest,
+        Message, Model, Provider,
     },
     providers,
 };
@@ -42,8 +42,11 @@ pub async fn generate_title(
             GenerationEvent::Completed => return normalize_title(&output),
             GenerationEvent::Failed(error) => return Err(error),
             GenerationEvent::Started
+            | GenerationEvent::ProviderOutput
             | GenerationEvent::ThinkingDelta(_)
-            | GenerationEvent::UsageUpdated(_) => {}
+            | GenerationEvent::UsageUpdated(_)
+            | GenerationEvent::ToolExecutionUpdated(_)
+            | GenerationEvent::TranscriptAppended(_) => {}
         }
     }
 
@@ -77,10 +80,8 @@ fn title_request(
         model,
         system_prompt,
         config,
-        messages: vec![ChatMessage {
-            role: MessageRole::User,
-            content: transcript,
-        }],
+        messages: vec![Message::user(transcript)],
+        tools: Vec::new(),
     }
 }
 
@@ -160,26 +161,12 @@ mod tests {
         assert_eq!(request.config.temperature, Some(0.2));
         assert_eq!(request.config.max_output_tokens, Some(64));
         assert_eq!(request.messages.len(), 1);
-        assert!(
-            request.messages[0]
-                .content
-                .contains(&"u".repeat(MAX_USER_CHARACTERS))
-        );
-        assert!(
-            !request.messages[0]
-                .content
-                .contains(&"u".repeat(MAX_USER_CHARACTERS + 1))
-        );
-        assert!(
-            request.messages[0]
-                .content
-                .contains(&"a".repeat(MAX_ASSISTANT_CHARACTERS))
-        );
-        assert!(
-            !request.messages[0]
-                .content
-                .contains(&"a".repeat(MAX_ASSISTANT_CHARACTERS + 1))
-        );
+        assert!(request.tools.is_empty());
+        let transcript = serde_json::to_string(&request.messages[0]).unwrap();
+        assert!(transcript.contains(&"u".repeat(MAX_USER_CHARACTERS)));
+        assert!(!transcript.contains(&"u".repeat(MAX_USER_CHARACTERS + 1)));
+        assert!(transcript.contains(&"a".repeat(MAX_ASSISTANT_CHARACTERS)));
+        assert!(!transcript.contains(&"a".repeat(MAX_ASSISTANT_CHARACTERS + 1)));
     }
 
     #[test]

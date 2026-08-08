@@ -10,6 +10,7 @@ use super::{classify_provider_error, sdk_base_url, sdk_headers, sdk_http_client}
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AvailableModel {
     pub id: String,
+    pub tools: bool,
     pub vision: bool,
 }
 
@@ -182,6 +183,7 @@ fn available_model(metadata: &Value, kind: ProviderKind) -> Option<AvailableMode
     let id = id.strip_prefix("models/").unwrap_or(id).trim();
     (!id.is_empty()).then(|| AvailableModel {
         id: id.to_string(),
+        tools: tools_from_metadata(metadata),
         vision: vision_from_metadata(metadata),
     })
 }
@@ -196,6 +198,74 @@ fn supports_gemini_generation(metadata: &Value) -> bool {
                 .filter_map(Value::as_str)
                 .any(|method| matches!(method, "generateContent" | "streamGenerateContent"))
         })
+}
+
+fn tools_from_metadata(metadata: &Value) -> bool {
+    tools_evidence(metadata).unwrap_or(false)
+}
+
+fn tools_evidence(value: &Value) -> Option<bool> {
+    let Value::Object(object) = value else {
+        return None;
+    };
+    let mut evidence = None;
+    for (key, value) in object {
+        let key = normalized_key(key);
+        let direct = if matches!(
+            key.as_str(),
+            "tools"
+                | "supportstools"
+                | "toolcall"
+                | "toolcalling"
+                | "supportstoolcalling"
+                | "tooluse"
+                | "supportstooluse"
+                | "functioncall"
+                | "functioncalling"
+                | "supportsfunctioncalling"
+        ) {
+            value.as_bool()
+        } else if matches!(
+            key.as_str(),
+            "capabilities"
+                | "features"
+                | "supportedfeatures"
+                | "supportedparameters"
+                | "parameters"
+        ) && value.is_array()
+        {
+            Some(contains_tool_label(value))
+        } else {
+            None
+        };
+        evidence = merge_evidence(evidence, direct);
+        evidence = merge_evidence(evidence, tools_evidence(value));
+    }
+    evidence
+}
+
+fn contains_tool_label(value: &Value) -> bool {
+    match value {
+        Value::String(value) => matches!(
+            normalized_key(value).as_str(),
+            "tool"
+                | "tools"
+                | "toolcall"
+                | "toolcalling"
+                | "toolchoice"
+                | "tooluse"
+                | "paralleltoolcalls"
+                | "function"
+                | "functions"
+                | "functioncall"
+                | "functioncalling"
+        ),
+        Value::Array(values) => values.iter().any(contains_tool_label),
+        Value::Object(values) => values.iter().any(|(key, value)| {
+            contains_tool_label(&Value::String(key.clone())) && value.as_bool().unwrap_or(true)
+        }),
+        _ => false,
+    }
 }
 
 fn vision_from_metadata(metadata: &Value) -> bool {
@@ -273,12 +343,15 @@ fn sorted_unique(models: Vec<AvailableModel>) -> Vec<AvailableModel> {
         .fold(BTreeMap::new(), |mut models, model| {
             models
                 .entry(model.id)
-                .and_modify(|vision| *vision |= model.vision)
-                .or_insert(model.vision);
+                .and_modify(|(tools, vision)| {
+                    *tools |= model.tools;
+                    *vision |= model.vision;
+                })
+                .or_insert((model.tools, model.vision));
             models
         })
         .into_iter()
-        .map(|(id, vision)| AvailableModel { id, vision })
+        .map(|(id, (tools, vision))| AvailableModel { id, tools, vision })
         .collect()
 }
 
@@ -316,12 +389,33 @@ mod tests {
         })));
     }
 
+    #[test]
+    fn tools_use_explicit_model_metadata() {
+        assert!(tools_from_metadata(&serde_json::json!({
+            "supported_parameters": ["temperature", "tools", "tool_choice"]
+        })));
+        assert!(tools_from_metadata(&serde_json::json!({
+            "capabilities": {"function_calling": true}
+        })));
+        assert!(tools_from_metadata(&serde_json::json!({
+            "features": ["text", "tool_calling"]
+        })));
+        assert!(!tools_from_metadata(&serde_json::json!({
+            "id": "tool-model-by-name-only",
+            "supported_parameters": ["temperature"]
+        })));
+    }
+
     #[tokio::test]
     async fn openai_models_use_configured_auth_and_metadata() {
         let (endpoint, mut requests) = model_server(vec![serde_json::json!({
             "data": [
                 {"id": "text-model"},
-                {"id": "vision-model", "architecture": {"modality": "text+image->text"}}
+                {
+                    "id": "vision-model",
+                    "architecture": {"modality": "text+image->text"},
+                    "supported_parameters": ["tools", "tool_choice"]
+                }
             ]
         })])
         .await;
@@ -335,10 +429,12 @@ mod tests {
             vec![
                 AvailableModel {
                     id: "text-model".into(),
+                    tools: false,
                     vision: false,
                 },
                 AvailableModel {
                     id: "vision-model".into(),
+                    tools: true,
                     vision: true,
                 },
             ]
@@ -408,10 +504,12 @@ mod tests {
             vec![
                 AvailableModel {
                     id: "gemini-chat".into(),
+                    tools: false,
                     vision: false,
                 },
                 AvailableModel {
                     id: "gemini-vision".into(),
+                    tools: false,
                     vision: true,
                 },
             ]

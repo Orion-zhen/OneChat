@@ -1,16 +1,18 @@
 use async_channel::Sender;
+use futures_util::StreamExt;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use rig_core::{
     OneOrMany,
-    completion::{AssistantContent, CompletionRequest, Message},
-    message::{ReasoningContent, UserContent},
+    completion::{CompletionRequest, GetTokenUsage, Message},
+    streaming::{StreamedAssistantContent, StreamingCompletionResponse},
 };
 use serde::Serialize;
 use serde_json::{Map, Value, json};
+use tokio_util::sync::CancellationToken;
 
 use crate::domain::{
-    GenerationError, GenerationErrorKind, GenerationEvent, GenerationRequest, MessageRole,
-    Provider, ProviderKind, TokenUsage,
+    GenerationError, GenerationErrorKind, GenerationEvent, GenerationRequest, Provider,
+    ProviderKind, TokenUsage,
 };
 
 pub(crate) fn sdk_http_client(provider: &Provider) -> Result<reqwest::Client, GenerationError> {
@@ -99,20 +101,7 @@ pub(crate) fn sdk_request(
     request: &GenerationRequest,
     additional_params: Map<String, Value>,
 ) -> Result<CompletionRequest, GenerationError> {
-    let messages = request
-        .messages
-        .iter()
-        .map(|message| match message.role {
-            MessageRole::User => Message::User {
-                content: OneOrMany::one(UserContent::text(message.content.clone())),
-            },
-            MessageRole::Assistant => Message::Assistant {
-                id: None,
-                content: OneOrMany::one(AssistantContent::text(message.content.clone())),
-            },
-        })
-        .collect::<Vec<_>>();
-    let chat_history = OneOrMany::many(messages).map_err(|_| {
+    let chat_history = OneOrMany::many(request.messages.clone()).map_err(|_| {
         GenerationError::new(
             GenerationErrorKind::UnsupportedParameter,
             "At least one chat message is required",
@@ -125,7 +114,11 @@ pub(crate) fn sdk_request(
         preamble: (!request.system_prompt.trim().is_empty()).then(|| request.system_prompt.clone()),
         chat_history,
         documents: Vec::new(),
-        tools: Vec::new(),
+        tools: if capabilities.tools {
+            request.tools.clone()
+        } else {
+            Vec::new()
+        },
         temperature: capabilities
             .temperature
             .then_some(request.config.temperature)
@@ -140,6 +133,94 @@ pub(crate) fn sdk_request(
             .then_some(Value::Object(additional_params)),
         output_schema: None,
         record_telemetry_content: false,
+    })
+}
+
+pub(crate) async fn consume_stream<R>(
+    mut response: StreamingCompletionResponse<R>,
+    events: &Sender<GenerationEvent>,
+    cancellation: CancellationToken,
+    require_usage: bool,
+    mut validate_final: impl FnMut(&R) -> Result<(), GenerationError>,
+) -> Result<Message, GenerationError>
+where
+    R: Clone + Unpin + GetTokenUsage,
+{
+    events
+        .send(GenerationEvent::Started)
+        .await
+        .map_err(|_| GenerationError::cancelled())?;
+
+    let mut had_output = false;
+    let mut had_reasoning_delta = false;
+    let mut saw_final = false;
+    let mut saw_usage = false;
+    loop {
+        let item = tokio::select! {
+            _ = cancellation.cancelled() => return Err(GenerationError::cancelled()),
+            item = response.next() => item,
+        };
+        let Some(item) = item else { break };
+        match item.map_err(|error| super::sdk_completion_error(error, had_output))? {
+            StreamedAssistantContent::Text(text) if !text.text().is_empty() => {
+                had_output = true;
+                events
+                    .send(GenerationEvent::TextDelta(text.text().to_string()))
+                    .await
+                    .map_err(|_| GenerationError::cancelled())?;
+            }
+            StreamedAssistantContent::ReasoningDelta { reasoning, .. } if !reasoning.is_empty() => {
+                had_output = true;
+                had_reasoning_delta = true;
+                events
+                    .send(GenerationEvent::ThinkingDelta(reasoning))
+                    .await
+                    .map_err(|_| GenerationError::cancelled())?;
+            }
+            StreamedAssistantContent::Reasoning(reasoning) if !had_reasoning_delta => {
+                let text = reasoning
+                    .content
+                    .iter()
+                    .filter_map(|content| match content {
+                        rig_core::message::ReasoningContent::Text { text, .. }
+                        | rig_core::message::ReasoningContent::Summary(text) => Some(text.as_str()),
+                        _ => None,
+                    })
+                    .collect::<String>();
+                if !text.is_empty() {
+                    had_output = true;
+                    events
+                        .send(GenerationEvent::ThinkingDelta(text))
+                        .await
+                        .map_err(|_| GenerationError::cancelled())?;
+                }
+            }
+            StreamedAssistantContent::ToolCall { .. }
+            | StreamedAssistantContent::ToolCallDelta { .. } => {
+                had_output = true;
+                events
+                    .send(GenerationEvent::ProviderOutput)
+                    .await
+                    .map_err(|_| GenerationError::cancelled())?;
+            }
+            StreamedAssistantContent::Final(final_response) => {
+                validate_final(&final_response)?;
+                saw_final = true;
+                saw_usage |= emit_usage(final_response.token_usage(), events).await?;
+            }
+            _ => {}
+        }
+    }
+
+    if !saw_final || (require_usage && !saw_usage) || (had_output && !saw_usage) {
+        return Err(GenerationError::new(
+            GenerationErrorKind::StreamInterrupted,
+            "Provider stream ended before completion",
+        ));
+    }
+    Ok(Message::Assistant {
+        id: response.message_id.clone(),
+        content: response.choice.clone(),
     })
 }
 
@@ -175,16 +256,4 @@ pub(crate) fn insert_optional<T: Serialize>(
     if let Some(value) = value {
         parameters.insert(key.into(), json!(value));
     }
-}
-
-pub(crate) fn reasoning_text(content: &[ReasoningContent]) -> String {
-    content
-        .iter()
-        .filter_map(|content| match content {
-            ReasoningContent::Text { text, .. } | ReasoningContent::Summary(text) => {
-                Some(text.as_str())
-            }
-            _ => None,
-        })
-        .collect()
 }

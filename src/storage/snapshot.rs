@@ -1,4 +1,6 @@
-use crate::domain::{AutoTitleState, MessageStatus, RequestStatus};
+use crate::domain::{
+    AutoTitleState, MessageStatus, RequestStatus, ToolExecutionStatus, now_timestamp,
+};
 
 use super::{Result, Storage, StorageSnapshot};
 
@@ -106,6 +108,13 @@ impl Storage {
                 ) {
                     response.status = MessageStatus::Interrupted;
                     changed = true;
+                }
+                for execution in &mut response.tool_executions {
+                    if execution.status.is_active() {
+                        execution.status = ToolExecutionStatus::Interrupted;
+                        execution.finished_at = Some(now_timestamp());
+                        changed = true;
+                    }
                 }
             }
             for request in &mut file.requests {
