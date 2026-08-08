@@ -15,7 +15,29 @@ pub const MAX_MESSAGE_WIDTH_RATIO: f32 = 1.0;
 pub const DEFAULT_BACKGROUND_OPACITY: f32 = 0.5;
 pub const MIN_BACKGROUND_OPACITY: f32 = 0.0;
 pub const MAX_BACKGROUND_OPACITY: f32 = 1.0;
+pub const DEFAULT_UI_FONT_FAMILY: &str = ".SystemUIFont";
+pub const DEFAULT_CODE_FONT_FAMILY: &str = if cfg!(target_os = "macos") {
+    "SFMono-Regular"
+} else if cfg!(target_os = "windows") {
+    "Consolas"
+} else {
+    "DejaVu Sans Mono"
+};
 pub const DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT: &str = "Generate a concise title for this conversation. Use the same language as the user. Return only the title without quotes, Markdown, labels, or explanation.";
+
+pub fn normalize_font_families(families: Vec<String>, default: &str) -> Vec<String> {
+    let mut normalized = Vec::new();
+    for family in families {
+        let family = family.trim();
+        if !family.is_empty() && !normalized.iter().any(|item| item == family) {
+            normalized.push(family.to_string());
+        }
+    }
+    if normalized.is_empty() {
+        normalized.push(default.to_string());
+    }
+    normalized
+}
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(default)]
@@ -26,6 +48,8 @@ pub struct AppSettings {
     pub auto_title_enabled: bool,
     pub sidebar_collapsed: bool,
     pub theme: Theme,
+    pub ui_font_families: Vec<String>,
+    pub code_font_families: Vec<String>,
     pub default_system_prompt_preset: Option<String>,
     pub title_generation_system_prompt: String,
     pub message_width_ratio: f32,
@@ -33,6 +57,16 @@ pub struct AppSettings {
 }
 
 impl AppSettings {
+    pub fn normalize_fonts(&mut self) -> bool {
+        let ui = normalize_font_families(self.ui_font_families.clone(), DEFAULT_UI_FONT_FAMILY);
+        let code =
+            normalize_font_families(self.code_font_families.clone(), DEFAULT_CODE_FONT_FAMILY);
+        let changed = self.ui_font_families != ui || self.code_font_families != code;
+        self.ui_font_families = ui;
+        self.code_font_families = code;
+        changed
+    }
+
     pub fn message_width_ratio(&self) -> f32 {
         self.message_width_ratio
             .clamp(MIN_MESSAGE_WIDTH_RATIO, MAX_MESSAGE_WIDTH_RATIO)
@@ -53,6 +87,8 @@ impl Default for AppSettings {
             auto_title_enabled: true,
             sidebar_collapsed: false,
             theme: Theme::default(),
+            ui_font_families: vec![DEFAULT_UI_FONT_FAMILY.into()],
+            code_font_families: vec![DEFAULT_CODE_FONT_FAMILY.into()],
             default_system_prompt_preset: None,
             title_generation_system_prompt: DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT.into(),
             message_width_ratio: DEFAULT_MESSAGE_WIDTH_RATIO,

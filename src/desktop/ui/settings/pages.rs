@@ -13,6 +13,20 @@ pub(super) fn general_page(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEleme
         ))
         .child(setting_divider(cx))
         .child(setting_row(
+            "Interface Font",
+            "The first font is primary; missing glyphs fall back in order.",
+            font_stack_editor(app, FontRole::Ui, cx),
+            cx,
+        ))
+        .child(setting_divider(cx))
+        .child(setting_row(
+            "Code Font",
+            "Used by code blocks and inline code with the same fallback rules.",
+            font_stack_editor(app, FontRole::Code, cx),
+            cx,
+        ))
+        .child(setting_divider(cx))
+        .child(setting_row(
             "Background Opacity",
             "Adjust the main window transparency and glass effect.",
             background_opacity_slider(app, cx),
@@ -74,6 +88,153 @@ fn theme_selector(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
             let theme = [Theme::System, Theme::Light, Theme::Dark][*index];
             this.set_theme(theme, cx);
         }))
+        .into_any_element()
+}
+
+fn font_stack_editor(app: &OneChat, role: FontRole, cx: &mut Context<OneChat>) -> AnyElement {
+    let families = match role {
+        FontRole::Ui => &app.settings().ui_font_families,
+        FontRole::Code => &app.settings().code_font_families,
+    };
+    let select = match role {
+        FontRole::Ui => &app.settings_ui.ui_font_select,
+        FontRole::Code => &app.settings_ui.code_font_select,
+    };
+    let count = families.len();
+    let list = div()
+        .w_full()
+        .rounded(px(11.0))
+        .border_1()
+        .border_color(cx.theme().border)
+        .bg(cx.theme().muted)
+        .overflow_hidden()
+        .children(families.iter().enumerate().map(|(index, family)| {
+            let move_up = icon_action(
+                SharedString::from(format!("font-{role:?}-{index}-up")),
+                AppIcon::ArrowUp,
+                IconTone::Muted,
+                "Move earlier",
+                cx,
+            )
+            .disabled(index == 0)
+            .on_click(
+                cx.listener(move |this, _, _, cx| this.move_font_family(role, index, true, cx)),
+            );
+            let move_down = icon_action(
+                SharedString::from(format!("font-{role:?}-{index}-down")),
+                AppIcon::ArrowDown,
+                IconTone::Muted,
+                "Move later",
+                cx,
+            )
+            .disabled(index + 1 == count)
+            .on_click(
+                cx.listener(move |this, _, _, cx| this.move_font_family(role, index, false, cx)),
+            );
+            let remove = icon_action(
+                SharedString::from(format!("font-{role:?}-{index}-remove")),
+                AppIcon::Trash,
+                IconTone::Danger,
+                "Remove font",
+                cx,
+            )
+            .disabled(count == 1)
+            .on_click(cx.listener(move |this, _, _, cx| this.remove_font_family(role, index, cx)));
+
+            div()
+                .min_h(px(46.0))
+                .px_2()
+                .flex()
+                .items_center()
+                .gap_2()
+                .when(index + 1 < count, |row| {
+                    row.border_b_1().border_color(cx.theme().border)
+                })
+                .child(
+                    div()
+                        .size(px(22.0))
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded(px(6.0))
+                        .text_xs()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .bg(if index == 0 {
+                            cx.theme().accent
+                        } else {
+                            cx.theme().transparent
+                        })
+                        .text_color(if index == 0 {
+                            cx.theme().primary
+                        } else {
+                            cx.theme().muted_foreground
+                        })
+                        .child((index + 1).to_string()),
+                )
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex_1()
+                        .truncate()
+                        .text_sm()
+                        .font_weight(if index == 0 {
+                            FontWeight::SEMIBOLD
+                        } else {
+                            FontWeight::NORMAL
+                        })
+                        .child(font_family_label(family)),
+                )
+                .child(
+                    div()
+                        .flex_none()
+                        .flex()
+                        .items_center()
+                        .gap_0p5()
+                        .child(move_up)
+                        .child(move_down)
+                        .child(remove),
+                )
+        }));
+    let preview_font = match role {
+        FontRole::Ui => crate::desktop::ui::theme::ui_font(cx),
+        FontRole::Code => crate::desktop::ui::theme::code_font(cx),
+    };
+    let preview = match role {
+        FontRole::Ui => "The quick brown fox · 中文字体预览",
+        FontRole::Code => "let fallback = \"中文\";",
+    };
+
+    div()
+        .w(px(340.0))
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(list)
+        .child(
+            Select::new(select)
+                .large()
+                .h(px(40.0))
+                .px(px(12.0))
+                .rounded(px(10.0))
+                .icon(Icon::new(IconName::Plus))
+                .placeholder("Add font…")
+                .search_placeholder("Search installed fonts…")
+                .menu_max_h(px(300.0))
+                .w_full(),
+        )
+        .child(
+            div()
+                .w_full()
+                .rounded(px(9.0))
+                .bg(cx.theme().transparent)
+                .px_3()
+                .py_2()
+                .font(preview_font)
+                .text_sm()
+                .text_color(cx.theme().muted_foreground)
+                .child(preview),
+        )
         .into_any_element()
 }
 

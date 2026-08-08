@@ -126,6 +126,11 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         window,
         cx,
     );
+    component_theme::sync_fonts(
+        &app.settings().ui_font_families,
+        &app.settings().code_font_families,
+        cx,
+    );
     settings::sync_controls(app, window, cx);
     inspector::sync_controls(app, window, cx);
 

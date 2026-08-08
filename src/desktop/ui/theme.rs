@@ -1,11 +1,37 @@
 use std::rc::Rc;
 
-use gpui::{App, SharedString, Window, WindowAppearance};
+use gpui::{App, Font, FontFallbacks, Global, SharedString, Window, WindowAppearance, font};
 use gpui_component::{
     Theme as ComponentTheme, ThemeConfig, ThemeConfigColors, ThemeMode as ComponentThemeMode,
 };
 
-use crate::domain::Theme;
+use crate::domain::{
+    DEFAULT_CODE_FONT_FAMILY, DEFAULT_UI_FONT_FAMILY, Theme, normalize_font_families,
+};
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct AppFonts {
+    ui: Font,
+    code: Font,
+}
+
+impl Global for AppFonts {}
+
+fn font_stack(families: &[String], default: &str) -> Font {
+    let families = normalize_font_families(families.to_vec(), default);
+    let mut result = font(families[0].clone());
+    if families.len() > 1 {
+        result.fallbacks = Some(FontFallbacks::from_fonts(families[1..].to_vec()));
+    }
+    result
+}
+
+fn app_fonts(ui_families: &[String], code_families: &[String]) -> AppFonts {
+    AppFonts {
+        ui: font_stack(ui_families, DEFAULT_UI_FONT_FAMILY),
+        code: font_stack(code_families, DEFAULT_CODE_FONT_FAMILY),
+    }
+}
 
 #[derive(Clone, Copy)]
 struct Palette {
@@ -147,13 +173,7 @@ fn component_config(mode: ComponentThemeMode) -> Rc<ThemeConfig> {
         mode,
         font_size: Some(14.0),
         font_family: Some(".SystemUIFont".into()),
-        mono_font_family: Some(if cfg!(target_os = "macos") {
-            "Menlo".into()
-        } else if cfg!(target_os = "windows") {
-            "Consolas".into()
-        } else {
-            "DejaVu Sans Mono".into()
-        }),
+        mono_font_family: Some(DEFAULT_CODE_FONT_FAMILY.into()),
         mono_font_size: Some(13.0),
         radius: Some(10),
         radius_lg: Some(16),
@@ -176,6 +196,33 @@ pub(crate) fn init(cx: &mut App) {
         &light
     });
     theme.list.active_highlight = false;
+    cx.set_global(app_fonts(&[], &[]));
+}
+
+pub(crate) fn sync_fonts(ui_families: &[String], code_families: &[String], cx: &mut App) {
+    let next = app_fonts(ui_families, code_families);
+    let fonts_changed = cx.global::<AppFonts>() != &next;
+    let component_changed = ComponentTheme::global(cx).font_family != next.ui.family
+        || ComponentTheme::global(cx).mono_font_family != next.code.family;
+    if fonts_changed {
+        *cx.global_mut::<AppFonts>() = next.clone();
+    }
+    if component_changed {
+        let theme = ComponentTheme::global_mut(cx);
+        theme.font_family = next.ui.family.clone();
+        theme.mono_font_family = next.code.family.clone();
+    }
+    if fonts_changed || component_changed {
+        cx.refresh_windows();
+    }
+}
+
+pub(crate) fn ui_font(cx: &App) -> Font {
+    cx.global::<AppFonts>().ui.clone()
+}
+
+pub(crate) fn code_font(cx: &App) -> Font {
+    cx.global::<AppFonts>().code.clone()
 }
 
 pub(crate) fn component_mode(theme: Theme, appearance: WindowAppearance) -> ComponentThemeMode {
@@ -274,5 +321,23 @@ mod tests {
 
         assert!(!theme.list.active_highlight);
         assert_color(theme.list_active, DARK.accent_soft);
+    }
+
+    #[test]
+    fn font_stack_preserves_primary_and_fallback_order() {
+        let font = font_stack(
+            &[
+                "Maple Mono".into(),
+                "LXGW WenKai".into(),
+                "PingFang SC".into(),
+            ],
+            DEFAULT_UI_FONT_FAMILY,
+        );
+
+        assert_eq!(font.family.as_ref(), "Maple Mono");
+        assert_eq!(
+            font.fallbacks.unwrap().fallback_list(),
+            &["LXGW WenKai".to_string(), "PingFang SC".to_string()]
+        );
     }
 }

@@ -10,6 +10,95 @@ pub(crate) enum SettingsSection {
     NewProvider,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) struct SearchableItems<T> {
+    all: Vec<T>,
+    visible: Vec<T>,
+}
+
+impl<T: Clone> SearchableItems<T> {
+    pub(crate) fn new(items: Vec<T>) -> Self {
+        Self {
+            visible: items.clone(),
+            all: items,
+        }
+    }
+
+    fn filter(&mut self, query: &str)
+    where
+        T: SearchableListItem,
+    {
+        self.visible = self
+            .all
+            .iter()
+            .filter(|item| item.matches(query))
+            .cloned()
+            .collect();
+    }
+}
+
+impl<T: SearchableListItem + 'static> SearchableListDelegate for SearchableItems<T> {
+    type Item = T;
+
+    fn items_count(&self, section: usize) -> usize {
+        usize::from(section == 0) * self.visible.len()
+    }
+
+    fn item(&self, ix: IndexPath) -> Option<&Self::Item> {
+        self.visible.get(ix.row)
+    }
+
+    fn position<V>(&self, value: &V) -> Option<IndexPath>
+    where
+        Self::Item: SearchableListItem<Value = V>,
+        V: PartialEq,
+    {
+        self.visible
+            .iter()
+            .position(|item| item.value() == value)
+            .map(IndexPath::new)
+    }
+
+    fn perform_search(&mut self, query: &str, window: &mut Window, _: &mut App) -> Task<()> {
+        self.filter(query);
+        window.refresh();
+        Task::ready(())
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FontFamilyItem {
+    family: String,
+    label: SharedString,
+}
+
+impl FontFamilyItem {
+    pub(crate) fn new(family: String) -> Self {
+        let label = font_family_label(&family);
+        Self { family, label }
+    }
+}
+
+pub(crate) fn font_family_label(family: &str) -> SharedString {
+    if family == crate::domain::DEFAULT_UI_FONT_FAMILY {
+        "System UI".into()
+    } else {
+        family.to_string().into()
+    }
+}
+
+impl SearchableListItem for FontFamilyItem {
+    type Value = String;
+
+    fn title(&self) -> SharedString {
+        self.label.clone()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.family
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct DefaultModelItem {
     value: Option<String>,
@@ -282,8 +371,9 @@ impl SearchableListDelegate for ModelIdDelegate {
             .map(IndexPath::new)
     }
 
-    fn perform_search(&mut self, query: &str, _: &mut Window, _: &mut App) -> Task<()> {
+    fn perform_search(&mut self, query: &str, window: &mut Window, _: &mut App) -> Task<()> {
         self.filter(query);
+        window.refresh();
         Task::ready(())
     }
 }
@@ -674,6 +764,22 @@ fn multiline_input(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn searchable_items_filter_with_item_matching() {
+        let mut items = SearchableItems::new(vec![
+            FontFamilyItem::new("Inter".into()),
+            FontFamilyItem::new("JetBrains Mono".into()),
+        ]);
+
+        items.filter("MONO");
+
+        assert_eq!(items.items_count(0), 1);
+        assert_eq!(
+            items.item(IndexPath::new(0)).unwrap().family,
+            "JetBrains Mono"
+        );
+    }
 
     #[test]
     fn dynamic_select_items_keep_selection_by_stable_value() {

@@ -49,8 +49,8 @@ use crate::{
         },
         selectable_text::TextSelection,
         settings::{
-            Capability, DefaultModelItem, ModelEditor, PromptPresetEditor, PromptSelectItem,
-            ProviderEditor, SettingsSection,
+            Capability, DefaultModelItem, FontFamilyItem, ModelEditor, PromptPresetEditor,
+            PromptSelectItem, ProviderEditor, SearchableItems, SettingsSection,
         },
         shell::{self, CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate},
         stream::follow_after_scroll,
@@ -193,6 +193,21 @@ impl TitleTransition {
 pub(crate) enum DefaultModelRole {
     Primary,
     TitleGeneration,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum FontRole {
+    Ui,
+    Code,
+}
+
+impl FontRole {
+    fn default_family(self) -> &'static str {
+        match self {
+            Self::Ui => crate::domain::DEFAULT_UI_FONT_FAMILY,
+            Self::Code => crate::domain::DEFAULT_CODE_FONT_FAMILY,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -471,6 +486,45 @@ impl OneChat {
         )
         .detach();
 
+        let font_items = cx
+            .text_system()
+            .all_font_names()
+            .into_iter()
+            .filter(|family| family != crate::desktop::ui::icons::LUCIDE_FONT_FAMILY)
+            .map(FontFamilyItem::new)
+            .collect::<Vec<_>>();
+        let ui_font_select = cx.new(|cx| {
+            SelectState::new(SearchableItems::new(font_items.clone()), None, window, cx)
+                .searchable(true)
+        });
+        cx.subscribe_in(
+            &ui_font_select,
+            window,
+            |this, select, event: &SelectEvent<SearchableItems<FontFamilyItem>>, window, cx| {
+                let SelectEvent::Confirm(Some(family)) = event else {
+                    return;
+                };
+                this.add_font_family(FontRole::Ui, family.clone(), cx);
+                select.update(cx, |select, cx| select.set_selected_index(None, window, cx));
+            },
+        )
+        .detach();
+        let code_font_select = cx.new(|cx| {
+            SelectState::new(SearchableItems::new(font_items), None, window, cx).searchable(true)
+        });
+        cx.subscribe_in(
+            &code_font_select,
+            window,
+            |this, select, event: &SelectEvent<SearchableItems<FontFamilyItem>>, window, cx| {
+                let SelectEvent::Confirm(Some(family)) = event else {
+                    return;
+                };
+                this.add_font_family(FontRole::Code, family.clone(), cx);
+                select.update(cx, |select, cx| select.set_selected_index(None, window, cx));
+            },
+        )
+        .detach();
+
         let text_selection = TextSelection::new(cx.focus_handle());
         let mut this = Self {
             root_focus,
@@ -530,6 +584,8 @@ impl OneChat {
             },
             settings_ui: SettingsState {
                 section: SettingsSection::default(),
+                ui_font_select,
+                code_font_select,
                 background_opacity_slider,
                 message_width_slider,
                 primary_model_select,

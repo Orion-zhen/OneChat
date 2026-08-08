@@ -312,6 +312,8 @@ pub(crate) struct ChatState {
 
 pub(crate) struct SettingsState {
     pub(crate) section: SettingsSection,
+    pub(crate) ui_font_select: Entity<SelectState<SearchableItems<FontFamilyItem>>>,
+    pub(crate) code_font_select: Entity<SelectState<SearchableItems<FontFamilyItem>>>,
     pub(crate) background_opacity_slider: Entity<SliderState>,
     pub(crate) message_width_slider: Entity<SliderState>,
     pub(crate) primary_model_select: Entity<SelectState<Vec<DefaultModelItem>>>,

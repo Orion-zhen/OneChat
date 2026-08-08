@@ -5,8 +5,9 @@ mod pages;
 mod providers;
 
 pub(crate) use editors::{
-    Capability, DefaultModelItem, ModelEditor, ModelFetchStatus, ModelIdDelegate,
-    PromptPresetEditor, PromptSelectItem, ProviderEditor, ProviderKindItem, SettingsSection,
+    Capability, DefaultModelItem, FontFamilyItem, ModelEditor, ModelFetchStatus, ModelIdDelegate,
+    PromptPresetEditor, PromptSelectItem, ProviderEditor, ProviderKindItem, SearchableItems,
+    SettingsSection, font_family_label,
 };
 use forms::{model_form, provider_form};
 use navigation::settings_sidebar;
@@ -22,7 +23,8 @@ use gpui::{
     Stateful, Task, Window, div, prelude::*, px,
 };
 use gpui_component::{
-    ActiveTheme as _, Disableable as _, IndexPath, Selectable as _, Sizable as _, WindowExt as _,
+    ActiveTheme as _, Disableable as _, Icon, IconName, IndexPath, Selectable as _, Sizable as _,
+    WindowExt as _,
     alert::Alert,
     button::{Button, ButtonVariants as _},
     combobox::{Combobox, ComboboxState},
@@ -42,7 +44,7 @@ use super::{
     icons::{AppIcon, IconTone, render_icon},
 };
 use crate::{
-    desktop::app::{ConnectionTestStatus, DefaultModelRole, OneChat, Page},
+    desktop::app::{ConnectionTestStatus, DefaultModelRole, FontRole, OneChat, Page},
     domain::{
         DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, Model, ModelCapabilities, Provider, ProviderKind,
         SystemPromptPreset, Theme, now_timestamp,

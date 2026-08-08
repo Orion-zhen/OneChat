@@ -265,6 +265,8 @@ mod tests {
             auto_title_enabled: true,
             sidebar_collapsed: true,
             theme: Theme::Dark,
+            ui_font_families: vec!["Maple Mono".into(), "LXGW WenKai".into()],
+            code_font_families: vec!["Maple Mono".into(), "PingFang SC".into()],
             default_system_prompt_preset: Some("Default".into()),
             title_generation_system_prompt: "Generate a title".into(),
             message_width_ratio: 0.85,

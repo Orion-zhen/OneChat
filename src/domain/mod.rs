@@ -55,6 +55,38 @@ mod tests {
             DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT
         );
         assert_eq!(settings.background_opacity(), 0.5);
+        assert_eq!(settings.ui_font_families, vec![DEFAULT_UI_FONT_FAMILY]);
+        assert_eq!(settings.code_font_families, vec![DEFAULT_CODE_FONT_FAMILY]);
+    }
+
+    #[test]
+    fn font_families_are_trimmed_deduplicated_and_ordered() {
+        assert_eq!(
+            normalize_font_families(
+                vec![
+                    " Maple Mono ".into(),
+                    "LXGW WenKai".into(),
+                    "Maple Mono".into(),
+                    " ".into(),
+                ],
+                DEFAULT_UI_FONT_FAMILY,
+            ),
+            vec!["Maple Mono", "LXGW WenKai"]
+        );
+        assert_eq!(
+            normalize_font_families(Vec::new(), DEFAULT_UI_FONT_FAMILY),
+            vec![DEFAULT_UI_FONT_FAMILY]
+        );
+
+        let mut settings = AppSettings {
+            ui_font_families: vec![" Maple Mono ".into(), "Maple Mono".into()],
+            code_font_families: Vec::new(),
+            ..Default::default()
+        };
+        assert!(settings.normalize_fonts());
+        assert_eq!(settings.ui_font_families, vec!["Maple Mono"]);
+        assert_eq!(settings.code_font_families, vec![DEFAULT_CODE_FONT_FAMILY]);
+        assert!(!settings.normalize_fonts());
     }
 
     #[test]

@@ -1,6 +1,76 @@
 use super::*;
 
 impl OneChat {
+    fn font_families(&self, role: FontRole) -> &[String] {
+        match role {
+            FontRole::Ui => &self.data.snapshot.settings.ui_font_families,
+            FontRole::Code => &self.data.snapshot.settings.code_font_families,
+        }
+    }
+
+    fn set_font_families(&mut self, role: FontRole, families: Vec<String>, cx: &mut Context<Self>) {
+        let families = crate::domain::normalize_font_families(families, role.default_family());
+        let stored = match role {
+            FontRole::Ui => &mut self.data.snapshot.settings.ui_font_families,
+            FontRole::Code => &mut self.data.snapshot.settings.code_font_families,
+        };
+        if *stored == families {
+            return;
+        }
+        *stored = families;
+        self.save_settings(cx);
+        cx.notify();
+    }
+
+    pub(crate) fn add_font_family(
+        &mut self,
+        role: FontRole,
+        family: String,
+        cx: &mut Context<Self>,
+    ) {
+        let mut families = self.font_families(role).to_vec();
+        if families.iter().any(|item| item == &family) {
+            return;
+        }
+        families.push(family);
+        self.set_font_families(role, families, cx);
+    }
+
+    pub(crate) fn move_font_family(
+        &mut self,
+        role: FontRole,
+        index: usize,
+        up: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let mut families = self.font_families(role).to_vec();
+        let Some(target) = (if up {
+            index.checked_sub(1)
+        } else {
+            index
+                .checked_add(1)
+                .filter(|target| *target < families.len())
+        }) else {
+            return;
+        };
+        families.swap(index, target);
+        self.set_font_families(role, families, cx);
+    }
+
+    pub(crate) fn remove_font_family(
+        &mut self,
+        role: FontRole,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) {
+        let mut families = self.font_families(role).to_vec();
+        if families.len() <= 1 || index >= families.len() {
+            return;
+        }
+        families.remove(index);
+        self.set_font_families(role, families, cx);
+    }
+
     pub(crate) fn update_background_opacity(&mut self, opacity: f32, cx: &mut Context<Self>) {
         let opacity = rounded_background_opacity(opacity);
         if (self.data.snapshot.settings.background_opacity - opacity).abs() < f32::EPSILON {

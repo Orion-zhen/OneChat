@@ -27,6 +27,7 @@ impl Render for WindowContent {
         div()
             .relative()
             .size_full()
+            .font(ui::theme::ui_font(cx))
             .child(self.one_chat.clone())
             .children(sheet_layer)
             .children(dialog_layer)

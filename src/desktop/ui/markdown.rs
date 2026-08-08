@@ -187,7 +187,7 @@ fn render_block(
                     .w_full()
                     .overflow_scroll()
                     .p_3()
-                    .font_family("SFMono-Regular")
+                    .font(super::theme::code_font(cx))
                     .text_sm()
                     .whitespace_nowrap()
                     .child(selectable(
@@ -256,7 +256,7 @@ fn render_inlines(
                             .rounded_md()
                             .bg(cx.theme().muted)
                             .px_1()
-                            .font_family("SFMono-Regular")
+                            .font(super::theme::code_font(cx))
                             .text_sm()
                     })
                     .when(style.link, |element| element.text_color(cx.theme().primary))
