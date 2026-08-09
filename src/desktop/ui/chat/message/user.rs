@@ -271,16 +271,10 @@ fn render_user_message(
         .items_center()
         .gap_1();
     if !editing {
-        let copy_id = turn.id.clone();
-        actions = actions.child(
-            icon_button(
-                SharedString::from(format!("copy-user-message-{}", turn.id)),
-                AppIcon::Copy,
-                IconTone::Muted,
-                cx,
-            )
-            .on_click(cx.listener(move |this, _, _, cx| this.copy_user(copy_id.clone(), cx))),
-        );
+        actions = actions.child(CopyButton::new(
+            SharedString::from(format!("copy-user-message-{}", turn.id)),
+            turn.user.content.clone(),
+        ));
     }
     if !generating && !editing_any {
         let edit_id = turn.id.clone();

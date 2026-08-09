@@ -11,31 +11,30 @@ pub(super) fn render_system_prompt_card(
         .expect("system prompt card requires a conversation");
     let source = app.system_prompt_label(&conversation.system_prompt);
     let actions = match app.chat.system_prompt_mode {
-        SystemPromptMode::Compact => {
-            div()
-                .flex()
-                .gap_1()
-                .child(
-                    large_icon_button(
-                        "expand-system-prompt",
-                        AppIcon::ChevronDown,
-                        IconTone::Muted,
-                        cx,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| this.expand_system_prompt(cx))),
+        SystemPromptMode::Compact => div()
+            .flex()
+            .gap_1()
+            .child(
+                large_icon_button(
+                    "expand-system-prompt",
+                    AppIcon::ChevronDown,
+                    IconTone::Muted,
+                    cx,
                 )
-                .child(
-                    large_icon_button("copy-system-prompt", AppIcon::Copy, IconTone::Muted, cx)
-                        .on_click(cx.listener(|this, _, _, cx| this.copy_system_prompt(cx))),
-                )
-                .child(
-                    large_icon_button("edit-system-prompt", AppIcon::Pencil, IconTone::Accent, cx)
-                        .on_click(cx.listener(|this, _, window, cx| {
+                .on_click(cx.listener(|this, _, _, cx| this.expand_system_prompt(cx))),
+            )
+            .child(
+                CopyButton::new("copy-system-prompt", conversation.system_prompt.clone()).large(),
+            )
+            .child(
+                large_icon_button("edit-system-prompt", AppIcon::Pencil, IconTone::Accent, cx)
+                    .on_click(
+                        cx.listener(|this, _, window, cx| {
                             this.begin_edit_system_prompt(window, cx)
-                        })),
-                )
-                .into_any_element()
-        }
+                        }),
+                    ),
+            )
+            .into_any_element(),
         SystemPromptMode::Expanded => div()
             .flex()
             .gap_1()
@@ -49,13 +48,11 @@ pub(super) fn render_system_prompt_card(
                 .on_click(cx.listener(|this, _, _, cx| this.collapse_system_prompt(cx))),
             )
             .child(
-                large_icon_button(
+                CopyButton::new(
                     "copy-system-prompt-expanded",
-                    AppIcon::Copy,
-                    IconTone::Muted,
-                    cx,
+                    conversation.system_prompt.clone(),
                 )
-                .on_click(cx.listener(|this, _, _, cx| this.copy_system_prompt(cx))),
+                .large(),
             )
             .child(
                 large_icon_button(

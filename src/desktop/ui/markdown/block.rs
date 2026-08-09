@@ -1,11 +1,5 @@
-use gpui::{
-    AnyElement, App, ClipboardItem, FontWeight, HighlightStyle, SharedString, div, prelude::*, px,
-    rgba,
-};
-use gpui_component::{
-    ActiveTheme as _,
-    button::{Button, ButtonVariants as _},
-};
+use gpui::{AnyElement, App, FontWeight, HighlightStyle, SharedString, div, prelude::*, px, rgba};
+use gpui_component::ActiveTheme as _;
 
 use super::{
     InlineMetrics, element_key, next_text_index, render_blocks, render_formula_element,
@@ -13,9 +7,7 @@ use super::{
 };
 use crate::{
     desktop::ui::{
-        icons::{AppIcon, IconTone, render_icon},
-        selectable_text::TextSelection,
-        theme,
+        copy_button::CopyButton, selectable_text::TextSelection, theme,
         typography::MessageTypography,
     },
     markdown::{Block, Inline, TableAlignment},
@@ -161,19 +153,7 @@ pub(super) fn render_block(
                             selection,
                             cx,
                         )))
-                        .child(
-                            Button::new(copy_button_id)
-                                .ghost()
-                                .tooltip("Copy code")
-                                .size(px(28.0))
-                                .p_0()
-                                .child(render_icon(AppIcon::Copy, IconTone::Muted, 16.0, cx))
-                                .on_click(move |_, _, cx| {
-                                    cx.write_to_clipboard(ClipboardItem::new_string(
-                                        content_to_copy.clone(),
-                                    ));
-                                }),
-                        ),
+                        .child(CopyButton::new(copy_button_id, content_to_copy)),
                 )
                 .child(
                     div()

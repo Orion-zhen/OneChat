@@ -1,6 +1,6 @@
 use std::{collections::BTreeSet, time::Duration};
 
-use gpui::{ClipboardItem, Context, Window, prelude::*};
+use gpui::{Context, Window, prelude::*};
 
 use super::{DestructiveAction, OneChat, PendingFocus, SystemPromptMode, multiline_input};
 use crate::{
@@ -78,17 +78,6 @@ impl OneChat {
             move |storage| storage.update_conversation(&conversation),
             cx,
         );
-    }
-
-    pub(crate) fn copy_system_prompt(&mut self, cx: &mut Context<Self>) {
-        let Some(content) = self
-            .current_conversation()
-            .map(|conversation| conversation.system_prompt.clone())
-            .filter(|content| !content.trim().is_empty())
-        else {
-            return;
-        };
-        cx.write_to_clipboard(ClipboardItem::new_string(content));
     }
 
     pub(crate) fn add_generation_parameter(

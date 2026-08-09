@@ -1,4 +1,4 @@
-use gpui::{ClipboardItem, Context, Entity, Window, prelude::*};
+use gpui::{Context, Entity, Window, prelude::*};
 use gpui_component::input::{InputEvent, InputState};
 
 use super::super::{MessageEditor, MessageEditorTarget, OneChat, PendingFocus, multiline_input};
@@ -94,30 +94,6 @@ impl OneChat {
             },
             cx,
         );
-    }
-
-    pub(crate) fn copy_user(&mut self, turn_id: String, cx: &mut Context<Self>) {
-        let Some(content) = self
-            .data
-            .snapshot
-            .current_turns
-            .iter()
-            .find(|turn| turn.id == turn_id)
-            .map(|turn| turn.user.content.clone())
-        else {
-            return;
-        };
-        cx.write_to_clipboard(ClipboardItem::new_string(content));
-    }
-
-    pub(crate) fn copy_assistant(&mut self, response_id: String, cx: &mut Context<Self>) {
-        let Some(content) = self
-            .response(&response_id)
-            .map(|(_, response)| response.content.clone())
-        else {
-            return;
-        };
-        cx.write_to_clipboard(ClipboardItem::new_string(content));
     }
 
     pub(crate) fn user_message_editor(&self, turn: &Turn) -> Option<&MessageEditor> {

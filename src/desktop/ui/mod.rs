@@ -1,4 +1,5 @@
 pub(crate) mod chat;
+pub(crate) mod copy_button;
 pub(crate) mod icons;
 pub(crate) mod inspector;
 pub(crate) mod markdown;

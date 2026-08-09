@@ -163,18 +163,10 @@ fn render_assistant_message(
     let content_actions = if can_copy || can_edit {
         let mut group = div().flex().items_center().gap_1();
         if can_copy {
-            let copy_id = message.id.clone();
-            group = group.child(
-                icon_button(
-                    SharedString::from(format!("copy-message-{}", message.id)),
-                    AppIcon::Copy,
-                    IconTone::Muted,
-                    cx,
-                )
-                .on_click(
-                    cx.listener(move |this, _, _, cx| this.copy_assistant(copy_id.clone(), cx)),
-                ),
-            );
+            group = group.child(CopyButton::new(
+                SharedString::from(format!("copy-message-{}", message.id)),
+                message.content.clone(),
+            ));
         }
         if can_edit {
             let edit_id = message.id.clone();

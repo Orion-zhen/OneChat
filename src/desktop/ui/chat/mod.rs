@@ -22,6 +22,7 @@ use gpui_component::{
 };
 
 use super::{
+    copy_button::CopyButton,
     icons::{AppIcon, IconTone, render_icon},
     markdown,
     motion::translated_y,
