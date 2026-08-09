@@ -66,7 +66,19 @@ pub struct StorageSnapshot {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
-pub struct WindowSize {
+#[serde(rename_all = "snake_case")]
+pub enum WindowMode {
+    Windowed,
+    Maximized,
+    Fullscreen,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WindowState {
+    pub mode: WindowMode,
+    pub display: Option<String>,
+    pub x: f32,
+    pub y: f32,
     pub width: f32,
     pub height: f32,
 }
@@ -136,7 +148,7 @@ impl Storage {
         &self.prompts_dir
     }
 
-    pub fn load_window_size(&self) -> Result<Option<WindowSize>> {
+    pub fn load_window_state(&self) -> Result<Option<WindowState>> {
         let _guard = self.lock()?;
         if !self.window_state_path.exists() {
             return Ok(None);
@@ -144,9 +156,9 @@ impl Storage {
         read_jsonc(&self.window_state_path).map(Some)
     }
 
-    pub fn save_window_size(&self, size: WindowSize) -> Result<()> {
+    pub fn save_window_state(&self, state: &WindowState) -> Result<()> {
         let _guard = self.lock()?;
-        write_json(&self.window_state_path, &size)
+        write_json(&self.window_state_path, state)
     }
 
     pub fn load_startup_snapshot(&self) -> Result<StorageSnapshot> {

@@ -5,8 +5,8 @@ use std::{sync::Arc, time::Duration};
 
 use app::OneChat;
 use gpui::{
-    App, Bounds, Context, Entity, Pixels, Render, Size, Task, TitlebarOptions, Window,
-    WindowBackgroundAppearance, WindowBounds, WindowOptions, div, prelude::*, px, size,
+    App, Bounds, Context, DisplayId, Entity, Pixels, Render, TitlebarOptions, Window,
+    WindowBackgroundAppearance, WindowBounds, WindowOptions, div, point, prelude::*, px, size,
 };
 #[cfg(target_os = "macos")]
 use gpui::{KeyBinding, Menu, MenuItem, OsAction, SystemMenuType, actions};
@@ -16,7 +16,7 @@ use tokio::runtime::Builder;
 
 use crate::{
     mcp::McpManager,
-    storage::{Storage, WindowSize as StoredWindowSize},
+    storage::{Storage, WindowMode, WindowState},
 };
 
 #[cfg(target_os = "macos")]
@@ -24,7 +24,8 @@ actions!(onechat, [Hide, HideOthers, OpenRepository, Quit, ShowAll]);
 
 struct WindowContent {
     one_chat: Entity<OneChat>,
-    window_size_save_task: Task<()>,
+    last_windowed_bounds: Bounds<Pixels>,
+    window_state_save_revision: u64,
 }
 
 impl WindowContent {
@@ -36,24 +37,41 @@ impl WindowContent {
     ) -> Self {
         let observed_storage = storage.clone();
         cx.observe_window_bounds(window, move |this, window, cx| {
-            let size = stored_window_size(window);
+            let state = stored_window_state(window, this.last_windowed_bounds, cx);
+            let windowed_bounds = (state.mode == WindowMode::Windowed).then(|| state.bounds());
+            this.window_state_save_revision = this.window_state_save_revision.wrapping_add(1);
+            let revision = this.window_state_save_revision;
             let timer = cx.background_executor().timer(Duration::from_millis(200));
             let storage = observed_storage.clone();
-            this.window_size_save_task = cx.background_executor().spawn(async move {
+            cx.spawn(async move |this, cx| {
                 timer.await;
-                let _ = storage.save_window_size(size);
-            });
+                let _ = this.update(cx, |this, _| {
+                    if this.window_state_save_revision != revision {
+                        return;
+                    }
+                    if let Some(bounds) = windowed_bounds {
+                        this.last_windowed_bounds = bounds;
+                    }
+                    let _ = storage.save_window_state(&state);
+                });
+            })
+            .detach();
         })
         .detach();
 
-        window.on_window_should_close(cx, move |window, _| {
-            let _ = storage.save_window_size(stored_window_size(window));
+        let content = cx.weak_entity();
+        window.on_window_should_close(cx, move |window, cx| {
+            let _ = content.update(cx, |this, cx| {
+                let state = stored_window_state(window, this.last_windowed_bounds, cx);
+                let _ = storage.save_window_state(&state);
+            });
             true
         });
 
         Self {
             one_chat,
-            window_size_save_task: Task::ready(()),
+            last_windowed_bounds: window.window_bounds().get_bounds(),
+            window_state_save_revision: 0,
         }
     }
 }
@@ -81,10 +99,11 @@ fn open_main_window(
     mcp: Arc<McpManager>,
     cx: &mut App,
 ) {
-    let bounds = Bounds::centered(None, restored_window_size(&storage, cx), cx);
+    let (window_bounds, display_id) = restored_window(&storage, cx);
     cx.open_window(
         WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            window_bounds: Some(window_bounds),
+            display_id,
             window_min_size: Some(size(px(900.0), px(640.0))),
             titlebar: Some(TitlebarOptions {
                 title: Some("OneChat".into()),
@@ -105,28 +124,102 @@ fn open_main_window(
     .expect("failed to open OneChat window");
 }
 
-fn restored_window_size(storage: &Storage, cx: &App) -> Size<Pixels> {
-    let Some(saved) = storage.load_window_size().ok().flatten().filter(|size| {
-        size.width.is_finite() && size.height.is_finite() && size.width > 0.0 && size.height > 0.0
-    }) else {
-        return size(px(1240.0), px(820.0));
+fn restored_window(storage: &Storage, cx: &App) -> (WindowBounds, Option<DisplayId>) {
+    let Some(state) = storage
+        .load_window_state()
+        .ok()
+        .flatten()
+        .filter(WindowState::is_valid)
+    else {
+        return (
+            WindowBounds::Windowed(Bounds::centered(None, size(px(1240.0), px(820.0)), cx)),
+            None,
+        );
     };
 
-    let mut width = saved.width.max(900.0);
-    let mut height = saved.height.max(640.0);
-    if let Some(display) = cx.primary_display() {
-        let available = display.visible_bounds().size;
-        width = width.min(f32::from(available.width));
-        height = height.min(f32::from(available.height));
-    }
-    size(px(width), px(height))
+    let saved_display = state.display.as_deref().and_then(|saved| {
+        cx.displays()
+            .into_iter()
+            .find(|display| display.uuid().is_ok_and(|uuid| uuid.to_string() == saved))
+    });
+    let restore_position = state.display.is_none() || saved_display.is_some();
+    let display = saved_display.or_else(|| cx.primary_display());
+    let display_id = display.as_ref().map(|display| display.id());
+
+    let mut width = state.width.max(900.0);
+    let mut height = state.height.max(640.0);
+    let bounds = if let Some(display) = display {
+        let available = display.visible_bounds();
+        width = width.min(f32::from(available.size.width));
+        height = height.min(f32::from(available.size.height));
+        let window_size = size(px(width), px(height));
+        if restore_position {
+            let min_x = f32::from(available.origin.x);
+            let min_y = f32::from(available.origin.y);
+            let max_x = min_x + f32::from(available.size.width) - width;
+            let max_y = min_y + f32::from(available.size.height) - height;
+            Bounds::new(
+                point(
+                    px(state.x.clamp(min_x, max_x)),
+                    px(state.y.clamp(min_y, max_y)),
+                ),
+                window_size,
+            )
+        } else {
+            Bounds::centered(display_id, window_size, cx)
+        }
+    } else {
+        Bounds::new(point(px(state.x), px(state.y)), size(px(width), px(height)))
+    };
+
+    let bounds = match state.mode {
+        WindowMode::Windowed => WindowBounds::Windowed(bounds),
+        WindowMode::Maximized => WindowBounds::Maximized(bounds),
+        WindowMode::Fullscreen => WindowBounds::Fullscreen(bounds),
+    };
+    (bounds, display_id)
 }
 
-fn stored_window_size(window: &Window) -> StoredWindowSize {
-    let size = window.window_bounds().get_bounds().size;
-    StoredWindowSize {
-        width: f32::from(size.width),
-        height: f32::from(size.height),
+fn stored_window_state(
+    window: &Window,
+    last_windowed_bounds: Bounds<Pixels>,
+    cx: &App,
+) -> WindowState {
+    let (mode, bounds) = match window.window_bounds() {
+        WindowBounds::Fullscreen(bounds) => (WindowMode::Fullscreen, bounds),
+        WindowBounds::Maximized(bounds) => (WindowMode::Maximized, bounds),
+        WindowBounds::Windowed(_) if window.is_maximized() => {
+            (WindowMode::Maximized, last_windowed_bounds)
+        }
+        WindowBounds::Windowed(bounds) => (WindowMode::Windowed, bounds),
+    };
+    WindowState {
+        mode,
+        display: window
+            .display(cx)
+            .and_then(|display| display.uuid().ok())
+            .map(|uuid| uuid.to_string()),
+        x: f32::from(bounds.origin.x),
+        y: f32::from(bounds.origin.y),
+        width: f32::from(bounds.size.width),
+        height: f32::from(bounds.size.height),
+    }
+}
+
+impl WindowState {
+    fn bounds(&self) -> Bounds<Pixels> {
+        Bounds::new(
+            point(px(self.x), px(self.y)),
+            size(px(self.width), px(self.height)),
+        )
+    }
+
+    fn is_valid(&self) -> bool {
+        [self.x, self.y, self.width, self.height]
+            .into_iter()
+            .all(f32::is_finite)
+            && self.width > 0.0
+            && self.height > 0.0
     }
 }
 
