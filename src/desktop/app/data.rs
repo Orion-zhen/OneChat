@@ -216,6 +216,10 @@ impl OneChat {
         self.chat.message_scroll_motion.cancel();
         self.chat.message_scroll = ScrollHandle::new();
         self.chat.message_scroll.scroll_to_bottom();
+        self.chat.timeline.hovered = false;
+        self.chat.timeline.pointer_y = None;
+        self.chat.timeline.active_item = None;
+        self.chat.timeline.expansion_motion.set_visible(false);
         self.chat.thinking_scrolls.clear();
         self.chat.thinking_motions.clear();
         self.chat.generation_config_editor = None;

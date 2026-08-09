@@ -231,42 +231,54 @@ fn sent_attachment_fallback(
     )
 }
 
-pub(super) fn render_turn(
+pub(super) fn render_user_turn(
     app: &OneChat,
     turn: &Turn,
+    message_max_width: f32,
+    typography: MessageTypography,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    animated_message(
+        render_user_message(app, turn, message_max_width, typography, cx),
+        format!("user-{}", turn.id),
+    )
+}
+
+pub(super) fn render_assistant_turn(
+    app: &OneChat,
+    turn: &Turn,
+    response: &AssistantResponse,
     message_max_width: f32,
     scale_factor: f32,
     typography: MessageTypography,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    let response = app.visible_response(turn);
-    div()
-        .id(SharedString::from(format!("turn-{}", turn.id)))
-        .relative()
-        .w_full()
-        .child(render_user_message(
+    animated_message(
+        render_assistant_message(
             app,
             turn,
+            response,
             message_max_width,
+            scale_factor,
             typography,
             cx,
-        ))
-        .children(response.map(|response| {
-            render_assistant_message(
-                app,
-                turn,
-                response,
-                message_max_width,
-                scale_factor,
-                typography,
-                cx,
-            )
-        }))
+        ),
+        format!("assistant-{}", response.id),
+    )
+}
+
+fn animated_message(message: AnyElement, id: String) -> AnyElement {
+    div()
+        .id(SharedString::from(format!("message-anchor-{id}")))
+        .relative()
+        .w_full()
+        .child(message)
         .with_animation(
-            SharedString::from(format!("turn-appear-{}", turn.id)),
+            SharedString::from(format!("message-appear-{id}")),
             Animation::new(Duration::from_millis(240)).with_easing(ease_out_quint()),
-            |turn, delta| {
-                turn.opacity(0.72 + delta * 0.28)
+            |message, delta| {
+                message
+                    .opacity(0.72 + delta * 0.28)
                     .top(px(6.0 * (1.0 - delta)))
             },
         )

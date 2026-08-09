@@ -95,7 +95,11 @@ impl VisibilityMotion {
         self.started_at = Some(now);
     }
 
-    pub(crate) fn progress(&mut self, window: &mut Window) -> f32 {
+    pub(crate) fn progress(&mut self, window: &mut Window, reduce_motion: bool) -> f32 {
+        if reduce_motion {
+            self.snap();
+            return self.value;
+        }
         self.advance(Instant::now());
         if self.started_at.is_some() {
             window.request_animation_frame();
@@ -225,6 +229,8 @@ const MESSAGE_SCROLL_DURATION: Duration = Duration::from_millis(250);
 
 pub(crate) struct MessageScrollMotion {
     from: f32,
+    target: f32,
+    settle_at_bottom: bool,
     started_at: Option<Instant>,
 }
 
@@ -232,12 +238,16 @@ impl MessageScrollMotion {
     pub(crate) fn new() -> Self {
         Self {
             from: 0.0,
+            target: 0.0,
+            settle_at_bottom: false,
             started_at: None,
         }
     }
 
-    pub(crate) fn start(&mut self, from: f32) {
+    pub(crate) fn start(&mut self, from: f32, target: f32, settle_at_bottom: bool) {
         self.from = from;
+        self.target = target;
+        self.settle_at_bottom = settle_at_bottom;
         self.started_at = Some(Instant::now());
     }
 
@@ -249,17 +259,21 @@ impl MessageScrollMotion {
         self.started_at.is_some()
     }
 
-    pub(crate) fn offset(&mut self, target: f32, window: &mut Window) -> Option<(f32, bool)> {
+    pub(crate) fn offset(&mut self, window: &mut Window) -> Option<(f32, bool, bool)> {
         let started_at = self.started_at?;
         let delta = started_at.elapsed().as_secs_f32() / MESSAGE_SCROLL_DURATION.as_secs_f32();
         if delta >= 1.0 {
             self.started_at = None;
-            return Some((target, true));
+            return Some((self.target, true, self.settle_at_bottom));
         }
 
         window.request_animation_frame();
         let progress = strong_ease_in_out(delta);
-        Some((self.from + (target - self.from) * progress, false))
+        Some((
+            self.from + (self.target - self.from) * progress,
+            false,
+            self.settle_at_bottom,
+        ))
     }
 }
 
@@ -289,6 +303,14 @@ fn cubic_bezier_coordinate(time: f32, control_1: f32, control_2: f32) -> f32 {
         + time * time * time
 }
 
+pub(crate) struct TimelineState {
+    pub(crate) focus: gpui::FocusHandle,
+    pub(crate) hovered: bool,
+    pub(crate) pointer_y: Option<f32>,
+    pub(crate) active_item: Option<usize>,
+    pub(crate) expansion_motion: VisibilityMotion,
+}
+
 pub(crate) struct ChatState {
     pub(super) draft_model_id: Option<String>,
     pub(super) selected_request_id: Option<String>,
@@ -301,6 +323,7 @@ pub(crate) struct ChatState {
     pub(crate) message_scroll: ScrollHandle,
     pub(crate) message_scroll_motion: MessageScrollMotion,
     pub(crate) jump_to_latest_motion: VisibilityMotion,
+    pub(crate) timeline: TimelineState,
     pub(crate) text_selection: TextSelection,
     pub(crate) thinking_scrolls: HashMap<String, ScrollHandle>,
     pub(crate) thinking_motions: HashMap<String, ThinkingMotion>,

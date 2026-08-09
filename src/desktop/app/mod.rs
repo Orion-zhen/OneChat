@@ -329,6 +329,7 @@ impl OneChat {
         cx: &mut Context<Self>,
     ) -> Self {
         let root_focus = cx.focus_handle();
+        let timeline_focus = cx.focus_handle().tab_stop(true);
         let applied_component_theme = Some(crate::desktop::ui::theme::component_mode(
             Theme::System,
             window.appearance(),
@@ -612,6 +613,13 @@ impl OneChat {
                 message_scroll: ScrollHandle::new(),
                 message_scroll_motion: MessageScrollMotion::new(),
                 jump_to_latest_motion: VisibilityMotion::new(false),
+                timeline: TimelineState {
+                    focus: timeline_focus,
+                    hovered: false,
+                    pointer_y: None,
+                    active_item: None,
+                    expansion_motion: VisibilityMotion::new(false),
+                },
                 text_selection,
                 thinking_scrolls: HashMap::new(),
                 thinking_motions: HashMap::new(),

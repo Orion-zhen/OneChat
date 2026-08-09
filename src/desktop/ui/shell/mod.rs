@@ -190,14 +190,15 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
     };
 
     let scale_factor = window.scale_factor();
+    let reduce_motion = cx.reduce_motion();
     let inspector_progress = app
         .navigation
         .inspector_motion
-        .progress(window, cx.reduce_motion());
+        .progress(window, reduce_motion);
     let sidebar_progress = app
         .navigation
         .sidebar_motion
-        .progress(window, cx.reduce_motion());
+        .progress(window, reduce_motion);
     let jump_to_latest_visible = app.navigation.page == Page::Chat
         && app.current_conversation().is_some()
         && !app.chat.follow_latest
@@ -205,7 +206,16 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
     app.chat
         .jump_to_latest_motion
         .set_visible(jump_to_latest_visible);
-    let jump_to_latest_progress = app.chat.jump_to_latest_motion.progress(window);
+    let jump_to_latest_progress = app
+        .chat
+        .jump_to_latest_motion
+        .progress(window, reduce_motion);
+    let timeline_expansion = app
+        .chat
+        .timeline
+        .expansion_motion
+        .progress(window, reduce_motion);
+    let timeline_focused = app.chat.timeline.focus.is_focused(window);
     let sidebar_width = SIDEBAR_WIDTH * sidebar_progress;
     let chat_available_width = (f32::from(window.bounds().size.width) - sidebar_width).max(0.0);
     let sidebar = (app.navigation.page == Page::Chat && sidebar_width > 0.01).then(|| {
@@ -223,6 +233,8 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
             chat_available_width,
             scale_factor,
             jump_to_latest_progress,
+            timeline_expansion,
+            timeline_focused,
             cx,
         ),
         Page::Settings => settings::render(app, cx),
@@ -525,6 +537,8 @@ fn render_chat_page(
     available_width: f32,
     scale_factor: f32,
     jump_to_latest_progress: f32,
+    timeline_expansion: f32,
+    timeline_focused: bool,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let content = if app.data.loading {
@@ -574,6 +588,8 @@ fn render_chat_page(
             available_width,
             scale_factor,
             jump_to_latest_progress,
+            timeline_expansion,
+            timeline_focused,
             cx,
         )
     };

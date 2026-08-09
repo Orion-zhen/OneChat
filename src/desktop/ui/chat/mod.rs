@@ -1,10 +1,12 @@
 mod composer;
 mod message;
 mod system_prompt;
+mod timeline;
 
 use composer::render_composer;
-use message::render_turn;
+use message::{render_assistant_turn, render_user_turn};
 use system_prompt::render_system_prompt_card;
+use timeline::TimelineEntry;
 
 use std::time::Duration;
 
@@ -109,6 +111,8 @@ pub(crate) fn render(
     available_width: f32,
     scale_factor: f32,
     jump_to_latest_progress: f32,
+    timeline_expansion: f32,
+    timeline_focused: bool,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let conversation = app
@@ -154,18 +158,43 @@ pub(crate) fn render(
                 .then(|| render_system_prompt_card(app, message_max_width, typography, cx)),
         );
 
+    let mut timeline_entries = Vec::new();
+    let mut child_index = usize::from(has_system_prompt || editing_system_prompt);
     if app.current_turns().is_empty() {
         messages = messages.child(render_empty_conversation(app, cx));
     } else {
         for turn in app.current_turns() {
-            messages = messages.child(render_turn(
+            messages = messages.child(render_user_turn(
                 app,
                 turn,
                 message_max_width,
-                scale_factor,
                 typography,
                 cx,
             ));
+            timeline_entries.push(TimelineEntry {
+                item: child_index,
+                label: "You".into(),
+                timestamp: turn.user.created_at,
+            });
+            child_index += 1;
+
+            if let Some(response) = app.visible_response(turn) {
+                messages = messages.child(render_assistant_turn(
+                    app,
+                    turn,
+                    response,
+                    message_max_width,
+                    scale_factor,
+                    typography,
+                    cx,
+                ));
+                timeline_entries.push(TimelineEntry {
+                    item: child_index,
+                    label: response.model_name.clone(),
+                    timestamp: response.created_at,
+                });
+                child_index += 1;
+            }
         }
     }
 
@@ -176,12 +205,21 @@ pub(crate) fn render(
     } else {
         8.0 * (1.0 - jump_to_latest_progress)
     };
+    let timeline = timeline::render(
+        app,
+        timeline_entries,
+        timeline_expansion,
+        timeline_focused,
+        cx.reduce_motion(),
+        cx,
+    );
     let message_area = div()
         .relative()
         .min_h_0()
         .flex_1()
         .flex()
         .child(messages)
+        .children(timeline)
         .children((jump_to_latest_progress > 0.0).then(|| {
             let dark = cx.theme().is_dark();
             let glass = if dark {
