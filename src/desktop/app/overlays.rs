@@ -1,7 +1,7 @@
 use gpui::{App, Context, Entity, Window};
 use gpui_component::{WindowExt as _, input::InputState};
 
-use super::{ConversationGroup, OneChat, Page, PaletteCommand, PendingFocus};
+use super::{ConversationGroup, OneChat, Page, PaletteCommand, PendingFocus, PickerOverlay};
 use crate::{
     desktop::ui::{
         SIDEBAR_WIDTH,
@@ -105,7 +105,7 @@ impl OneChat {
     ) {
         match command {
             PaletteCommand::NewConversation => self.create_conversation(cx),
-            PaletteCommand::ChooseModel => self.open_model_picker(window, cx),
+            PaletteCommand::ChooseModel => self.open_model_picker_immediate(window, cx),
             PaletteCommand::FocusConversationSearch => {
                 if self.data.snapshot.settings.sidebar_collapsed {
                     self.data.snapshot.settings.sidebar_collapsed = false;
@@ -147,6 +147,8 @@ impl OneChat {
             self.settings_ui.viewed_prompt_preset = None;
             self.settings_ui.form_error = None;
             window.close_dialog(cx);
+        } else if self.overlays.picker.is_some() {
+            self.close_picker_overlay(false, cx);
         } else if self.settings_ui.title_prompt_editor.is_some() {
             self.cancel_title_prompt_edit(cx);
         }
@@ -216,7 +218,15 @@ impl OneChat {
     }
 
     pub(crate) fn open_model_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.open_model_picker_for_turn(None, window, cx);
+        self.open_model_picker_for_turn(None, true, window, cx);
+    }
+
+    pub(crate) fn open_model_picker_immediate(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open_model_picker_for_turn(None, false, window, cx);
     }
 
     pub(crate) fn open_response_model_picker(
@@ -228,18 +238,18 @@ impl OneChat {
         if self.is_current_generating() {
             return;
         }
-        self.open_model_picker_for_turn(Some(turn_id), window, cx);
+        self.open_model_picker_for_turn(Some(turn_id), true, window, cx);
     }
 
     fn open_model_picker_for_turn(
         &mut self,
         turn_id: Option<String>,
+        animated: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.chat.text_selection.clear(window);
         self.overlays.response_model_turn_id = turn_id;
-        let adding_response = self.overlays.response_model_turn_id.is_some();
         let delegate = ModelPickerDelegate::from_app(self);
         let selected = delegate.initial_selection();
         self.overlays.model_picker.update(cx, |picker, cx| {
@@ -249,23 +259,7 @@ impl OneChat {
             picker.scroll_to_selected_item(window, cx);
         });
 
-        let picker = self.overlays.model_picker.clone();
-        let app = cx.entity();
-        window.open_dialog(cx, move |dialog, _, cx| {
-            let app = app.clone();
-            crate::desktop::ui::shell::model_picker_dialog(
-                dialog,
-                picker.clone(),
-                adding_response,
-                cx,
-            )
-            .on_cancel(move |_, _, cx| {
-                app.update(cx, |app, _| {
-                    app.overlays.response_model_turn_id = None;
-                });
-                true
-            })
-        });
+        self.open_picker_overlay(PickerOverlay::Model, animated, window, cx);
         self.overlays
             .model_picker
             .update(cx, |picker, cx| picker.focus(window, cx));
@@ -291,10 +285,7 @@ impl OneChat {
             picker.scroll_to_selected_item(window, cx);
         });
 
-        let picker = self.overlays.reasoning_picker.clone();
-        window.open_dialog(cx, move |dialog, _, cx| {
-            crate::desktop::ui::shell::reasoning_picker_dialog(dialog, picker.clone(), cx)
-        });
+        self.open_picker_overlay(PickerOverlay::Reasoning, true, window, cx);
         self.overlays
             .reasoning_picker
             .update(cx, |picker, cx| picker.focus(window, cx));
@@ -315,15 +306,40 @@ impl OneChat {
             picker.scroll_to_selected_item(window, cx);
         });
 
-        let picker = self.overlays.prompt_picker.clone();
-        let app = cx.entity();
-        window.open_dialog(cx, move |dialog, _, cx| {
-            crate::desktop::ui::shell::prompt_picker_dialog(dialog, picker.clone(), app.clone(), cx)
-        });
+        self.open_picker_overlay(PickerOverlay::Prompt, true, window, cx);
         self.overlays
             .prompt_picker
             .update(cx, |picker, cx| picker.focus(window, cx));
         self.reload_snapshot(cx);
+    }
+
+    fn open_picker_overlay(
+        &mut self,
+        picker: PickerOverlay,
+        animated: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.overlays.picker.is_none() {
+            self.overlays.picker_previous_focus = window.focused(cx);
+        }
+        self.overlays.picker = Some(picker);
+        if animated {
+            self.overlays.picker_motion.set_visible(true);
+        } else {
+            self.overlays.picker_motion.snap_visible(true);
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn close_picker_overlay(&mut self, animated: bool, cx: &mut Context<Self>) {
+        self.overlays.response_model_turn_id = None;
+        if animated {
+            self.overlays.picker_motion.set_visible(false);
+        } else {
+            self.overlays.picker_motion.snap_visible(false);
+        }
+        cx.notify();
     }
 
     pub(crate) fn select_system_prompt_preset(

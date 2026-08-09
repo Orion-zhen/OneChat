@@ -5,7 +5,7 @@ use std::{
     time::Instant,
 };
 
-use gpui::{Entity, ScrollHandle, Task};
+use gpui::{Entity, FocusHandle, ScrollHandle, Task};
 use gpui_component::{
     input::InputState, list::ListState, select::SelectState, slider::SliderState,
 };
@@ -94,11 +94,21 @@ pub(crate) struct SidebarState {
     pub(super) rename_editor: Option<RenameEditor>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PickerOverlay {
+    Model,
+    Prompt,
+    Reasoning,
+}
+
 pub(crate) struct OverlayState {
     pub(crate) command_picker: Entity<ListState<CommandPaletteDelegate>>,
     pub(crate) model_picker: Entity<ListState<ModelPickerDelegate>>,
     pub(crate) prompt_picker: Entity<ListState<PromptPickerDelegate>>,
     pub(crate) reasoning_picker: Entity<ListState<ReasoningPickerDelegate>>,
+    pub(crate) picker: Option<PickerOverlay>,
+    pub(crate) picker_motion: VisibilityMotion,
+    pub(crate) picker_previous_focus: Option<FocusHandle>,
     pub(crate) response_model_turn_id: Option<String>,
     pub(crate) destructive_action: Option<DestructiveAction>,
 }

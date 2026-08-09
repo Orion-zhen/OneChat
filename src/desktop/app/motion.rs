@@ -38,6 +38,15 @@ impl VisibilityMotion {
         self.set_visible_at(visible, Instant::now());
     }
 
+    pub(crate) fn snap_visible(&mut self, visible: bool) {
+        self.target = f32::from(visible);
+        self.snap();
+    }
+
+    pub(crate) fn is_hidden(&self) -> bool {
+        self.target == 0.0 && self.started_at.is_none()
+    }
+
     fn set_visible_at(&mut self, visible: bool, now: Instant) {
         self.advance(now);
         let target = f32::from(visible);

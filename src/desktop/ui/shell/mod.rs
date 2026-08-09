@@ -6,7 +6,7 @@ use std::cell::Cell;
 
 pub(crate) use pickers::{
     CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate, ReasoningPickerDelegate,
-    command_palette_dialog, model_picker_dialog, prompt_picker_dialog, reasoning_picker_dialog,
+    command_palette_dialog,
 };
 use sidebar::render_sidebar;
 use top_bar::render_top_bar;
@@ -224,6 +224,16 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         .navigation
         .inspector_motion
         .progress(window, reduce_motion);
+    let picker_progress = app.overlays.picker_motion.progress(window, false);
+    if app.overlays.picker.is_some() && app.overlays.picker_motion.is_hidden() {
+        app.overlays.picker = None;
+        if let Some(focus) = app.overlays.picker_previous_focus.take() {
+            window.focus(&focus, cx);
+        }
+    }
+    let picker_overlay = app.overlays.picker.map(|picker| {
+        pickers::render_picker_overlay(app, picker, picker_progress, reduce_motion, cx)
+    });
     let jump_to_latest_visible = app.navigation.page == Page::Chat
         && app.current_conversation().is_some()
         && !app.chat.follow_latest
@@ -351,9 +361,9 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         .on_action(cx.listener(|this, _: &ShowCommandPalette, window, cx| {
             this.open_command_palette(window, cx)
         }))
-        .on_action(
-            cx.listener(|this, _: &ShowModelPicker, window, cx| this.open_model_picker(window, cx)),
-        )
+        .on_action(cx.listener(|this, _: &ShowModelPicker, window, cx| {
+            this.open_model_picker_immediate(window, cx)
+        }))
         .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
         .on_action(cx.listener(|this, _: &OpenSettings, _, cx| this.set_page(Page::Settings, cx)))
         .on_action(
@@ -388,6 +398,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
                 ),
         )
         .children(sidebar_resize_handle)
+        .children(picker_overlay)
         .into_any_element()
 }
 

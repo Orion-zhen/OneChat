@@ -98,14 +98,14 @@ impl OneChat {
         cx.subscribe_in(
             &model_picker,
             window,
-            |this, picker, event: &ListEvent, window, cx| {
+            |this, picker, event: &ListEvent, _, cx| {
                 let ListEvent::Confirm(index) = event else {
                     return;
                 };
                 let model_id = picker.read(cx).delegate().selected_model_id(*index);
                 if let Some(model_id) = model_id {
-                    window.close_dialog(cx);
                     this.select_model(model_id, cx);
+                    this.close_picker_overlay(true, cx);
                 }
             },
         )
@@ -116,14 +116,14 @@ impl OneChat {
         cx.subscribe_in(
             &prompt_picker,
             window,
-            |this, picker, event: &ListEvent, window, cx| {
+            |this, picker, event: &ListEvent, _, cx| {
                 let ListEvent::Confirm(index) = event else {
                     return;
                 };
                 let name = picker.read(cx).delegate().selected_name(*index);
                 if let Some(name) = name {
-                    window.close_dialog(cx);
                     this.select_system_prompt_preset(name, cx);
+                    this.close_picker_overlay(true, cx);
                 }
             },
         )
@@ -135,14 +135,14 @@ impl OneChat {
         cx.subscribe_in(
             &reasoning_picker,
             window,
-            |this, picker, event: &ListEvent, window, cx| {
+            |this, picker, event: &ListEvent, _, cx| {
                 let ListEvent::Confirm(index) = event else {
                     return;
                 };
                 let preset = picker.read(cx).delegate().selected_id(*index);
                 if let Some(preset) = preset {
-                    window.close_dialog(cx);
                     this.select_reasoning_preset(Some(preset), cx);
+                    this.close_picker_overlay(true, cx);
                 }
             },
         )
@@ -345,6 +345,9 @@ impl OneChat {
                 model_picker,
                 prompt_picker,
                 reasoning_picker,
+                picker: None,
+                picker_motion: VisibilityMotion::new(false),
+                picker_previous_focus: None,
                 response_model_turn_id: None,
                 destructive_action: None,
             },
