@@ -12,8 +12,8 @@ pub(crate) use dialog::prompt_preset_dialog;
 pub(crate) use editors::{
     Capability, DefaultModelItem, FontFamilyItem, McpServerEditor, McpServerEditorMode,
     McpServerTransportEditor, ModelEditor, ModelFetchStatus, ModelIdDelegate, PromptPresetEditor,
-    PromptSelectItem, ProviderEditor, ProviderKindItem, SearchableItems, SettingsSection,
-    font_family_label,
+    PromptSelectItem, ProviderEditor, ProviderKindItem, ReasoningPresetSelectItem, SearchableItems,
+    SettingsSection, font_family_label,
 };
 use forms::{mcp_server_form, model_form, provider_form};
 use navigation::settings_sidebar;

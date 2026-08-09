@@ -89,6 +89,7 @@ fn catalog_settings_and_prompt_presets_round_trip() {
         current_conversation_id: Some(conversation.id.clone()),
         primary_model_id: Some(model.id.clone()),
         title_generation_model_id: Some(model.id.clone()),
+        title_generation_reasoning_preset: Some("low".into()),
         ..AppSettings::default()
     };
     storage.save_settings(&settings).unwrap();
@@ -112,6 +113,13 @@ fn catalog_settings_and_prompt_presets_round_trip() {
         vec![SystemPromptPreset::new("Direct", "Answer directly.")]
     );
     assert_eq!(snapshot.settings.primary_model_id, Some(model.id.clone()));
+    assert_eq!(
+        snapshot
+            .settings
+            .title_generation_reasoning_preset
+            .as_deref(),
+        Some("low")
+    );
 
     storage.delete_provider(&provider.id).unwrap();
     let snapshot = storage.load_snapshot().unwrap();

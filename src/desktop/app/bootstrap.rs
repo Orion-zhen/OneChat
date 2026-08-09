@@ -25,7 +25,8 @@ use crate::{
         inspector::InspectorTab,
         selectable_text::TextSelection,
         settings::{
-            DefaultModelItem, FontFamilyItem, PromptSelectItem, SearchableItems, SettingsSection,
+            DefaultModelItem, FontFamilyItem, PromptSelectItem, ReasoningPresetSelectItem,
+            SearchableItems, SettingsSection,
         },
         shell::{
             CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate,
@@ -234,6 +235,19 @@ impl OneChat {
         )
         .detach();
 
+        let title_reasoning_select = cx
+            .new(|cx| SelectState::new(Vec::<ReasoningPresetSelectItem>::new(), None, window, cx));
+        cx.subscribe(
+            &title_reasoning_select,
+            |this, _, event: &SelectEvent<Vec<ReasoningPresetSelectItem>>, cx| {
+                let SelectEvent::Confirm(value) = event;
+                if let Some(value) = value.clone() {
+                    this.select_title_generation_reasoning_preset(value, cx);
+                }
+            },
+        )
+        .detach();
+
         let default_prompt_select =
             cx.new(|cx| SelectState::new(Vec::<PromptSelectItem>::new(), None, window, cx));
         cx.subscribe(
@@ -381,9 +395,11 @@ impl OneChat {
                 message_width_slider,
                 primary_model_select,
                 title_model_select,
+                title_reasoning_select,
                 default_prompt_select,
                 synced_primary_models: Vec::new(),
                 synced_title_models: Vec::new(),
+                synced_title_reasoning_presets: Vec::new(),
                 synced_prompts: Vec::new(),
                 viewed_prompt_preset: None,
                 prompt_preset_editor: None,

@@ -164,6 +164,37 @@ impl SearchableListItem for DefaultModelItem {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ReasoningPresetSelectItem {
+    value: String,
+    label: SharedString,
+}
+
+impl ReasoningPresetSelectItem {
+    pub(crate) fn new(value: String, label: String) -> Self {
+        Self {
+            value,
+            label: label.into(),
+        }
+    }
+}
+
+impl SearchableListItem for ReasoningPresetSelectItem {
+    type Value = String;
+
+    fn title(&self) -> SharedString {
+        self.label.clone()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.value
+    }
+
+    fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        crate::desktop::ui::spaced_select_item(self.title(), cx)
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct PromptSelectItem {
     value: Option<String>,
     label: SharedString,

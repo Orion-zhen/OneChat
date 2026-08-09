@@ -23,7 +23,8 @@ use crate::{
         selectable_text::TextSelection,
         settings::{
             DefaultModelItem, FontFamilyItem, McpServerEditor, ModelEditor, PromptPresetEditor,
-            PromptSelectItem, ProviderEditor, SearchableItems, SettingsSection,
+            PromptSelectItem, ProviderEditor, ReasoningPresetSelectItem, SearchableItems,
+            SettingsSection,
         },
         shell::{
             CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate,
@@ -152,9 +153,11 @@ pub(crate) struct SettingsState {
     pub(crate) message_width_slider: Entity<SliderState>,
     pub(crate) primary_model_select: Entity<SelectState<Vec<DefaultModelItem>>>,
     pub(crate) title_model_select: Entity<SelectState<Vec<DefaultModelItem>>>,
+    pub(crate) title_reasoning_select: Entity<SelectState<Vec<ReasoningPresetSelectItem>>>,
     pub(crate) default_prompt_select: Entity<SelectState<Vec<PromptSelectItem>>>,
     pub(crate) synced_primary_models: Vec<DefaultModelItem>,
     pub(crate) synced_title_models: Vec<DefaultModelItem>,
+    pub(crate) synced_title_reasoning_presets: Vec<ReasoningPresetSelectItem>,
     pub(crate) synced_prompts: Vec<PromptSelectItem>,
     pub(crate) viewed_prompt_preset: Option<String>,
     pub(crate) prompt_preset_editor: Option<PromptPresetEditor>,

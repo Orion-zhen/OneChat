@@ -8,7 +8,7 @@ use super::*;
 pub(crate) use catalog::{Capability, ModelEditor, ModelFetchStatus, ProviderEditor};
 pub(crate) use items::{
     DefaultModelItem, FontFamilyItem, ModelIdDelegate, PromptSelectItem, ProviderKindItem,
-    SearchableItems, SettingsSection, font_family_label,
+    ReasoningPresetSelectItem, SearchableItems, SettingsSection, font_family_label,
 };
 pub(crate) use mcp::{McpServerEditor, McpServerEditorMode, McpServerTransportEditor};
 pub(crate) use prompt::PromptPresetEditor;

@@ -40,6 +40,12 @@ impl OneChat {
             .title_generation_system_prompt
             .trim()
             .to_string();
+        let reasoning_preset = self
+            .data
+            .snapshot
+            .settings
+            .title_generation_reasoning_preset
+            .clone();
         let target = self
             .title_generation_model()
             .filter(|model| self.model_availability(model).is_ok())
@@ -85,6 +91,7 @@ impl OneChat {
                     provider,
                     model,
                     system_prompt,
+                    reasoning_preset,
                     user_message,
                     assistant_response,
                 )

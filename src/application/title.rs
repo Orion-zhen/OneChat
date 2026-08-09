@@ -18,6 +18,7 @@ pub async fn generate_title(
     provider: Provider,
     model: Model,
     system_prompt: String,
+    reasoning_preset: Option<String>,
     user_message: String,
     assistant_response: String,
 ) -> Result<String, GenerationError> {
@@ -25,6 +26,7 @@ pub async fn generate_title(
         provider,
         model,
         system_prompt,
+        reasoning_preset,
         user_message,
         assistant_response,
     );
@@ -60,11 +62,13 @@ fn title_request(
     provider: Provider,
     model: Model,
     system_prompt: String,
+    reasoning_preset: Option<String>,
     user_message: String,
     assistant_response: String,
 ) -> GenerationRequest {
     let (config, _) = GenerationConfig {
         temperature: Some(0.2),
+        reasoning_preset,
         ..GenerationConfig::default()
     }
     .filtered_for(&model.capabilities);
@@ -136,5 +140,28 @@ fn strip_wrappers(mut value: &str) -> &str {
             Some(stripped) if stripped.len() < value.len() => value = stripped,
             _ => return value,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::ProviderKind;
+
+    #[test]
+    fn title_request_uses_selected_reasoning_preset() {
+        let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+        let model = Model::new(&provider.id, "gpt-test", "GPT Test");
+
+        let request = title_request(
+            provider,
+            model,
+            "Generate a title".into(),
+            Some("low".into()),
+            "Question".into(),
+            "Answer".into(),
+        );
+
+        assert_eq!(request.config.reasoning_preset.as_deref(), Some("low"));
     }
 }

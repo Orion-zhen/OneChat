@@ -106,6 +106,53 @@ pub(crate) fn sync_controls(app: &mut OneChat, window: &mut Window, cx: &mut Con
         });
     }
 
+    let (title_reasoning_items, title_reasoning_value) = app
+        .title_generation_model()
+        .and_then(|model| model.reasoning.as_ref())
+        .map(|reasoning| {
+            let options = reasoning.preset_options();
+            let selected = app
+                .settings()
+                .title_generation_reasoning_preset
+                .clone()
+                .filter(|selected| options.iter().any(|(id, _)| id == selected))
+                .unwrap_or_else(|| reasoning.default_preset().to_string());
+            let items = options
+                .into_iter()
+                .map(|(id, label)| ReasoningPresetSelectItem::new(id, label))
+                .collect::<Vec<_>>();
+            (items, Some(selected))
+        })
+        .unwrap_or_default();
+    let title_reasoning_changed =
+        title_reasoning_items != app.settings_ui.synced_title_reasoning_presets;
+    if title_reasoning_changed {
+        app.settings_ui
+            .synced_title_reasoning_presets
+            .clone_from(&title_reasoning_items);
+    }
+    if title_reasoning_changed
+        || app
+            .settings_ui
+            .title_reasoning_select
+            .read(cx)
+            .selected_value()
+            .cloned()
+            != title_reasoning_value
+    {
+        app.settings_ui
+            .title_reasoning_select
+            .update(cx, |select, cx| {
+                if title_reasoning_changed {
+                    select.set_items(title_reasoning_items, window, cx);
+                }
+                match title_reasoning_value.as_ref() {
+                    Some(value) => select.set_selected_value(value, window, cx),
+                    None => select.set_selected_index(None, window, cx),
+                }
+            });
+    }
+
     let prompt_items = default_prompt_items(app);
     let prompts_changed = prompt_items != app.settings_ui.synced_prompts;
     if prompts_changed {
