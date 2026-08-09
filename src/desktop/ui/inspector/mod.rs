@@ -1,6 +1,8 @@
 mod editor;
 
-pub use editor::{GenerationConfigEditor, GenerationParameter, GenerationParameterItem};
+pub use editor::{
+    GenerationConfigEditor, GenerationParameter, GenerationParameterItem, ReasoningPresetItem,
+};
 
 use std::{fmt::Display, str::FromStr};
 
@@ -71,11 +73,10 @@ fn danger_icon_action(
 
 pub(crate) fn sync_controls(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>) {
     app.sync_generation_config_editor(window, cx);
-    let capabilities = app.current_model().map(|model| model.capabilities.clone());
-    if let (Some(editor), Some(capabilities)) =
-        (&mut app.chat.generation_config_editor, capabilities)
-    {
-        editor.sync_parameter_select(&capabilities, window, cx);
+    let model = app.current_model().cloned();
+    if let (Some(editor), Some(model)) = (&mut app.chat.generation_config_editor, model) {
+        editor.sync_parameter_select(&model.capabilities, window, cx);
+        editor.sync_reasoning_select(&model, window, cx);
     }
 }
 
@@ -123,7 +124,7 @@ pub(crate) fn render(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
         .rounded(px(16.0))
         .border_1()
         .border_color(cx.theme().border)
-        .bg(cx.theme().popover)
+        .bg(cx.theme().popover.alpha(0.95))
         .p_4()
         .flex()
         .flex_col()
@@ -229,6 +230,32 @@ fn render_model(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
         .flex_col()
         .gap_3()
         .child(model_summary(model, provider, cx));
+
+    if model.reasoning.is_some() {
+        parameters = parameters.child(
+            div()
+                .rounded(px(14.0))
+                .bg(cx.theme().muted)
+                .p_3()
+                .flex()
+                .flex_col()
+                .gap_2()
+                .child(
+                    div()
+                        .text_sm()
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("Reasoning"),
+                )
+                .child(
+                    Select::new(&editor.reasoning_select)
+                        .large()
+                        .h(px(40.0))
+                        .px(px(12.0))
+                        .rounded(px(10.0))
+                        .w_full(),
+                ),
+        );
+    }
 
     if !ignored.is_empty() {
         parameters = parameters.child(
@@ -768,6 +795,9 @@ pub(crate) fn capability_summary(model: &Model) -> String {
     }
     if capabilities.vision {
         labels.push("Vision");
+    }
+    if model.reasoning.is_some() {
+        labels.push("Reasoning");
     }
     if labels.is_empty() {
         "No declared capabilities".into()

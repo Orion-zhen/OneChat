@@ -108,6 +108,18 @@ impl OneChat {
         }
     }
 
+    pub(crate) fn select_reasoning_preset(
+        &mut self,
+        preset: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(editor) = &mut self.chat.generation_config_editor {
+            editor.set_reasoning_preset(preset);
+            self.schedule_generation_config_save(cx);
+            cx.notify();
+        }
+    }
+
     pub(crate) fn schedule_generation_config_save(&mut self, cx: &mut Context<Self>) {
         let Some(conversation_id) = self.current_conversation().map(|value| value.id.clone())
         else {

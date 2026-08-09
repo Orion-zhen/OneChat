@@ -215,6 +215,7 @@ pub(crate) struct OverlayState {
     pub(crate) command_picker: Entity<ListState<CommandPaletteDelegate>>,
     pub(crate) model_picker: Entity<ListState<ModelPickerDelegate>>,
     pub(crate) prompt_picker: Entity<ListState<PromptPickerDelegate>>,
+    pub(crate) reasoning_picker: Entity<ListState<ReasoningPickerDelegate>>,
     pub(crate) response_model_turn_id: Option<String>,
     pub(crate) destructive_action: Option<DestructiveAction>,
 }

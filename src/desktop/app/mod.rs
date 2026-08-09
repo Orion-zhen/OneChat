@@ -48,21 +48,27 @@ use crate::{
     desktop::ui::{
         inspector::{
             GenerationConfigEditor, GenerationParameter, GenerationParameterItem, InspectorTab,
+            ReasoningPresetItem,
         },
         selectable_text::TextSelection,
         settings::{
-            Capability, DefaultModelItem, FontFamilyItem, McpServerEditor, McpServerEditorMode,
-            McpServerTransportEditor, ModelEditor, PromptPresetEditor, PromptSelectItem,
-            ProviderEditor, SearchableItems, SettingsSection,
+            Capability, DefaultModelItem, FontFamilyItem, KnownReasoningFormatItem,
+            McpServerEditor, McpServerEditorMode, McpServerTransportEditor, ModelEditor,
+            PromptPresetEditor, PromptSelectItem, ProviderEditor, ReasoningEditorMode,
+            ReasoningParameterScope, SearchableItems, SettingsSection,
         },
-        shell::{self, CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate},
+        shell::{
+            self, CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate,
+            ReasoningPickerDelegate,
+        },
         stream::follow_after_scroll,
     },
     domain::{
         AppSettings, AssistantResponse, AttachmentDraft, AttachmentDraftFile, AttachmentKind,
         AutoTitleState, Conversation, DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, Message,
-        MessageStatus, Model, Provider, RequestInfo, SendMessageShortcut, SystemPromptPreset,
-        Theme, ToolRef, ToolSelection, Turn, active_turns, new_id, now_timestamp, user_branches,
+        MessageStatus, Model, Provider, ReasoningLevel, RequestInfo, SendMessageShortcut,
+        SystemPromptPreset, Theme, ToolRef, ToolSelection, Turn, active_turns, new_id,
+        now_timestamp, user_branches,
     },
     markdown::MarkdownDocument,
     mcp::{McpConfig, McpManager, McpServerConfig, McpSnapshot},
@@ -406,6 +412,25 @@ impl OneChat {
         )
         .detach();
 
+        let reasoning_picker = cx.new(|cx| {
+            ListState::new(ReasoningPickerDelegate::empty(), window, cx).searchable(true)
+        });
+        cx.subscribe_in(
+            &reasoning_picker,
+            window,
+            |this, picker, event: &ListEvent, window, cx| {
+                let ListEvent::Confirm(index) = event else {
+                    return;
+                };
+                let preset = picker.read(cx).delegate().selected_id(*index);
+                if let Some(preset) = preset {
+                    window.close_dialog(cx);
+                    this.select_reasoning_preset(Some(preset), cx);
+                }
+            },
+        )
+        .detach();
+
         let message_width_slider = cx.new(|_| {
             SliderState::new()
                 .min(crate::domain::MIN_MESSAGE_WIDTH_RATIO)
@@ -588,6 +613,7 @@ impl OneChat {
                 command_picker,
                 model_picker,
                 prompt_picker,
+                reasoning_picker,
                 response_model_turn_id: None,
                 destructive_action: None,
             },

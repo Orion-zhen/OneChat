@@ -2,6 +2,28 @@ use std::collections::HashSet;
 
 use super::*;
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ReasoningPresetItem {
+    value: Option<String>,
+    label: SharedString,
+}
+
+impl SearchableListItem for ReasoningPresetItem {
+    type Value = Option<String>;
+
+    fn title(&self) -> SharedString {
+        self.label.clone()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.value
+    }
+
+    fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        crate::desktop::ui::spaced_select_item(self.title(), cx)
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum GenerationParameter {
     Temperature,
@@ -12,12 +34,11 @@ pub enum GenerationParameter {
     PresencePenalty,
     Seed,
     StopSequences,
-    ThinkingBudget,
     Extra,
 }
 
 impl GenerationParameter {
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 9] = [
         Self::Temperature,
         Self::TopP,
         Self::TopK,
@@ -26,7 +47,6 @@ impl GenerationParameter {
         Self::PresencePenalty,
         Self::Seed,
         Self::StopSequences,
-        Self::ThinkingBudget,
         Self::Extra,
     ];
 
@@ -40,7 +60,6 @@ impl GenerationParameter {
             Self::PresencePenalty => "Presence Penalty",
             Self::Seed => "Seed",
             Self::StopSequences => "Stop Sequences",
-            Self::ThinkingBudget => "Thinking Budget",
             Self::Extra => "Provider-specific Parameters",
         }
     }
@@ -55,7 +74,6 @@ impl GenerationParameter {
             Self::PresencePenalty => "presence-penalty",
             Self::Seed => "seed",
             Self::StopSequences => "stop-sequences",
-            Self::ThinkingBudget => "thinking-budget",
             Self::Extra => "extra",
         }
     }
@@ -70,7 +88,6 @@ impl GenerationParameter {
             Self::PresencePenalty => "Encourages new topics",
             Self::Seed => "Makes output repeatable",
             Self::StopSequences => "One sequence per line",
-            Self::ThinkingBudget => "Reasoning token limit",
             Self::Extra => "Provider-specific JSON",
         }
     }
@@ -85,7 +102,6 @@ impl GenerationParameter {
             Self::PresencePenalty => capabilities.presence_penalty,
             Self::Seed => capabilities.seed,
             Self::StopSequences => capabilities.stop_sequences,
-            Self::ThinkingBudget => capabilities.thinking_budget,
             Self::Extra => true,
         }
     }
@@ -119,6 +135,9 @@ pub struct GenerationConfigEditor {
     active: HashSet<GenerationParameter>,
     pub parameter_select: Entity<SelectState<Vec<GenerationParameterItem>>>,
     synced_options: Vec<GenerationParameterItem>,
+    reasoning_preset: Option<String>,
+    synced_reasoning_options: Vec<ReasoningPresetItem>,
+    pub reasoning_select: Entity<SelectState<Vec<ReasoningPresetItem>>>,
     pub temperature: Entity<InputState>,
     pub top_p: Entity<InputState>,
     pub top_k: Entity<InputState>,
@@ -127,7 +146,6 @@ pub struct GenerationConfigEditor {
     pub presence_penalty: Entity<InputState>,
     pub seed: Entity<InputState>,
     pub stop_sequences: Entity<InputState>,
-    pub thinking_budget: Entity<InputState>,
     pub extra: Entity<InputState>,
 }
 
@@ -143,6 +161,9 @@ impl GenerationConfigEditor {
             active: active_parameters(config),
             parameter_select: cx.new(|cx| SelectState::new(Vec::new(), None, window, cx)),
             synced_options: Vec::new(),
+            reasoning_preset: config.reasoning_preset.clone(),
+            synced_reasoning_options: Vec::new(),
+            reasoning_select: cx.new(|cx| SelectState::new(Vec::new(), None, window, cx)),
             temperature: optional_number_input(config.temperature, None, window, cx),
             top_p: optional_number_input(config.top_p, None, window, cx),
             top_k: optional_number_input(config.top_k, Some(0.0), window, cx),
@@ -161,7 +182,6 @@ impl GenerationConfigEditor {
                 window,
                 cx,
             ),
-            thinking_budget: optional_number_input(config.thinking_budget, None, window, cx),
             extra: multiline_input(
                 serde_json::to_string_pretty(&config.extra).unwrap_or_else(|_| "{}".into()),
                 "Provider-specific JSON object",
@@ -182,6 +202,60 @@ impl GenerationConfigEditor {
 
     pub fn is_for(&self, conversation_id: &str) -> bool {
         self.conversation_id == conversation_id
+    }
+
+    pub fn reasoning_preset(&self) -> Option<&str> {
+        self.reasoning_preset.as_deref()
+    }
+
+    pub fn set_reasoning_preset(&mut self, preset: Option<String>) {
+        self.reasoning_preset = preset;
+    }
+
+    pub fn sync_reasoning_select(
+        &mut self,
+        model: &Model,
+        window: &mut Window,
+        cx: &mut Context<OneChat>,
+    ) {
+        let Some(reasoning) = &model.reasoning else {
+            if !self.synced_reasoning_options.is_empty() {
+                self.synced_reasoning_options.clear();
+                self.reasoning_select.update(cx, |select, cx| {
+                    select.set_items(Vec::new(), window, cx);
+                    select.set_selected_index(None, window, cx);
+                });
+            }
+            return;
+        };
+        let options = reasoning
+            .preset_options()
+            .into_iter()
+            .map(|(id, label)| ReasoningPresetItem {
+                value: Some(id),
+                label: label.into(),
+            })
+            .collect::<Vec<_>>();
+        let desired = Some(
+            self.reasoning_preset
+                .clone()
+                .filter(|id| options.iter().any(|item| item.value.as_ref() == Some(id)))
+                .unwrap_or_else(|| reasoning.default_preset().to_string()),
+        );
+        let changed = options != self.synced_reasoning_options;
+        if changed {
+            self.synced_reasoning_options.clone_from(&options);
+        }
+        if changed
+            || self.reasoning_select.read(cx).selected_value().cloned() != Some(desired.clone())
+        {
+            self.reasoning_select.update(cx, |select, cx| {
+                if changed {
+                    select.set_items(options, window, cx);
+                }
+                select.set_selected_value(&desired, window, cx);
+            });
+        }
     }
 
     pub fn is_active(&self, parameter: GenerationParameter) -> bool {
@@ -213,7 +287,6 @@ impl GenerationConfigEditor {
             GenerationParameter::PresencePenalty => self.presence_penalty.clone(),
             GenerationParameter::Seed => self.seed.clone(),
             GenerationParameter::StopSequences => self.stop_sequences.clone(),
-            GenerationParameter::ThinkingBudget => self.thinking_budget.clone(),
             GenerationParameter::Extra => self.extra.clone(),
         }
     }
@@ -241,6 +314,7 @@ impl GenerationConfigEditor {
 
     pub fn build(&self, base: &GenerationConfig, cx: &App) -> Result<GenerationConfig, String> {
         let mut config = base.clone();
+        config.reasoning_preset.clone_from(&self.reasoning_preset);
         config.temperature =
             parse_optional_f64("Temperature", self.temperature.read(cx).value().as_ref())?;
         config.top_p = parse_optional_f64("Top P", self.top_p.read(cx).value().as_ref())?;
@@ -267,15 +341,11 @@ impl GenerationConfigEditor {
             .filter(|value| !value.is_empty())
             .map(str::to_owned)
             .collect();
-        config.thinking_budget = parse_optional(
-            "Thinking Budget",
-            self.thinking_budget.read(cx).value().as_ref(),
-        )?;
         config.extra = parse_json_object(self.extra.read(cx).value().as_ref())?;
         Ok(config)
     }
 
-    fn inputs(&self) -> [Entity<InputState>; 10] {
+    fn inputs(&self) -> [Entity<InputState>; 9] {
         [
             self.temperature.clone(),
             self.top_p.clone(),
@@ -285,7 +355,6 @@ impl GenerationConfigEditor {
             self.presence_penalty.clone(),
             self.seed.clone(),
             self.stop_sequences.clone(),
-            self.thinking_budget.clone(),
             self.extra.clone(),
         ]
     }
@@ -303,7 +372,6 @@ fn active_parameters(config: &GenerationConfig) -> HashSet<GenerationParameter> 
             GenerationParameter::PresencePenalty => config.presence_penalty.is_some(),
             GenerationParameter::Seed => config.seed.is_some(),
             GenerationParameter::StopSequences => !config.stop_sequences.is_empty(),
-            GenerationParameter::ThinkingBudget => config.thinking_budget.is_some(),
             GenerationParameter::Extra => !config.extra.is_empty(),
         })
         .collect()

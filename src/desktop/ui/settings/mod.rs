@@ -3,6 +3,7 @@ mod forms;
 mod navigation;
 mod pages;
 mod providers;
+mod reasoning;
 
 pub(crate) use editors::{
     Capability, DefaultModelItem, FontFamilyItem, McpServerEditor, McpServerEditorMode,
@@ -16,6 +17,11 @@ use pages::{
     default_models_page, general_page, mcp_page, prompt_preset_dialog_body, system_prompts_page,
 };
 use providers::{new_provider_page, provider_page};
+pub(crate) use reasoning::{
+    KnownReasoningFormatItem, ModelReasoningEditor, ReasoningEditorMode, ReasoningParameterEditor,
+    ReasoningParameterPathEditor, ReasoningParameterScope, ReasoningParameterType,
+    default_reasoning_format,
+};
 
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -31,12 +37,12 @@ use gpui_component::{
     WindowExt as _,
     alert::Alert,
     button::{Button, ButtonVariants as _},
-    combobox::{Combobox, ComboboxState},
+    combobox::{Combobox, ComboboxEvent, ComboboxState},
     dialog::Dialog,
     form::{Field, Form},
     input::{Input, InputContentType, InputState},
     searchable_list::{SearchableListDelegate, SearchableListItem},
-    select::{Select, SelectState},
+    select::{Select, SelectEvent, SelectState},
     slider::{Slider, SliderState},
     spinner::Spinner,
     switch::Switch,
@@ -50,8 +56,11 @@ use super::{
 use crate::{
     desktop::app::{ConnectionTestStatus, DefaultModelRole, FontRole, OneChat, Page},
     domain::{
-        DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, Model, ModelCapabilities, Provider, ProviderKind,
-        SendMessageShortcut, SystemPromptPreset, Theme, now_timestamp,
+        CustomReasoningPreset, DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, KnownReasoningFormat,
+        KnownReasoningPreset, Model, ModelCapabilities, ModelReasoningConfig,
+        PROVIDER_DEFAULT_REASONING_PRESET, Provider, ProviderKind, ReasoningLevel,
+        ReasoningParameter, ReasoningParameterValue, SendMessageShortcut, SystemPromptPreset,
+        Theme, now_timestamp,
     },
     mcp::{
         McpConfig, McpHttpServerConfig, McpOAuthConfig, McpOAuthFlow, McpServerConfig,

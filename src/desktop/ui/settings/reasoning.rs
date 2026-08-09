@@ -1,0 +1,896 @@
+use super::*;
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ReasoningEditorMode {
+    #[default]
+    KnownApi,
+    Custom,
+}
+
+impl ReasoningEditorMode {
+    pub fn index(self) -> usize {
+        match self {
+            Self::KnownApi => 0,
+            Self::Custom => 1,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct KnownReasoningFormatItem(pub KnownReasoningFormat);
+
+impl SearchableListItem for KnownReasoningFormatItem {
+    type Value = KnownReasoningFormat;
+
+    fn title(&self) -> SharedString {
+        self.0.label().into()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.0
+    }
+
+    fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        crate::desktop::ui::spaced_select_item(self.title(), cx)
+    }
+}
+
+pub struct KnownReasoningPresetEditor {
+    pub level: ReasoningLevel,
+    pub enabled: bool,
+    pub budget_tokens: Entity<InputState>,
+}
+
+pub struct CustomReasoningPresetEditor {
+    pub id: Entity<InputState>,
+    pub name: Entity<InputState>,
+    pub request_parameters: Vec<ReasoningParameterEditor>,
+    pub chat_template_kwargs: Vec<ReasoningParameterEditor>,
+}
+
+impl CustomReasoningPresetEditor {
+    fn new(preset: CustomReasoningPreset, window: &mut Window, cx: &mut Context<OneChat>) -> Self {
+        Self {
+            id: reasoning_input(preset.id, "Preset ID", window, cx),
+            name: reasoning_input(preset.name.unwrap_or_default(), "Same as ID", window, cx),
+            request_parameters: preset
+                .request_parameters
+                .into_iter()
+                .map(|parameter| {
+                    ReasoningParameterEditor::new(
+                        parameter,
+                        ReasoningParameterScope::Request,
+                        window,
+                        cx,
+                    )
+                })
+                .collect(),
+            chat_template_kwargs: preset
+                .chat_template_kwargs
+                .into_iter()
+                .map(|parameter| {
+                    ReasoningParameterEditor::new(
+                        parameter,
+                        ReasoningParameterScope::ChatTemplateKwargs,
+                        window,
+                        cx,
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    fn blank(index: usize, window: &mut Window, cx: &mut Context<OneChat>) -> Self {
+        let id = format!("preset-{}", index + 1);
+        Self::new(
+            CustomReasoningPreset {
+                id,
+                name: None,
+                request_parameters: Vec::new(),
+                chat_template_kwargs: Vec::new(),
+            },
+            window,
+            cx,
+        )
+    }
+
+    fn build(&self, cx: &App) -> Result<CustomReasoningPreset, String> {
+        let name = self.name.read(cx).value().trim().to_string();
+        Ok(CustomReasoningPreset {
+            id: self.id.read(cx).value().trim().to_string(),
+            name: (!name.is_empty()).then_some(name),
+            request_parameters: self
+                .request_parameters
+                .iter()
+                .map(|parameter| parameter.build(cx))
+                .collect::<Result<_, _>>()?,
+            chat_template_kwargs: self
+                .chat_template_kwargs
+                .iter()
+                .map(|parameter| parameter.build(cx))
+                .collect::<Result<_, _>>()?,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ReasoningParameterType {
+    #[default]
+    String,
+    Integer,
+    Decimal,
+    Boolean,
+    Null,
+}
+
+impl ReasoningParameterType {
+    pub const ALL: [Self; 5] = [
+        Self::String,
+        Self::Integer,
+        Self::Decimal,
+        Self::Boolean,
+        Self::Null,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::String => "String",
+            Self::Integer => "Integer",
+            Self::Decimal => "Decimal",
+            Self::Boolean => "Boolean",
+            Self::Null => "Null",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ReasoningParameterTypeItem(pub ReasoningParameterType);
+
+impl SearchableListItem for ReasoningParameterTypeItem {
+    type Value = ReasoningParameterType;
+
+    fn title(&self) -> SharedString {
+        self.0.label().into()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.0
+    }
+
+    fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        crate::desktop::ui::spaced_select_item(self.title(), cx)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ReasoningBooleanItem(pub bool);
+
+impl SearchableListItem for ReasoningBooleanItem {
+    type Value = bool;
+
+    fn title(&self) -> SharedString {
+        self.0.to_string().into()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.0
+    }
+
+    fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        crate::desktop::ui::spaced_select_item(self.title(), cx)
+    }
+}
+
+const CHAT_TEMPLATE_PARAMETERS: [(&str, &str, ReasoningParameterType); 7] = [
+    (
+        "enable_thinking",
+        "Qwen, Gemma, and GLM thinking switch",
+        ReasoningParameterType::Boolean,
+    ),
+    (
+        "thinking",
+        "Granite thinking switch",
+        ReasoningParameterType::Boolean,
+    ),
+    (
+        "preserve_thinking",
+        "Preserve thinking across turns",
+        ReasoningParameterType::Boolean,
+    ),
+    (
+        "reasoning_effort",
+        "Reasoning effort exposed to the template",
+        ReasoningParameterType::String,
+    ),
+    (
+        "thinking_level",
+        "Thinking level exposed to the template",
+        ReasoningParameterType::String,
+    ),
+    (
+        "thinking_budget",
+        "Thinking budget exposed to the template",
+        ReasoningParameterType::Integer,
+    ),
+    (
+        "thinking_token_budget",
+        "Thinking token budget exposed to the template",
+        ReasoningParameterType::Integer,
+    ),
+];
+
+fn chat_template_parameter_type(path: &str) -> Option<ReasoningParameterType> {
+    CHAT_TEMPLATE_PARAMETERS
+        .iter()
+        .find(|(candidate, _, _)| *candidate == path)
+        .map(|(_, _, value_type)| *value_type)
+}
+
+#[derive(Clone)]
+pub(crate) struct ChatTemplateParameterItem {
+    path: String,
+    description: &'static str,
+    custom: bool,
+}
+
+impl ChatTemplateParameterItem {
+    fn known(path: &'static str, description: &'static str) -> Self {
+        Self {
+            path: path.into(),
+            description,
+            custom: false,
+        }
+    }
+
+    fn custom(path: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            description: "Custom chat template parameter",
+            custom: true,
+        }
+    }
+}
+
+impl SearchableListItem for ChatTemplateParameterItem {
+    type Value = String;
+
+    fn title(&self) -> SharedString {
+        self.path.clone().into()
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.path
+    }
+
+    fn matches(&self, query: &str) -> bool {
+        self.path
+            .to_ascii_lowercase()
+            .contains(&query.to_ascii_lowercase())
+    }
+
+    fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        crate::desktop::ui::spaced_select_item(
+            div()
+                .w_full()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_3()
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .child(div().truncate().child(self.path.clone()))
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(cx.theme().muted_foreground)
+                                .child(self.description),
+                        ),
+                )
+                .children(self.custom.then(|| {
+                    div()
+                        .flex_none()
+                        .text_xs()
+                        .text_color(cx.theme().muted_foreground)
+                        .child("Use custom")
+                })),
+            cx,
+        )
+    }
+}
+
+pub(crate) struct ChatTemplateParameterDelegate {
+    all: Vec<ChatTemplateParameterItem>,
+    visible: Vec<ChatTemplateParameterItem>,
+}
+
+impl ChatTemplateParameterDelegate {
+    fn new(current: &str) -> Self {
+        let mut all = CHAT_TEMPLATE_PARAMETERS
+            .into_iter()
+            .map(|(path, description, _)| ChatTemplateParameterItem::known(path, description))
+            .collect::<Vec<_>>();
+        let current = current.trim();
+        if !current.is_empty() && !all.iter().any(|item| item.path == current) {
+            all.insert(0, ChatTemplateParameterItem::custom(current));
+        }
+        let visible = all.clone();
+        Self { all, visible }
+    }
+
+    fn selected_index(&self, path: &str) -> Option<IndexPath> {
+        self.all
+            .iter()
+            .position(|item| item.path == path)
+            .map(IndexPath::new)
+    }
+
+    fn filter(&mut self, query: &str) {
+        let query = query.trim();
+        if query.is_empty() {
+            self.visible = self.all.clone();
+            return;
+        }
+        self.visible = self
+            .all
+            .iter()
+            .filter(|item| item.matches(query))
+            .cloned()
+            .collect();
+        if !self
+            .visible
+            .iter()
+            .any(|item| item.path.eq_ignore_ascii_case(query))
+        {
+            self.visible
+                .insert(0, ChatTemplateParameterItem::custom(query));
+        }
+    }
+}
+
+impl SearchableListDelegate for ChatTemplateParameterDelegate {
+    type Item = ChatTemplateParameterItem;
+
+    fn items_count(&self, section: usize) -> usize {
+        usize::from(section == 0) * self.visible.len()
+    }
+
+    fn item(&self, ix: IndexPath) -> Option<&Self::Item> {
+        self.visible.get(ix.row)
+    }
+
+    fn position<V>(&self, value: &V) -> Option<IndexPath>
+    where
+        Self::Item: SearchableListItem<Value = V>,
+        V: PartialEq,
+    {
+        self.visible
+            .iter()
+            .position(|item| item.value() == value)
+            .map(IndexPath::new)
+    }
+
+    fn perform_search(&mut self, query: &str, window: &mut Window, _: &mut App) -> Task<()> {
+        self.filter(query);
+        window.refresh();
+        Task::ready(())
+    }
+}
+
+pub(crate) enum ReasoningParameterPathEditor {
+    Request(Entity<InputState>),
+    ChatTemplate(Entity<ComboboxState<ChatTemplateParameterDelegate>>),
+}
+
+impl ReasoningParameterPathEditor {
+    fn new(
+        path: String,
+        scope: ReasoningParameterScope,
+        window: &mut Window,
+        cx: &mut Context<OneChat>,
+    ) -> Self {
+        match scope {
+            ReasoningParameterScope::Request => {
+                Self::Request(reasoning_input(path, "Parameter path", window, cx))
+            }
+            ReasoningParameterScope::ChatTemplateKwargs => {
+                let delegate = ChatTemplateParameterDelegate::new(&path);
+                let selected = delegate.selected_index(path.trim());
+                let input = cx.new(|cx| {
+                    ComboboxState::new(delegate, selected.into_iter().collect(), window, cx)
+                        .searchable(true)
+                });
+                cx.subscribe_in(
+                    &input,
+                    window,
+                    |_, _, _: &ComboboxEvent<ChatTemplateParameterDelegate>, _, cx| cx.notify(),
+                )
+                .detach();
+                Self::ChatTemplate(input)
+            }
+        }
+    }
+
+    fn value(&self, cx: &App) -> String {
+        match self {
+            Self::Request(input) => input.read(cx).value().trim().to_string(),
+            Self::ChatTemplate(input) => input
+                .read(cx)
+                .selected_value()
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
+        }
+    }
+
+    fn mapped_type(&self, cx: &App) -> Option<ReasoningParameterType> {
+        match self {
+            Self::Request(_) => None,
+            Self::ChatTemplate(_) => chat_template_parameter_type(&self.value(cx)),
+        }
+    }
+}
+
+pub struct ReasoningParameterEditor {
+    pub(crate) path: ReasoningParameterPathEditor,
+    pub value_type: Entity<SelectState<Vec<ReasoningParameterTypeItem>>>,
+    pub(crate) boolean_value: Entity<SelectState<Vec<ReasoningBooleanItem>>>,
+    pub value: Entity<InputState>,
+}
+
+impl ReasoningParameterEditor {
+    fn new(
+        parameter: ReasoningParameter,
+        scope: ReasoningParameterScope,
+        window: &mut Window,
+        cx: &mut Context<OneChat>,
+    ) -> Self {
+        let (value_type, value) = match parameter.value {
+            ReasoningParameterValue::String(value) => (ReasoningParameterType::String, value),
+            ReasoningParameterValue::Integer(value) => {
+                (ReasoningParameterType::Integer, value.to_string())
+            }
+            ReasoningParameterValue::Decimal(value) => {
+                (ReasoningParameterType::Decimal, value.to_string())
+            }
+            ReasoningParameterValue::Boolean(value) => {
+                (ReasoningParameterType::Boolean, value.to_string())
+            }
+            ReasoningParameterValue::Null => (ReasoningParameterType::Null, String::new()),
+        };
+        let types = ReasoningParameterType::ALL
+            .into_iter()
+            .map(ReasoningParameterTypeItem)
+            .collect::<Vec<_>>();
+        let selected = types
+            .iter()
+            .position(|item| item.0 == value_type)
+            .map(IndexPath::new);
+        let value_type = cx.new(|cx| SelectState::new(types, selected, window, cx));
+        cx.subscribe_in(
+            &value_type,
+            window,
+            |_, _, _: &SelectEvent<Vec<ReasoningParameterTypeItem>>, _, cx| cx.notify(),
+        )
+        .detach();
+        let boolean_items = vec![ReasoningBooleanItem(true), ReasoningBooleanItem(false)];
+        let boolean_selected = Some(IndexPath::new(usize::from(value.trim() == "false")));
+        let boolean_value =
+            cx.new(|cx| SelectState::new(boolean_items, boolean_selected, window, cx));
+        Self {
+            path: ReasoningParameterPathEditor::new(parameter.path, scope, window, cx),
+            value_type,
+            boolean_value,
+            value: reasoning_input(value, "Value", window, cx),
+        }
+    }
+
+    fn blank(
+        scope: ReasoningParameterScope,
+        window: &mut Window,
+        cx: &mut Context<OneChat>,
+    ) -> Self {
+        Self::new(
+            ReasoningParameter {
+                path: String::new(),
+                value: ReasoningParameterValue::String(String::new()),
+            },
+            scope,
+            window,
+            cx,
+        )
+    }
+
+    pub(crate) fn mapped_type(&self, cx: &App) -> Option<ReasoningParameterType> {
+        self.path.mapped_type(cx)
+    }
+
+    pub(crate) fn effective_type(&self, cx: &App) -> ReasoningParameterType {
+        self.mapped_type(cx).unwrap_or_else(|| {
+            self.value_type
+                .read(cx)
+                .selected_value()
+                .copied()
+                .unwrap_or_default()
+        })
+    }
+
+    fn build(&self, cx: &App) -> Result<ReasoningParameter, String> {
+        let path = self.path.value(cx);
+        let raw = self.value.read(cx).value().to_string();
+        let parsed = raw.trim();
+        let value = match self.effective_type(cx) {
+            ReasoningParameterType::String => ReasoningParameterValue::String(raw),
+            ReasoningParameterType::Integer => ReasoningParameterValue::Integer(
+                parsed
+                    .parse()
+                    .map_err(|_| format!("Reasoning parameter {path} must be an integer."))?,
+            ),
+            ReasoningParameterType::Decimal => ReasoningParameterValue::Decimal(
+                parsed
+                    .parse()
+                    .map_err(|_| format!("Reasoning parameter {path} must be a number."))?,
+            ),
+            ReasoningParameterType::Boolean => ReasoningParameterValue::Boolean(
+                self.boolean_value
+                    .read(cx)
+                    .selected_value()
+                    .copied()
+                    .unwrap_or(true),
+            ),
+            ReasoningParameterType::Null => ReasoningParameterValue::Null,
+        };
+        Ok(ReasoningParameter { path, value })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReasoningParameterScope {
+    Request,
+    ChatTemplateKwargs,
+}
+
+pub struct ModelReasoningEditor {
+    pub enabled: bool,
+    pub mode: ReasoningEditorMode,
+    pub format: KnownReasoningFormat,
+    pub format_select: Entity<SelectState<Vec<KnownReasoningFormatItem>>>,
+    pub known_default: String,
+    pub known_presets: Vec<KnownReasoningPresetEditor>,
+    pub custom_default: Option<usize>,
+    pub custom_presets: Vec<CustomReasoningPresetEditor>,
+}
+
+impl ModelReasoningEditor {
+    pub fn new(
+        reasoning: Option<ModelReasoningConfig>,
+        fallback_format: KnownReasoningFormat,
+        window: &mut Window,
+        cx: &mut Context<OneChat>,
+    ) -> Self {
+        let formats = KnownReasoningFormat::ALL
+            .into_iter()
+            .map(KnownReasoningFormatItem)
+            .collect::<Vec<_>>();
+        let fallback_presets = fallback_format.default_presets();
+        let fallback_default = fallback_format
+            .recommended_default(&fallback_presets)
+            .map(|preset| preset.id().to_string())
+            .unwrap_or_else(|| PROVIDER_DEFAULT_REASONING_PRESET.into());
+        let (enabled, mode, format, known_default, known, custom_default_id, custom) =
+            match reasoning {
+                Some(ModelReasoningConfig::KnownApi {
+                    format,
+                    default_preset,
+                    presets,
+                }) => (
+                    true,
+                    ReasoningEditorMode::KnownApi,
+                    format,
+                    default_preset,
+                    presets,
+                    None,
+                    Vec::new(),
+                ),
+                Some(ModelReasoningConfig::Custom {
+                    default_preset,
+                    presets,
+                }) => (
+                    true,
+                    ReasoningEditorMode::Custom,
+                    fallback_format,
+                    fallback_default.clone(),
+                    fallback_presets.clone(),
+                    Some(default_preset),
+                    presets,
+                ),
+                None => (
+                    false,
+                    ReasoningEditorMode::KnownApi,
+                    fallback_format,
+                    fallback_default,
+                    fallback_presets,
+                    None,
+                    Vec::new(),
+                ),
+            };
+        let format_index = formats
+            .iter()
+            .position(|item| item.0 == format)
+            .map(IndexPath::new);
+        let known_presets = known_preset_editors(format, &known, window, cx);
+        let custom_presets = custom
+            .into_iter()
+            .map(|preset| CustomReasoningPresetEditor::new(preset, window, cx))
+            .collect::<Vec<_>>();
+        let custom_default = custom_default_id.and_then(|id| {
+            if id == PROVIDER_DEFAULT_REASONING_PRESET {
+                None
+            } else {
+                custom_presets
+                    .iter()
+                    .position(|preset| preset.id.read(cx).value().as_ref() == id)
+            }
+        });
+        Self {
+            enabled,
+            mode,
+            format,
+            format_select: cx.new(|cx| SelectState::new(formats, format_index, window, cx)),
+            known_default,
+            known_presets,
+            custom_default,
+            custom_presets,
+        }
+    }
+
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+    }
+
+    pub fn set_mode(
+        &mut self,
+        mode: ReasoningEditorMode,
+        window: &mut Window,
+        cx: &mut Context<OneChat>,
+    ) {
+        if self.mode == mode {
+            return;
+        }
+        self.mode = mode;
+        if mode == ReasoningEditorMode::Custom && self.custom_presets.is_empty() {
+            self.custom_presets
+                .push(CustomReasoningPresetEditor::blank(0, window, cx));
+            self.custom_default = Some(0);
+        }
+    }
+
+    pub fn set_format(
+        &mut self,
+        format: KnownReasoningFormat,
+        window: &mut Window,
+        cx: &mut Context<OneChat>,
+    ) {
+        if self.format == format {
+            return;
+        }
+        self.format = format;
+        let presets = format.default_presets();
+        self.known_default = format
+            .recommended_default(&presets)
+            .map(|preset| preset.id().to_string())
+            .unwrap_or_else(|| PROVIDER_DEFAULT_REASONING_PRESET.into());
+        self.known_presets = known_preset_editors(format, &presets, window, cx);
+    }
+
+    pub fn toggle_known_preset(&mut self, level: ReasoningLevel, enabled: bool) {
+        if let Some(preset) = self
+            .known_presets
+            .iter_mut()
+            .find(|preset| preset.level == level)
+        {
+            preset.enabled = enabled;
+            if !enabled && self.known_default == level.as_str() {
+                self.known_default = PROVIDER_DEFAULT_REASONING_PRESET.into();
+            }
+        }
+    }
+
+    pub fn set_known_default(&mut self, id: String) {
+        self.known_default = id;
+    }
+
+    pub fn add_custom_preset(&mut self, window: &mut Window, cx: &mut Context<OneChat>) {
+        let index = self.custom_presets.len();
+        self.custom_presets
+            .push(CustomReasoningPresetEditor::blank(index, window, cx));
+        if self.custom_default.is_none() {
+            self.custom_default = Some(index);
+        }
+    }
+
+    pub fn remove_custom_preset(&mut self, index: usize) {
+        if index >= self.custom_presets.len() {
+            return;
+        }
+        self.custom_presets.remove(index);
+        self.custom_default = match self.custom_default {
+            Some(default) if default == index => None,
+            Some(default) if default > index => Some(default - 1),
+            other => other,
+        };
+    }
+
+    pub fn move_custom_preset(&mut self, index: usize, offset: isize) {
+        let Some(target) = index.checked_add_signed(offset) else {
+            return;
+        };
+        if index >= self.custom_presets.len() || target >= self.custom_presets.len() {
+            return;
+        }
+        self.custom_presets.swap(index, target);
+        self.custom_default = match self.custom_default {
+            Some(default) if default == index => Some(target),
+            Some(default) if default == target => Some(index),
+            other => other,
+        };
+    }
+
+    pub fn set_custom_default(&mut self, index: Option<usize>) {
+        self.custom_default = index;
+    }
+
+    pub fn add_parameter(
+        &mut self,
+        preset: usize,
+        scope: ReasoningParameterScope,
+        window: &mut Window,
+        cx: &mut Context<OneChat>,
+    ) {
+        let Some(preset) = self.custom_presets.get_mut(preset) else {
+            return;
+        };
+        let parameters = match scope {
+            ReasoningParameterScope::Request => &mut preset.request_parameters,
+            ReasoningParameterScope::ChatTemplateKwargs => &mut preset.chat_template_kwargs,
+        };
+        parameters.push(ReasoningParameterEditor::blank(scope, window, cx));
+    }
+
+    pub fn remove_parameter(
+        &mut self,
+        preset: usize,
+        scope: ReasoningParameterScope,
+        parameter: usize,
+    ) {
+        let Some(preset) = self.custom_presets.get_mut(preset) else {
+            return;
+        };
+        let parameters = match scope {
+            ReasoningParameterScope::Request => &mut preset.request_parameters,
+            ReasoningParameterScope::ChatTemplateKwargs => &mut preset.chat_template_kwargs,
+        };
+        if parameter < parameters.len() {
+            parameters.remove(parameter);
+        }
+    }
+
+    pub fn build(&self, cx: &App) -> Result<Option<ModelReasoningConfig>, String> {
+        if !self.enabled {
+            return Ok(None);
+        }
+        let reasoning = match self.mode {
+            ReasoningEditorMode::KnownApi => {
+                let presets = self
+                    .known_presets
+                    .iter()
+                    .filter(|preset| preset.enabled)
+                    .map(|preset| {
+                        let budget_tokens = if self.format.uses_budget()
+                            && !matches!(
+                                preset.level,
+                                ReasoningLevel::Off | ReasoningLevel::On | ReasoningLevel::Auto
+                            ) {
+                            let value = preset.budget_tokens.read(cx).value();
+                            Some(value.trim().parse::<i64>().map_err(|_| {
+                                format!(
+                                    "{} reasoning budget must be an integer.",
+                                    preset.level.label()
+                                )
+                            })?)
+                        } else {
+                            None
+                        };
+                        Ok(KnownReasoningPreset {
+                            level: preset.level,
+                            budget_tokens,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                ModelReasoningConfig::KnownApi {
+                    format: self.format,
+                    default_preset: self.known_default.clone(),
+                    presets,
+                }
+            }
+            ReasoningEditorMode::Custom => {
+                let presets = self
+                    .custom_presets
+                    .iter()
+                    .map(|preset| preset.build(cx))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let default_preset = self
+                    .custom_default
+                    .and_then(|index| presets.get(index))
+                    .map(|preset| preset.id.clone())
+                    .unwrap_or_else(|| PROVIDER_DEFAULT_REASONING_PRESET.into());
+                ModelReasoningConfig::Custom {
+                    default_preset,
+                    presets,
+                }
+            }
+        };
+        reasoning.validate()?;
+        Ok(Some(reasoning))
+    }
+}
+
+fn known_preset_editors(
+    format: KnownReasoningFormat,
+    configured: &[KnownReasoningPreset],
+    window: &mut Window,
+    cx: &mut Context<OneChat>,
+) -> Vec<KnownReasoningPresetEditor> {
+    format
+        .levels()
+        .iter()
+        .copied()
+        .map(|level| {
+            let configured = configured.iter().find(|preset| preset.level == level);
+            let budget = configured
+                .and_then(|preset| preset.budget_tokens)
+                .or_else(|| level.default_budget());
+            KnownReasoningPresetEditor {
+                level,
+                enabled: configured.is_some(),
+                budget_tokens: reasoning_input(
+                    budget.map(|budget| budget.to_string()).unwrap_or_default(),
+                    "Token budget",
+                    window,
+                    cx,
+                ),
+            }
+        })
+        .collect()
+}
+
+fn reasoning_input(
+    value: impl Into<String>,
+    placeholder: &'static str,
+    window: &mut Window,
+    cx: &mut Context<OneChat>,
+) -> Entity<InputState> {
+    cx.new(|cx| {
+        InputState::new(window, cx)
+            .default_value(value.into())
+            .placeholder(placeholder)
+    })
+}
+
+pub fn default_reasoning_format(
+    provider_kind: ProviderKind,
+    remote_id: &str,
+) -> KnownReasoningFormat {
+    match provider_kind {
+        ProviderKind::OpenAi => KnownReasoningFormat::OpenAiResponsesEffort,
+        ProviderKind::Anthropic => KnownReasoningFormat::AnthropicAdaptiveEffort,
+        ProviderKind::Gemini if remote_id.to_ascii_lowercase().contains("2.5") => {
+            KnownReasoningFormat::GeminiThinkingBudget
+        }
+        ProviderKind::Gemini => KnownReasoningFormat::GeminiThinkingLevel,
+        ProviderKind::OpenAiCompatible => KnownReasoningFormat::OpenAiChatEffort,
+    }
+}

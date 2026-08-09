@@ -320,7 +320,7 @@ fn model_row(model: &Model, cx: &mut Context<OneChat>) -> AnyElement {
                         .child(format!(
                             "{} · {}",
                             model.remote_id,
-                            model_capability_summary(&model.capabilities)
+                            model_capability_summary(model)
                         )),
                 ),
         )
@@ -357,7 +357,8 @@ fn model_row(model: &Model, cx: &mut Context<OneChat>) -> AnyElement {
         .into_any_element()
 }
 
-pub(super) fn model_capability_summary(capabilities: &ModelCapabilities) -> String {
+pub(super) fn model_capability_summary(model: &Model) -> String {
+    let capabilities = &model.capabilities;
     let mut labels = Vec::new();
     if capabilities.streaming {
         labels.push("Streaming");
@@ -367,6 +368,9 @@ pub(super) fn model_capability_summary(capabilities: &ModelCapabilities) -> Stri
     }
     if capabilities.vision {
         labels.push("Vision");
+    }
+    if model.reasoning.is_some() {
+        labels.push("Reasoning");
     }
     if labels.is_empty() {
         "No core capabilities".into()

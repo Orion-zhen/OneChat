@@ -939,6 +939,7 @@ pub struct ModelEditor {
     pub remote_id: Entity<ComboboxState<ModelIdDelegate>>,
     pub display_name: Entity<InputState>,
     pub capabilities: ModelCapabilities,
+    pub reasoning: ModelReasoningEditor,
     pub available_models: Vec<AvailableModel>,
     pub fetch_status: ModelFetchStatus,
     synced_models: Vec<AvailableModel>,
@@ -958,6 +959,12 @@ impl ModelEditor {
             .unwrap_or_else(|| Model::new_for_provider(&provider_id, "", "", provider_kind));
         let remote_id = value.remote_id.clone();
         let selected = (!remote_id.is_empty()).then(|| IndexPath::new(0));
+        let reasoning = ModelReasoningEditor::new(
+            value.reasoning.clone(),
+            default_reasoning_format(provider_kind, &remote_id),
+            window,
+            cx,
+        );
         Self {
             original: model,
             provider_kind,
@@ -974,6 +981,7 @@ impl ModelEditor {
             }),
             display_name: single_line_input(value.display_name, "Display name", window, cx),
             capabilities: value.capabilities,
+            reasoning,
             available_models: Vec::new(),
             fetch_status: ModelFetchStatus::Loading,
             synced_models: Vec::new(),
@@ -1007,6 +1015,7 @@ impl ModelEditor {
             model.display_name = model.remote_id.clone();
         }
         model.capabilities = self.capabilities.clone();
+        model.reasoning = self.reasoning.build(cx)?;
         model.updated_at = now_timestamp();
         Ok(model)
     }

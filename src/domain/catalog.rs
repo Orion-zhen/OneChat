@@ -67,7 +67,6 @@ impl ProviderKind {
             Self::Anthropic => ModelCapabilities {
                 tools: true,
                 top_k: true,
-                thinking_budget: true,
                 ..ModelCapabilities::default()
             },
             Self::Gemini => ModelCapabilities {
@@ -76,7 +75,6 @@ impl ProviderKind {
                 top_k: true,
                 frequency_penalty: true,
                 presence_penalty: true,
-                thinking_budget: true,
                 ..ModelCapabilities::default()
             },
         }
@@ -129,7 +127,6 @@ pub struct ModelCapabilities {
     pub presence_penalty: bool,
     pub seed: bool,
     pub stop_sequences: bool,
-    pub thinking_budget: bool,
 }
 
 impl Default for ModelCapabilities {
@@ -146,7 +143,6 @@ impl Default for ModelCapabilities {
             presence_penalty: false,
             seed: false,
             stop_sequences: true,
-            thinking_budget: false,
         }
     }
 }
@@ -162,7 +158,7 @@ pub struct GenerationConfig {
     pub presence_penalty: Option<f64>,
     pub seed: Option<i64>,
     pub stop_sequences: Vec<String>,
-    pub thinking_budget: Option<i64>,
+    pub reasoning_preset: Option<String>,
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
@@ -186,7 +182,6 @@ impl GenerationConfig {
         filter_optional!(frequency_penalty, frequency_penalty, "Frequency Penalty");
         filter_optional!(presence_penalty, presence_penalty, "Presence Penalty");
         filter_optional!(seed, seed, "Seed");
-        filter_optional!(thinking_budget, thinking_budget, "Thinking Budget");
         if !capabilities.stop_sequences && !filtered.stop_sequences.is_empty() {
             filtered.stop_sequences.clear();
             ignored.push("Stop Sequences");
@@ -203,6 +198,8 @@ pub struct Model {
     pub remote_id: String,
     pub display_name: String,
     pub capabilities: ModelCapabilities,
+    #[serde(default)]
+    pub reasoning: Option<super::ModelReasoningConfig>,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
 }
@@ -229,6 +226,7 @@ impl Model {
             remote_id: remote_id.into(),
             display_name: display_name.into(),
             capabilities: provider_kind.default_capabilities(),
+            reasoning: None,
             created_at: now,
             updated_at: now,
         }

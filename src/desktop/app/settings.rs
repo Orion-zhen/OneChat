@@ -1068,6 +1068,7 @@ impl OneChat {
         cx: &mut Context<Self>,
     ) {
         let remote_id = editor.remote_id.clone();
+        let reasoning_format = editor.reasoning.format_select.clone();
         self.settings_ui.model_editor = Some(editor);
         cx.subscribe_in(
             &remote_id,
@@ -1085,6 +1086,20 @@ impl OneChat {
                 };
                 if let Some(editor) = &mut this.settings_ui.model_editor {
                     editor.select_model(remote_id.clone(), window, cx);
+                    cx.notify();
+                }
+            },
+        )
+        .detach();
+        cx.subscribe_in(
+            &reasoning_format,
+            window,
+            |this, _, event: &SelectEvent<Vec<KnownReasoningFormatItem>>, window, cx| {
+                let SelectEvent::Confirm(Some(format)) = event else {
+                    return;
+                };
+                if let Some(editor) = &mut this.settings_ui.model_editor {
+                    editor.reasoning.set_format(*format, window, cx);
                     cx.notify();
                 }
             },
@@ -1180,6 +1195,111 @@ impl OneChat {
     ) {
         if let Some(editor) = &mut self.settings_ui.model_editor {
             editor.set_capability(capability, enabled);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn set_model_reasoning_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        if let Some(editor) = &mut self.settings_ui.model_editor {
+            editor.reasoning.set_enabled(enabled);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn set_model_reasoning_mode(
+        &mut self,
+        mode: ReasoningEditorMode,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(editor) = &mut self.settings_ui.model_editor {
+            editor.reasoning.set_mode(mode, window, cx);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn toggle_known_reasoning_preset(
+        &mut self,
+        level: ReasoningLevel,
+        enabled: bool,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(editor) = &mut self.settings_ui.model_editor {
+            editor.reasoning.toggle_known_preset(level, enabled);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn set_known_reasoning_default(&mut self, id: String, cx: &mut Context<Self>) {
+        if let Some(editor) = &mut self.settings_ui.model_editor {
+            editor.reasoning.set_known_default(id);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn add_custom_reasoning_preset(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(editor) = &mut self.settings_ui.model_editor {
+            editor.reasoning.add_custom_preset(window, cx);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn remove_custom_reasoning_preset(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(editor) = &mut self.settings_ui.model_editor {
+            editor.reasoning.remove_custom_preset(index);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn move_custom_reasoning_preset(
+        &mut self,
+        index: usize,
+        offset: isize,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(editor) = &mut self.settings_ui.model_editor {
+            editor.reasoning.move_custom_preset(index, offset);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn set_custom_reasoning_default(
+        &mut self,
+        index: Option<usize>,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(editor) = &mut self.settings_ui.model_editor {
+            editor.reasoning.set_custom_default(index);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn add_reasoning_parameter(
+        &mut self,
+        preset: usize,
+        scope: ReasoningParameterScope,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(editor) = &mut self.settings_ui.model_editor {
+            editor.reasoning.add_parameter(preset, scope, window, cx);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn remove_reasoning_parameter(
+        &mut self,
+        preset: usize,
+        scope: ReasoningParameterScope,
+        parameter: usize,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(editor) = &mut self.settings_ui.model_editor {
+            editor.reasoning.remove_parameter(preset, scope, parameter);
             cx.notify();
         }
     }

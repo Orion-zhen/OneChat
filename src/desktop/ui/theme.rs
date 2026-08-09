@@ -70,7 +70,7 @@ const DARK: Palette = Palette {
     on_accent: "#FFFFFF",
     danger: "#FF453A",
     success: "#30D158",
-    scrim: "#00000070",
+    scrim: "#00000088",
 };
 
 const LIGHT: Palette = Palette {
@@ -89,7 +89,7 @@ const LIGHT: Palette = Palette {
     on_accent: "#FFFFFF",
     danger: "#D70015",
     success: "#248A3D",
-    scrim: "#00000052",
+    scrim: "#00000066",
 };
 
 fn color(value: &'static str) -> Option<SharedString> {

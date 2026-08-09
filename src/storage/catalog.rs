@@ -146,6 +146,9 @@ fn validate_model(settings: &SettingsFile, model: &Model, current_id: Option<&st
     {
         return Err(conflict("model", &model.id));
     }
+    if let Some(reasoning) = &model.reasoning {
+        reasoning.validate().map_err(StorageError::InvalidData)?;
+    }
     if settings.models.iter().any(|stored| {
         Some(stored.id.as_str()) != current_id
             && stored.provider_id == model.provider_id

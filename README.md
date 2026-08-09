@@ -101,6 +101,12 @@ Text attachments must be UTF-8 and are limited to 1 MiB. Vision models additiona
 
 The settings parser accepts JSONC comments and trailing commas. Files written by OneChat are formatted as plain JSON, which is also valid JSONC. Existing comments are not preserved when the app writes the settings file. Legacy SQLite files are neither imported nor deleted.
 
+## Reasoning presets
+
+Each model can expose named reasoning presets from its model editor. Known API formats are available for OpenAI Responses and Chat Completions, Anthropic adaptive effort and manual budgets, Gemini thinking levels and budgets, DeepSeek effort, and Qwen effort or budgets. The model configuration controls which presets are available and which one is used by default; a conversation can override the preset from the Model inspector, and that override is copied into each turn for regeneration.
+
+Custom mode builds a preset from typed request parameters and `chat_template_kwargs` entries. Parameter values can be strings, integers, decimals, booleans, or null, and dotted names create nested request objects. Preset parameters override matching values from the conversation's provider-specific parameters, while OneChat-owned fields such as messages, tools, and streaming cannot be overridden. A null custom value removes an inherited provider-specific value instead of sending JSON null.
+
 ## MCP servers
 
 OneChat reads stdio and Streamable HTTP MCP server definitions from `~/.config/onechat/mcp.jsonc`. It creates an empty file on first launch. The MCP settings UI can add, edit, delete, or import server definitions and updates the JSONC syntax tree in place so existing comments and unrelated formatting remain intact. Servers use commands already installed on the system; OneChat does not install Node or Python runtimes and does not interpret commands as shell expressions. Windows may use `cmd.exe` internally when launching `.cmd` or `.bat` wrappers such as `npx.cmd`.

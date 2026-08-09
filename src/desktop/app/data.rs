@@ -173,6 +173,7 @@ impl OneChat {
             {
                 let editor = GenerationConfigEditor::new(&conversation, window, cx);
                 let parameter_select = editor.parameter_select.clone();
+                let reasoning_select = editor.reasoning_select.clone();
                 self.chat.generation_config_editor = Some(editor);
                 cx.subscribe_in(
                     &parameter_select,
@@ -187,6 +188,17 @@ impl OneChat {
                         };
                         this.add_generation_parameter(*parameter, cx);
                         select.update(cx, |select, cx| select.set_selected_index(None, window, cx));
+                    },
+                )
+                .detach();
+                cx.subscribe_in(
+                    &reasoning_select,
+                    window,
+                    |this, _, event: &SelectEvent<Vec<ReasoningPresetItem>>, _, cx| {
+                        let SelectEvent::Confirm(Some(preset)) = event else {
+                            return;
+                        };
+                        this.select_reasoning_preset(preset.clone(), cx);
                     },
                 )
                 .detach();

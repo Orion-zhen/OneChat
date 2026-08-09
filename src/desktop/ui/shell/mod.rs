@@ -2,8 +2,8 @@ mod pickers;
 mod sidebar;
 
 pub(crate) use pickers::{
-    CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate, command_palette_dialog,
-    model_picker_dialog, prompt_picker_dialog,
+    CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate, ReasoningPickerDelegate,
+    command_palette_dialog, model_picker_dialog, prompt_picker_dialog, reasoning_picker_dialog,
 };
 use sidebar::render_sidebar;
 
@@ -354,6 +354,22 @@ fn render_top_bar(
     let prompt_label = current_conversation
         .map(|conversation| app.system_prompt_label(&conversation.system_prompt))
         .unwrap_or_else(|| "None".into());
+    let reasoning_label = current_conversation.and_then(|conversation| {
+        let reasoning = selected_model?.reasoning.as_ref()?;
+        let selected = app
+            .chat
+            .generation_config_editor
+            .as_ref()
+            .and_then(|editor| editor.reasoning_preset())
+            .or(conversation.generation_config.reasoning_preset.as_deref())
+            .unwrap_or_else(|| reasoning.default_preset());
+        reasoning
+            .preset_options()
+            .into_iter()
+            .find(|(id, _)| id == selected)
+            .map(|(_, label)| label)
+    });
+    let can_choose_reasoning = current_conversation.is_some() && !app.is_current_generating();
     let can_choose_prompt = current_conversation.is_some() && !app.is_current_generating();
     let tool_label = current_conversation.map_or_else(
         || "Tools".to_string(),
@@ -372,7 +388,7 @@ fn render_top_bar(
                     })
                 })
                 .count();
-            format!("{selected_count} selected")
+            format!("{selected_count} Tools")
         },
     );
     let (connection, connection_color) = provider.map_or(
@@ -446,23 +462,44 @@ fn render_top_bar(
                         .px(px(14.0))
                         .rounded(px(12.0))
                         .tooltip("Choose model")
-                        .max_w(px(240.0))
                         .flex()
                         .items_center()
                         .gap_2()
+                        .child(render_icon(AppIcon::Bot, IconTone::Muted, 14.0, cx))
+                        .child(div().whitespace_nowrap().child(model_label))
+                        .child(render_icon(AppIcon::ChevronDown, IconTone::Muted, 14.0, cx))
+                        .on_click(
+                            cx.listener(|this, _, window, cx| this.open_model_picker(window, cx)),
+                        ),
+                )
+                .children(reasoning_label.map(|reasoning_label| {
+                    button_base("open-reasoning-picker")
+                        .large()
+                        .h(px(40.0))
+                        .px(px(14.0))
+                        .rounded(px(12.0))
+                        .tooltip("Choose reasoning preset")
+                        .disabled(!can_choose_reasoning)
+                        .max_w(px(190.0))
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .on_click(
+                            cx.listener(|this, _, window, cx| {
+                                this.open_reasoning_picker(window, cx)
+                            }),
+                        )
+                        .child(render_icon(AppIcon::Brain, IconTone::Muted, 14.0, cx))
                         .child(
                             div()
                                 .min_w_0()
                                 .overflow_hidden()
                                 .whitespace_nowrap()
                                 .text_ellipsis()
-                                .child(model_label),
+                                .child(reasoning_label),
                         )
                         .child(render_icon(AppIcon::ChevronDown, IconTone::Muted, 14.0, cx))
-                        .on_click(
-                            cx.listener(|this, _, window, cx| this.open_model_picker(window, cx)),
-                        ),
-                )
+                }))
                 .child(
                     button_base("open-prompt-picker")
                         .large()

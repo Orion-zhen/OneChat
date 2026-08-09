@@ -10,8 +10,8 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     domain::{GenerationError, GenerationErrorKind, GenerationEvent, GenerationRequest, Provider},
     providers::{
-        consume_stream, insert_optional, remove_keys, sdk_base_url, sdk_completion_error,
-        sdk_headers, sdk_http_client, sdk_request, sdk_verify_error,
+        consume_stream, insert_optional, merged_additional_parameters, remove_keys, sdk_base_url,
+        sdk_completion_error, sdk_headers, sdk_http_client, sdk_request, sdk_verify_error,
     },
 };
 
@@ -68,7 +68,7 @@ fn additional_parameters(
 ) -> Result<Map<String, Value>, GenerationError> {
     let capabilities = &request.model.capabilities;
     let config = &request.config;
-    let mut parameters = config.extra.clone();
+    let mut parameters = merged_additional_parameters(request)?;
     let generation_config = parameters
         .remove("generationConfig")
         .or_else(|| parameters.remove("generation_config"));
@@ -106,8 +106,6 @@ fn additional_parameters(
             "presencePenalty",
             "seed",
             "stopSequences",
-            "thinkingConfig",
-            "thinkingBudget",
         ],
     );
     insert_optional(
@@ -138,21 +136,6 @@ fn additional_parameters(
     );
     if capabilities.stop_sequences && !config.stop_sequences.is_empty() {
         generation_config.insert("stopSequences".into(), json!(config.stop_sequences));
-    }
-    if capabilities.thinking_budget
-        && let Some(budget) = config.thinking_budget
-    {
-        let budget = u32::try_from(budget).map_err(|error| {
-            GenerationError::new(
-                GenerationErrorKind::UnsupportedParameter,
-                "Thinking Budget must be a non-negative integer",
-            )
-            .with_detail(error.to_string())
-        })?;
-        generation_config.insert(
-            "thinkingConfig".into(),
-            json!({"thinkingBudget": budget, "includeThoughts": true}),
-        );
     }
     if !generation_config.is_empty() {
         parameters.insert("generationConfig".into(), Value::Object(generation_config));

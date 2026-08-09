@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::domain::{
     GenerationError, GenerationErrorKind, GenerationEvent, GenerationRequest, Provider,
-    ProviderKind, TokenUsage,
+    ProviderKind, TokenUsage, merge_json_patch,
 };
 
 pub(crate) fn sdk_http_client(provider: &Provider) -> Result<reqwest::Client, GenerationError> {
@@ -95,6 +95,25 @@ pub(crate) fn sdk_base_url(provider: &Provider) -> Result<String, GenerationErro
         }
     }
     Ok(base.to_string())
+}
+
+pub(crate) fn merged_additional_parameters(
+    request: &GenerationRequest,
+) -> Result<Map<String, Value>, GenerationError> {
+    let mut parameters = request.config.extra.clone();
+    if let Some(reasoning) = &request.model.reasoning {
+        let (_, patch) = reasoning
+            .resolve_patch(request.config.reasoning_preset.as_deref())
+            .map_err(|detail| {
+                GenerationError::new(
+                    GenerationErrorKind::UnsupportedParameter,
+                    "Invalid model reasoning configuration",
+                )
+                .with_detail(detail)
+            })?;
+        merge_json_patch(&mut parameters, patch);
+    }
+    Ok(parameters)
 }
 
 pub(crate) fn sdk_request(

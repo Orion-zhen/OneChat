@@ -10,8 +10,8 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     domain::{GenerationError, GenerationErrorKind, GenerationEvent, GenerationRequest, Provider},
     providers::{
-        consume_stream, insert_optional, remove_keys, sdk_base_url, sdk_completion_error,
-        sdk_headers, sdk_http_client, sdk_request, sdk_verify_error,
+        consume_stream, insert_optional, merged_additional_parameters, remove_keys, sdk_base_url,
+        sdk_completion_error, sdk_headers, sdk_http_client, sdk_request, sdk_verify_error,
     },
 };
 
@@ -33,7 +33,7 @@ pub async fn stream(
 
     let client = build_client(&request.provider)?;
     let model = client.completion_model(request.model.remote_id.clone());
-    let mut sdk_request = sdk_request(&request, additional_parameters(&request))?;
+    let mut sdk_request = sdk_request(&request, additional_parameters(&request)?)?;
     if sdk_request.max_tokens.is_none() {
         sdk_request.max_tokens = Some(4096);
     }
@@ -45,10 +45,12 @@ pub async fn stream(
     consume_stream(response, events, cancellation, true, |_| Ok(())).await
 }
 
-fn additional_parameters(request: &GenerationRequest) -> Map<String, Value> {
+fn additional_parameters(
+    request: &GenerationRequest,
+) -> Result<Map<String, Value>, GenerationError> {
     let capabilities = &request.model.capabilities;
     let config = &request.config;
-    let mut parameters = config.extra.clone();
+    let mut parameters = merged_additional_parameters(request)?;
     remove_keys(
         &mut parameters,
         &[
@@ -65,8 +67,6 @@ fn additional_parameters(request: &GenerationRequest) -> Map<String, Value> {
             "seed",
             "stop",
             "stop_sequences",
-            "thinking",
-            "thinking_budget",
             "tools",
             "tool_choice",
             "parallel_tool_calls",
@@ -85,15 +85,7 @@ fn additional_parameters(request: &GenerationRequest) -> Map<String, Value> {
     if capabilities.stop_sequences && !config.stop_sequences.is_empty() {
         parameters.insert("stop_sequences".into(), json!(config.stop_sequences));
     }
-    if capabilities.thinking_budget
-        && let Some(budget) = config.thinking_budget
-    {
-        parameters.insert(
-            "thinking".into(),
-            json!({"type": "enabled", "budget_tokens": budget}),
-        );
-    }
-    parameters
+    Ok(parameters)
 }
 
 fn build_client(provider: &Provider) -> Result<rig_anthropic::Client, GenerationError> {

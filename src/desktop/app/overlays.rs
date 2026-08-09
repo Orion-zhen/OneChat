@@ -236,6 +236,35 @@ impl OneChat {
             .update(cx, |picker, cx| picker.focus(window, cx));
     }
 
+    pub(crate) fn open_reasoning_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.current_conversation().is_none()
+            || self
+                .current_model()
+                .is_none_or(|model| model.reasoning.is_none())
+            || self.is_current_generating()
+        {
+            return;
+        }
+        self.chat.text_selection.clear(window);
+        self.overlays.response_model_turn_id = None;
+        let delegate = ReasoningPickerDelegate::from_app(self);
+        let selected = delegate.initial_selection();
+        self.overlays.reasoning_picker.update(cx, |picker, cx| {
+            *picker.delegate_mut() = delegate;
+            picker.set_query("", window, cx);
+            picker.set_selected_index(selected, window, cx);
+            picker.scroll_to_selected_item(window, cx);
+        });
+
+        let picker = self.overlays.reasoning_picker.clone();
+        window.open_dialog(cx, move |dialog, _, cx| {
+            crate::desktop::ui::shell::reasoning_picker_dialog(dialog, picker.clone(), cx)
+        });
+        self.overlays
+            .reasoning_picker
+            .update(cx, |picker, cx| picker.focus(window, cx));
+    }
+
     pub(crate) fn open_prompt_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.current_conversation().is_none() || self.is_current_generating() {
             return;
