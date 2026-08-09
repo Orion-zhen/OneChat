@@ -122,7 +122,7 @@ fn render_assistant_message(
             .child(div().size(px(7.0)).rounded_full().bg(cx.theme().primary))
             .child(waiting_label(message))
             .into_any_element()
-    } else if let Some(document) = app.markdown_for(message) {
+    } else if let Some(document) = app.markdown_for(&message.id, &message.content) {
         markdown::render(
             document,
             &message.id,

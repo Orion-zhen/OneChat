@@ -1,43 +1,37 @@
 use std::ops::Range;
 
 use gpui::{
-    AnyElement, App, FontStyle, FontWeight, HighlightStyle, SharedString, StrikethroughStyle, div,
+    AnyElement, FontStyle, FontWeight, HighlightStyle, SharedString, StrikethroughStyle, div,
     prelude::*, px,
 };
-use gpui_component::ActiveTheme as _;
 use unicode_linebreak::{BreakOpportunity, linebreaks};
 
-use super::{InlineMetrics, next_text_index, render_formula_element, selectable};
+use super::{
+    InlineMetrics, MarkdownContext, MarkdownPalette, next_text_index, render_formula_element,
+    selectable,
+};
 use crate::{
-    desktop::ui::{
-        selectable_text::{SelectableText, TextSelection, selection_color},
-        theme,
-    },
+    desktop::ui::{selectable_text::SelectableText, theme},
     markdown::Inline,
 };
 
 pub(super) fn render_inlines(
     inlines: &[Inline],
-    message_id: &str,
     text_index: &mut usize,
-    selection: &TextSelection,
-    scale_factor: f32,
     metrics: InlineMetrics,
-    cx: &App,
+    context: &MarkdownContext<'_>,
 ) -> AnyElement {
+    let message_id = context.message_id;
+    let selection = context.selection;
+    let scale_factor = context.scale_factor;
+    let palette = context.palette;
+    let cx = context.cx;
+
     if inlines.iter().any(|inline| {
         matches!(inline, Inline::Formula(_))
             || matches!(inline, Inline::Text { style, .. } if style.code)
     }) {
-        return render_mixed_inlines(
-            inlines,
-            message_id,
-            text_index,
-            selection,
-            scale_factor,
-            metrics,
-            cx,
-        );
+        return render_mixed_inlines(inlines, text_index, metrics, context);
     }
 
     let mut elements = Vec::with_capacity(inlines.len());
@@ -46,7 +40,7 @@ pub(super) fn render_inlines(
         match &inlines[inline_index] {
             Inline::Text { style, .. } if !style.code => {
                 let (text, next_index) = collect_text_run(inlines, inline_index);
-                let highlights = text_highlights(&text.styles, 0..text.content.len(), cx);
+                let highlights = text_highlights(&text.styles, 0..text.content.len(), palette);
                 elements.push(
                     div()
                         .max_w_full()
@@ -57,7 +51,7 @@ pub(super) fn render_inlines(
                                 next_text_index(text_index),
                                 text.content,
                                 selection,
-                                cx,
+                                palette,
                             )
                             .with_highlights(highlights),
                         )
@@ -76,17 +70,17 @@ pub(super) fn render_inlines(
                         })
                         .when(style.strike, |element| element.line_through())
                         .rounded_md()
-                        .bg(cx.theme().muted)
+                        .bg(palette.surface)
                         .px_1()
                         .font(theme::code_font(cx))
                         .text_size(px(metrics.code_size()))
-                        .when(style.link, |element| element.text_color(cx.theme().primary))
+                        .when(style.link, |element| element.text_color(palette.accent))
                         .child(selectable(
                             message_id,
                             next_text_index(text_index),
                             content.clone(),
                             selection,
-                            cx,
+                            palette,
                         ))
                         .into_any_element(),
                 );
@@ -146,13 +140,16 @@ impl FlowPart {
 
 fn render_mixed_inlines(
     inlines: &[Inline],
-    message_id: &str,
     text_index: &mut usize,
-    selection: &TextSelection,
-    scale_factor: f32,
     metrics: InlineMetrics,
-    cx: &App,
+    context: &MarkdownContext<'_>,
 ) -> AnyElement {
+    let message_id = context.message_id;
+    let selection = context.selection;
+    let scale_factor = context.scale_factor;
+    let palette = context.palette;
+    let cx = context.cx;
+
     let mut virtual_source = String::new();
     let mut parts = Vec::with_capacity(inlines.len());
     let mut inline_index = 0;
@@ -177,7 +174,7 @@ fn render_mixed_inlines(
                 parts.push(FlowPart::Atom(FlowAtom {
                     virtual_range: start..virtual_source.len(),
                     element: Some(render_inline_code(
-                        content, *style, message_id, text_index, selection, metrics, cx,
+                        content, *style, text_index, metrics, context,
                     )),
                 }));
                 inline_index += 1;
@@ -218,14 +215,14 @@ fn render_mixed_inlines(
                 FlowPart::Text(text) => {
                     let source_range =
                         (start - text.virtual_range.start)..(end - text.virtual_range.start);
-                    let highlights = text_highlights(&text.styles, source_range.clone(), cx);
+                    let highlights = text_highlights(&text.styles, source_range.clone(), palette);
                     unit.push(
                         SelectableText::fragment(
                             text.id.clone(),
                             text.source.clone(),
                             source_range,
                             selection.clone(),
-                            selection_color(cx.theme().is_dark()),
+                            palette.selection,
                         )
                         .with_highlights(highlights)
                         .into_any_element(),
@@ -273,12 +270,15 @@ fn render_mixed_inlines(
 fn render_inline_code(
     content: &str,
     style: crate::markdown::InlineStyle,
-    message_id: &str,
     text_index: &mut usize,
-    selection: &TextSelection,
     metrics: InlineMetrics,
-    cx: &App,
+    context: &MarkdownContext<'_>,
 ) -> AnyElement {
+    let message_id = context.message_id;
+    let selection = context.selection;
+    let palette = context.palette;
+    let cx = context.cx;
+
     div()
         .flex_none()
         .whitespace_nowrap()
@@ -288,17 +288,17 @@ fn render_inline_code(
         })
         .when(style.strike, |element| element.line_through())
         .rounded_md()
-        .bg(cx.theme().muted)
+        .bg(palette.surface)
         .px_1()
         .font(theme::code_font(cx))
         .text_size(px(metrics.code_size()))
-        .when(style.link, |element| element.text_color(cx.theme().primary))
+        .when(style.link, |element| element.text_color(palette.accent))
         .child(selectable(
             message_id,
             next_text_index(text_index),
             content.to_string(),
             selection,
-            cx,
+            palette,
         ))
         .into_any_element()
 }
@@ -306,7 +306,7 @@ fn render_inline_code(
 fn text_highlights(
     styles: &[(Range<usize>, crate::markdown::InlineStyle)],
     source_range: Range<usize>,
-    cx: &App,
+    palette: MarkdownPalette,
 ) -> Vec<(Range<usize>, HighlightStyle)> {
     styles
         .iter()
@@ -316,7 +316,7 @@ fn text_highlights(
             (start < end).then(|| {
                 (
                     (start - source_range.start)..(end - source_range.start),
-                    text_highlight(*style, cx),
+                    text_highlight(*style, palette),
                 )
             })
         })
@@ -324,9 +324,9 @@ fn text_highlights(
         .collect()
 }
 
-fn text_highlight(style: crate::markdown::InlineStyle, cx: &App) -> HighlightStyle {
+fn text_highlight(style: crate::markdown::InlineStyle, palette: MarkdownPalette) -> HighlightStyle {
     HighlightStyle {
-        color: style.link.then_some(cx.theme().primary),
+        color: style.link.then_some(palette.accent),
         font_weight: style.strong.then_some(FontWeight::BOLD),
         font_style: style.emphasis.then_some(FontStyle::Italic),
         strikethrough: style.strike.then_some(StrikethroughStyle {

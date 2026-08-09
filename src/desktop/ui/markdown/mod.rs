@@ -3,7 +3,7 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-use gpui::{AnyElement, App, SharedString, div, prelude::*, px};
+use gpui::{AnyElement, App, Hsla, Rgba, SharedString, div, prelude::*, px};
 use gpui_component::ActiveTheme as _;
 
 use super::selectable_text::{SelectableText, TextSelection, selection_color};
@@ -17,6 +17,50 @@ mod inline;
 use block::render_block;
 use formula::render_formula_element;
 use inline::render_inlines;
+
+#[derive(Clone, Copy)]
+struct MarkdownPalette {
+    foreground: Hsla,
+    muted_foreground: Hsla,
+    accent: Hsla,
+    border: Hsla,
+    surface: Hsla,
+    selection: Rgba,
+}
+
+impl MarkdownPalette {
+    fn assistant(cx: &App) -> Self {
+        Self {
+            foreground: cx.theme().foreground,
+            muted_foreground: cx.theme().muted_foreground,
+            accent: cx.theme().primary,
+            border: cx.theme().border,
+            surface: cx.theme().muted,
+            selection: selection_color(cx.theme().is_dark()),
+        }
+    }
+
+    fn user(cx: &App) -> Self {
+        let palette = crate::desktop::ui::theme::user_message_palette(cx);
+        Self {
+            foreground: palette.foreground.into(),
+            muted_foreground: palette.muted_foreground.into(),
+            accent: palette.accent.into(),
+            border: palette.border.into(),
+            surface: palette.surface.into(),
+            selection: palette.selection,
+        }
+    }
+}
+
+struct MarkdownContext<'a> {
+    message_id: &'a str,
+    selection: &'a TextSelection,
+    scale_factor: f32,
+    typography: MessageTypography,
+    palette: MarkdownPalette,
+    cx: &'a App,
+}
 
 #[derive(Clone, Copy)]
 struct InlineMetrics {
@@ -50,16 +94,55 @@ pub(crate) fn render(
     typography: MessageTypography,
     cx: &App,
 ) -> AnyElement {
-    let mut text_index = 0;
-    render_blocks(
-        &document.blocks,
+    render_with_palette(
+        document,
         message_id,
-        &mut text_index,
         selection,
         scale_factor,
         typography,
+        MarkdownPalette::assistant(cx),
         cx,
     )
+}
+
+pub(crate) fn render_user(
+    document: &MarkdownDocument,
+    message_id: &str,
+    selection: &TextSelection,
+    scale_factor: f32,
+    typography: MessageTypography,
+    cx: &App,
+) -> AnyElement {
+    render_with_palette(
+        document,
+        message_id,
+        selection,
+        scale_factor,
+        typography,
+        MarkdownPalette::user(cx),
+        cx,
+    )
+}
+
+fn render_with_palette(
+    document: &MarkdownDocument,
+    message_id: &str,
+    selection: &TextSelection,
+    scale_factor: f32,
+    typography: MessageTypography,
+    palette: MarkdownPalette,
+    cx: &App,
+) -> AnyElement {
+    let context = MarkdownContext {
+        message_id,
+        selection,
+        scale_factor,
+        typography,
+        palette,
+        cx,
+    };
+    let mut text_index = 0;
+    render_blocks(&document.blocks, &mut text_index, &context)
 }
 
 pub(crate) fn render_plain(
@@ -69,42 +152,70 @@ pub(crate) fn render_plain(
     typography: MessageTypography,
     cx: &App,
 ) -> AnyElement {
+    render_plain_with_palette(
+        source,
+        message_id,
+        selection,
+        typography,
+        MarkdownPalette::assistant(cx),
+    )
+}
+
+pub(crate) fn render_user_plain(
+    source: &str,
+    message_id: &str,
+    selection: &TextSelection,
+    typography: MessageTypography,
+    cx: &App,
+) -> AnyElement {
+    render_plain_with_palette(
+        source,
+        message_id,
+        selection,
+        typography,
+        MarkdownPalette::user(cx),
+    )
+}
+
+fn render_plain_with_palette(
+    source: &str,
+    message_id: &str,
+    selection: &TextSelection,
+    typography: MessageTypography,
+    palette: MarkdownPalette,
+) -> AnyElement {
     div()
         .whitespace_normal()
         .text_size(px(typography.body_size))
         .line_height(px(typography.body_line_height))
-        .child(selectable(message_id, 0, source.to_string(), selection, cx))
-        .text_color(cx.theme().foreground)
+        .child(selectable(
+            message_id,
+            0,
+            source.to_string(),
+            selection,
+            palette,
+        ))
+        .text_color(palette.foreground)
         .into_any_element()
 }
 
 fn render_blocks(
     blocks: &[Block],
-    message_id: &str,
     text_index: &mut usize,
-    selection: &TextSelection,
-    scale_factor: f32,
-    typography: MessageTypography,
-    cx: &App,
+    context: &MarkdownContext<'_>,
 ) -> AnyElement {
     div()
         .w_full()
         .flex()
         .flex_col()
         .gap_3()
-        .text_size(px(typography.body_size))
-        .line_height(px(typography.body_line_height))
-        .children(blocks.iter().map(|block| {
-            render_block(
-                block,
-                message_id,
-                text_index,
-                selection,
-                scale_factor,
-                typography,
-                cx,
-            )
-        }))
+        .text_size(px(context.typography.body_size))
+        .line_height(px(context.typography.body_line_height))
+        .children(
+            blocks
+                .iter()
+                .map(|block| render_block(block, text_index, context)),
+        )
         .into_any_element()
 }
 
@@ -119,13 +230,13 @@ fn selectable(
     index: usize,
     content: String,
     selection: &TextSelection,
-    cx: &App,
+    palette: MarkdownPalette,
 ) -> SelectableText {
     SelectableText::new(
         SharedString::from(format!("message-text-{message_id}-{index}")),
         content,
         selection.clone(),
-        selection_color(cx.theme().is_dark()),
+        palette.selection,
     )
 }
 

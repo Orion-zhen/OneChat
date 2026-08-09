@@ -48,7 +48,8 @@ fn render_tool_execution(
         .rounded_xl()
         .border_1()
         .border_color(cx.theme().border)
-        .bg(cx.theme().muted)
+        .bg(cx.theme().popover)
+        .shadow_xs()
         .px_3()
         .py_2()
         .child(
@@ -87,7 +88,7 @@ fn render_tool_execution(
                                 rgba(0xd7001518).into()
                             }
                         } else {
-                            cx.theme().popover
+                            cx.theme().secondary
                         })
                         .px_2()
                         .py_1()

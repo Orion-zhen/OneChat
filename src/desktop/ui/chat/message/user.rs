@@ -4,11 +4,12 @@ pub(in crate::desktop::ui::chat) fn render_user_turn(
     app: &OneChat,
     turn: &Turn,
     message_max_width: f32,
+    scale_factor: f32,
     typography: MessageTypography,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     animated_message(
-        render_user_message(app, turn, message_max_width, typography, cx),
+        render_user_message(app, turn, message_max_width, scale_factor, typography, cx),
         format!("user-{}", turn.id),
     )
 }
@@ -17,6 +18,7 @@ fn render_user_message(
     app: &OneChat,
     turn: &Turn,
     message_max_width: f32,
+    scale_factor: f32,
     typography: MessageTypography,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
@@ -179,6 +181,7 @@ fn render_user_message(
             )
             .into_any_element()
     } else {
+        let palette = crate::desktop::ui::theme::user_message_palette(cx);
         div()
             .max_w(px(user_message_max_width))
             .min_w_0()
@@ -193,19 +196,36 @@ fn render_user_message(
                 div()
                     .max_w(px(user_message_max_width))
                     .rounded(px(18.0))
-                    .bg(cx.theme().primary)
+                    .border_1()
+                    .border_color(palette.border)
+                    .bg(palette.background)
                     .px_4()
                     .py_3()
-                    .text_color(cx.theme().primary_foreground)
+                    .text_color(palette.foreground)
                     .whitespace_normal()
                     .text_size(px(typography.body_size))
                     .line_height(px(typography.body_line_height))
-                    .child(SelectableText::new(
-                        SharedString::from(format!("user-message-content-{}", turn.user.id)),
-                        turn.user.content.clone(),
-                        app.chat.text_selection.clone(),
-                        rgba(0x00000038),
-                    ))
+                    .child(
+                        if let Some(document) = app.markdown_for(&turn.user.id, &turn.user.content)
+                        {
+                            markdown::render_user(
+                                document,
+                                &turn.user.id,
+                                &app.chat.text_selection,
+                                scale_factor,
+                                typography,
+                                cx,
+                            )
+                        } else {
+                            markdown::render_user_plain(
+                                &turn.user.content,
+                                &turn.user.id,
+                                &app.chat.text_selection,
+                                typography,
+                                cx,
+                            )
+                        },
+                    )
             }))
             .into_any_element()
     };

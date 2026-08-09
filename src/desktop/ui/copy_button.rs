@@ -80,7 +80,7 @@ impl RenderOnce for CopyButton {
                         let state = state.clone();
                         cx.spawn(async move |cx| {
                             cx.background_executor().timer(FEEDBACK_DURATION).await;
-                            _ = state.update(cx, |state, cx| {
+                            state.update(cx, |state, cx| {
                                 if state.revision == revision {
                                     state.visible = false;
                                     cx.notify();

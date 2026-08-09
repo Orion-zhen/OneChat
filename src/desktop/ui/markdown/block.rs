@@ -1,15 +1,12 @@
-use gpui::{AnyElement, App, FontWeight, HighlightStyle, SharedString, div, prelude::*, px, rgba};
+use gpui::{AnyElement, FontWeight, HighlightStyle, SharedString, div, prelude::*, px, rgba};
 use gpui_component::ActiveTheme as _;
 
 use super::{
-    InlineMetrics, element_key, next_text_index, render_blocks, render_formula_element,
-    render_inlines, selectable,
+    InlineMetrics, MarkdownContext, element_key, next_text_index, render_blocks,
+    render_formula_element, render_inlines, selectable,
 };
 use crate::{
-    desktop::ui::{
-        copy_button::CopyButton, selectable_text::TextSelection, theme,
-        typography::MessageTypography,
-    },
+    desktop::ui::{copy_button::CopyButton, theme},
     markdown::{Block, Inline, TableAlignment},
 };
 
@@ -21,22 +18,22 @@ struct TableContent<'a> {
 
 pub(super) fn render_block(
     block: &Block,
-    message_id: &str,
     text_index: &mut usize,
-    selection: &TextSelection,
-    scale_factor: f32,
-    typography: MessageTypography,
-    cx: &App,
+    context: &MarkdownContext<'_>,
 ) -> AnyElement {
+    let message_id = context.message_id;
+    let selection = context.selection;
+    let scale_factor = context.scale_factor;
+    let typography = context.typography;
+    let palette = context.palette;
+    let cx = context.cx;
+
     match block {
         Block::Paragraph(inlines) => render_inlines(
             inlines,
-            message_id,
             text_index,
-            selection,
-            scale_factor,
             InlineMetrics::new(typography.body_size, typography.body_line_height),
-            cx,
+            context,
         ),
         Block::Heading(level, inlines) => div()
             .pt(if *level <= 2 { px(8.0) } else { px(4.0) })
@@ -45,33 +42,22 @@ pub(super) fn render_block(
             .font_weight(FontWeight::SEMIBOLD)
             .child(render_inlines(
                 inlines,
-                message_id,
                 text_index,
-                selection,
-                scale_factor,
                 InlineMetrics::new(
                     typography.heading_size(*level),
                     typography.heading_line_height(*level),
                 ),
-                cx,
+                context,
             ))
             .into_any_element(),
         Block::Quote(blocks) => div()
             .w_full()
             .border_l_2()
-            .border_color(cx.theme().primary)
+            .border_color(palette.accent)
             .pl_4()
             .py_1()
-            .text_color(cx.theme().muted_foreground)
-            .child(render_blocks(
-                blocks,
-                message_id,
-                text_index,
-                selection,
-                scale_factor,
-                typography,
-                cx,
-            ))
+            .text_color(palette.muted_foreground)
+            .child(render_blocks(blocks, text_index, context))
             .into_any_element(),
         Block::List {
             ordered,
@@ -92,22 +78,19 @@ pub(super) fn render_block(
                         div()
                             .w(px(24.0))
                             .flex_none()
-                            .text_color(cx.theme().muted_foreground)
+                            .text_color(palette.muted_foreground)
                             .child(if *ordered {
                                 format!("{}.", start + index)
                             } else {
                                 "•".into()
                             }),
                     )
-                    .child(div().min_w_0().flex_1().child(render_blocks(
-                        blocks,
-                        message_id,
-                        text_index,
-                        selection,
-                        scale_factor,
-                        typography,
-                        cx,
-                    )))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .flex_1()
+                            .child(render_blocks(blocks, text_index, context)),
+                    )
             }))
             .into_any_element(),
         Block::Code {
@@ -125,8 +108,8 @@ pub(super) fn render_block(
                 .w_full()
                 .rounded_lg()
                 .border_1()
-                .border_color(cx.theme().border)
-                .bg(cx.theme().muted)
+                .border_color(palette.border)
+                .bg(palette.surface)
                 .child(
                     div()
                         .w_full()
@@ -138,10 +121,10 @@ pub(super) fn render_block(
                         .pr_1()
                         .py_1()
                         .border_b_1()
-                        .border_color(cx.theme().border)
+                        .border_color(palette.border)
                         .text_size(px(typography.micro_size))
                         .line_height(px(typography.micro_line_height))
-                        .text_color(cx.theme().muted_foreground)
+                        .text_color(palette.muted_foreground)
                         .child(div().min_w_0().flex_1().child(selectable(
                             message_id,
                             language_text_index,
@@ -151,7 +134,7 @@ pub(super) fn render_block(
                                 language.clone()
                             },
                             selection,
-                            cx,
+                            palette,
                         )))
                         .child(CopyButton::new(copy_button_id, content_to_copy)),
                 )
@@ -171,7 +154,7 @@ pub(super) fn render_block(
                                 content_text_index,
                                 content.clone(),
                                 selection,
-                                cx,
+                                palette,
                             )
                             .with_highlights(
                                 if cx.theme().is_dark() {
@@ -207,31 +190,26 @@ pub(super) fn render_block(
                 header,
                 rows,
             },
-            message_id,
             text_index,
-            selection,
-            scale_factor,
-            typography,
-            cx,
+            context,
         ),
         Block::Rule => div()
             .w_full()
             .h(px(1.0))
             .my_2()
-            .bg(cx.theme().border)
+            .bg(palette.border)
             .into_any_element(),
     }
 }
 
 fn render_table(
     table: TableContent<'_>,
-    message_id: &str,
     text_index: &mut usize,
-    selection: &TextSelection,
-    scale_factor: f32,
-    typography: MessageTypography,
-    cx: &App,
+    context: &MarkdownContext<'_>,
 ) -> AnyElement {
+    let typography = context.typography;
+    let palette = context.palette;
+
     let columns = table
         .header
         .len()
@@ -251,11 +229,11 @@ fn render_table(
                     .flex_1()
                     .border_r_1()
                     .border_b_1()
-                    .border_color(cx.theme().border)
+                    .border_color(palette.border)
                     .p_2()
                     .when(header_row, |element| {
                         element
-                            .bg(cx.theme().muted)
+                            .bg(palette.surface)
                             .font_weight(FontWeight::SEMIBOLD)
                     })
                     .when(alignment == TableAlignment::Center, |element| {
@@ -267,15 +245,12 @@ fn render_table(
                     .children(cells.get(index).map(|cell| {
                         render_inlines(
                             cell,
-                            message_id,
                             text_index,
-                            selection,
-                            scale_factor,
                             InlineMetrics::new(
                                 typography.body_size,
                                 typography.table_line_height(),
                             ),
-                            cx,
+                            context,
                         )
                     }))
             }))
@@ -295,10 +270,11 @@ fn render_table(
                 .unwrap_or("empty"),
         ))
         .w_full()
-        .overflow_scroll()
+        .overflow_x_scroll()
+        .restrict_scroll_to_axis()
         .rounded_lg()
         .border_1()
-        .border_color(cx.theme().border)
+        .border_color(palette.border)
         .child(
             div()
                 .flex()

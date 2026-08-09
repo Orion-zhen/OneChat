@@ -1,6 +1,9 @@
 use std::rc::Rc;
 
-use gpui::{App, Font, FontFallbacks, Global, Hsla, SharedString, Window, WindowAppearance, font};
+use gpui::{
+    App, Font, FontFallbacks, Global, Hsla, Rgba, SharedString, Window, WindowAppearance, font,
+    rgba,
+};
 use gpui_component::{
     Theme as ComponentTheme, ThemeConfig, ThemeConfigColors, ThemeMode as ComponentThemeMode,
     scroll::ScrollbarShow,
@@ -228,6 +231,40 @@ pub(crate) fn ui_font(cx: &App) -> Font {
 
 pub(crate) fn code_font(cx: &App) -> Font {
     cx.global::<AppFonts>().code.clone()
+}
+
+pub(crate) struct UserMessagePalette {
+    pub background: Rgba,
+    pub foreground: Rgba,
+    pub muted_foreground: Rgba,
+    pub accent: Rgba,
+    pub border: Rgba,
+    pub surface: Rgba,
+    pub selection: Rgba,
+}
+
+pub(crate) fn user_message_palette(cx: &App) -> UserMessagePalette {
+    if ComponentTheme::global(cx).is_dark() {
+        UserMessagePalette {
+            background: rgba(0x1d405cff),
+            foreground: rgba(0xf2f7fcff),
+            muted_foreground: rgba(0xc0d2e0ff),
+            accent: rgba(0x8bd8ffff),
+            border: rgba(0x64d2ff2e),
+            surface: rgba(0xffffff14),
+            selection: rgba(0x64d2ff38),
+        }
+    } else {
+        UserMessagePalette {
+            background: rgba(0xe8f3ffff),
+            foreground: rgba(0x15324bff),
+            muted_foreground: rgba(0x45637dff),
+            accent: rgba(0x006ac6ff),
+            border: rgba(0x007aff24),
+            surface: rgba(0xffffff70),
+            selection: rgba(0x007aff2e),
+        }
+    }
 }
 
 pub(crate) fn component_mode(theme: Theme, appearance: WindowAppearance) -> ComponentThemeMode {

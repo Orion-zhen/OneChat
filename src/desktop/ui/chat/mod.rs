@@ -169,6 +169,7 @@ pub(crate) fn render(
                 app,
                 turn,
                 message_max_width,
+                scale_factor,
                 typography,
                 cx,
             ));

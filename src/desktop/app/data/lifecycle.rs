@@ -8,7 +8,7 @@ use crate::{
     desktop::ui::inspector::{
         GenerationConfigEditor, GenerationParameterItem, ReasoningPresetItem,
     },
-    domain::{AssistantResponse, AutoTitleState},
+    domain::AutoTitleState,
     markdown::MarkdownDocument,
     storage::{Storage, StorageResult, StorageSnapshot},
 };
@@ -109,22 +109,28 @@ impl OneChat {
     }
 
     pub(in crate::desktop::app) fn refresh_markdown_documents(&mut self, cx: &mut Context<Self>) {
-        self.chat.markdown_documents.retain(|response_id, cached| {
-            self.data
-                .snapshot
-                .current_turns
-                .iter()
-                .flat_map(|turn| &turn.responses)
-                .any(|response| response.id == *response_id && response.content == cached.source)
+        self.chat.markdown_documents.retain(|message_id, cached| {
+            self.data.snapshot.current_turns.iter().any(|turn| {
+                (turn.user.id == *message_id && turn.user.content == cached.source)
+                    || turn.responses.iter().any(|response| {
+                        response.id == *message_id && response.content == cached.source
+                    })
+            })
         });
         let pending = self
             .data
             .snapshot
             .current_turns
             .iter()
-            .flat_map(|turn| &turn.responses)
-            .filter(|response| !self.chat.markdown_documents.contains_key(&response.id))
-            .map(|response| (response.id.clone(), response.content.clone()))
+            .flat_map(|turn| {
+                std::iter::once((&turn.user.id, &turn.user.content)).chain(
+                    turn.responses
+                        .iter()
+                        .map(|response| (&response.id, &response.content)),
+                )
+            })
+            .filter(|(id, _)| !self.chat.markdown_documents.contains_key(id.as_str()))
+            .map(|(id, source)| (id.clone(), source.clone()))
             .collect::<Vec<_>>();
         if pending.is_empty() {
             return;
@@ -143,14 +149,14 @@ impl OneChat {
                 .await;
             let _ = this.update(cx, |this, cx| {
                 for (id, source, document) in parsed {
-                    if this
-                        .data
-                        .snapshot
-                        .current_turns
-                        .iter()
-                        .flat_map(|turn| &turn.responses)
-                        .any(|response| response.id == id && response.content == source)
-                    {
+                    let current = this.data.snapshot.current_turns.iter().any(|turn| {
+                        (turn.user.id == id && turn.user.content == source)
+                            || turn
+                                .responses
+                                .iter()
+                                .any(|response| response.id == id && response.content == source)
+                    });
+                    if current {
                         this.chat
                             .markdown_documents
                             .insert(id, CachedMarkdown { source, document });
@@ -162,11 +168,11 @@ impl OneChat {
         .detach();
     }
 
-    pub(crate) fn markdown_for(&self, response: &AssistantResponse) -> Option<&MarkdownDocument> {
+    pub(crate) fn markdown_for(&self, message_id: &str, source: &str) -> Option<&MarkdownDocument> {
         self.chat
             .markdown_documents
-            .get(&response.id)
-            .filter(|cached| cached.source == response.content)
+            .get(message_id)
+            .filter(|cached| cached.source == source)
             .map(|cached| &cached.document)
     }
 
