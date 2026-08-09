@@ -37,12 +37,22 @@ use crate::{
 actions!(
     onechat,
     [
+        #[cfg(target_os = "macos")]
+        AboutOneChat,
+        #[cfg(target_os = "macos")]
+        CloseWindow,
+        DismissOverlay,
+        #[cfg(target_os = "macos")]
+        MinimizeWindow,
         NewConversation,
+        OpenSettings,
         ShowCommandPalette,
         ShowModelPicker,
+        #[cfg(target_os = "macos")]
+        ToggleFullScreen,
         ToggleSidebar,
-        OpenSettings,
-        DismissOverlay,
+        #[cfg(target_os = "macos")]
+        ZoomWindow,
     ]
 );
 
@@ -67,6 +77,12 @@ pub fn init(cx: &mut App) {
         KeyBinding::new(&shortcut("l"), ShowModelPicker, Some("OneChat")),
         KeyBinding::new(&shortcut("shift-s"), ToggleSidebar, Some("OneChat")),
         KeyBinding::new(&shortcut(","), OpenSettings, Some("OneChat")),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-w", CloseWindow, Some("OneChat")),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("cmd-m", MinimizeWindow, Some("OneChat")),
+        #[cfg(target_os = "macos")]
+        KeyBinding::new("ctrl-cmd-f", ToggleFullScreen, Some("OneChat")),
         KeyBinding::new("escape", DismissOverlay, Some("OneChat")),
     ]);
 }
@@ -250,13 +266,33 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
             )
         });
 
-    div()
+    let root = div()
         .relative()
         .size_full()
         .flex()
         .track_focus(&app.root_focus)
-        .key_context("OneChat")
-        .on_action(cx.listener(|this, _: &NewConversation, _, cx| this.create_conversation(cx)))
+        .key_context("OneChat");
+    #[cfg(target_os = "macos")]
+    let root = root
+        .on_action(cx.listener(|_, _: &AboutOneChat, window, cx| {
+            window.open_dialog(cx, |dialog, _, _| {
+                dialog.title("About OneChat").child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .child("OneChat")
+                        .child(format!("Version {}", env!("CARGO_PKG_VERSION")))
+                        .child("Your last one chatbox app."),
+                )
+            });
+        }))
+        .on_action(|_: &CloseWindow, window, _| window.remove_window())
+        .on_action(|_: &MinimizeWindow, window, _| window.minimize_window())
+        .on_action(|_: &ZoomWindow, window, _| window.zoom_window())
+        .on_action(|_: &ToggleFullScreen, window, _| window.toggle_fullscreen());
+
+    root.on_action(cx.listener(|this, _: &NewConversation, _, cx| this.create_conversation(cx)))
         .on_action(cx.listener(|this, _: &ShowCommandPalette, window, cx| {
             this.open_command_palette(window, cx)
         }))

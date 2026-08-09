@@ -464,17 +464,7 @@ fn default_model_select(app: &OneChat, role: DefaultModelRole) -> AnyElement {
             DefaultModelRole::TitleGeneration => "Use Primary Model",
         })
         .menu_max_h(px(320.0))
-        .w(px(
-            if role == DefaultModelRole::TitleGeneration
-                && app
-                    .title_generation_model()
-                    .is_some_and(|model| model.reasoning.is_some())
-            {
-                220.0
-            } else {
-                300.0
-            },
-        ))
+        .w(px(300.0))
         .empty(|_, cx| {
             div()
                 .p_3()
