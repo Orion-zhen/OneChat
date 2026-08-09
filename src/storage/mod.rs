@@ -16,7 +16,8 @@ use crate::domain::{
     AppSettings, Conversation, Model, Provider, RequestInfo, SystemPromptPreset, Turn,
 };
 use catalog::SettingsFile;
-use codec::write_json;
+use codec::{read_jsonc, write_json};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug)]
 pub enum StorageError {
@@ -64,10 +65,17 @@ pub struct StorageSnapshot {
     pub settings: AppSettings,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WindowSize {
+    pub width: f32,
+    pub height: f32,
+}
+
 #[derive(Debug)]
 pub struct Storage {
     settings_path: PathBuf,
     mcp_path: PathBuf,
+    window_state_path: PathBuf,
     conversations_dir: PathBuf,
     prompts_dir: PathBuf,
     access: Mutex<()>,
@@ -83,7 +91,9 @@ impl Storage {
 
     pub fn open(settings_path: impl Into<PathBuf>, state_dir: impl Into<PathBuf>) -> Result<Self> {
         let settings_path = settings_path.into();
-        let conversations_dir = state_dir.into().join("conversations");
+        let state_dir = state_dir.into();
+        let window_state_path = state_dir.join("window.json");
+        let conversations_dir = state_dir.join("conversations");
         let config_dir = settings_path.parent().unwrap_or_else(|| Path::new("."));
         let mcp_path = config_dir.join("mcp.jsonc");
         let prompts_dir = config_dir.join("prompts");
@@ -96,6 +106,7 @@ impl Storage {
         let storage = Self {
             settings_path,
             mcp_path,
+            window_state_path,
             conversations_dir,
             prompts_dir,
             access: Mutex::new(()),
@@ -123,6 +134,19 @@ impl Storage {
 
     pub fn prompts_dir(&self) -> &Path {
         &self.prompts_dir
+    }
+
+    pub fn load_window_size(&self) -> Result<Option<WindowSize>> {
+        let _guard = self.lock()?;
+        if !self.window_state_path.exists() {
+            return Ok(None);
+        }
+        read_jsonc(&self.window_state_path).map(Some)
+    }
+
+    pub fn save_window_size(&self, size: WindowSize) -> Result<()> {
+        let _guard = self.lock()?;
+        write_json(&self.window_state_path, &size)
     }
 
     pub fn load_startup_snapshot(&self) -> Result<StorageSnapshot> {

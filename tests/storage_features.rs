@@ -7,7 +7,7 @@ use onechat::{
         Conversation, MessageStatus, Model, Provider, ProviderKind, RequestStatus,
         SystemPromptPreset, ToolExecution, ToolExecutionStatus, Turn, UserMessage, active_turns,
     },
-    storage::Storage,
+    storage::{Storage, WindowSize},
 };
 use tempfile::{TempDir, tempdir};
 
@@ -19,6 +19,20 @@ fn open_storage() -> (TempDir, Storage) {
     )
     .unwrap();
     (directory, storage)
+}
+
+#[test]
+fn window_size_round_trips() {
+    let (_directory, storage) = open_storage();
+    assert_eq!(storage.load_window_size().unwrap(), None);
+
+    let size = WindowSize {
+        width: 1380.0,
+        height: 900.0,
+    };
+    storage.save_window_size(size).unwrap();
+
+    assert_eq!(storage.load_window_size().unwrap(), Some(size));
 }
 
 fn catalog(storage: &Storage) -> (Provider, Model) {

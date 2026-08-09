@@ -1,12 +1,12 @@
 mod app;
 mod ui;
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use app::OneChat;
 use gpui::{
-    App, Bounds, Context, Entity, Render, TitlebarOptions, Window, WindowBackgroundAppearance,
-    WindowBounds, WindowOptions, div, prelude::*, px, size,
+    App, Bounds, Context, Entity, Pixels, Render, Size, Task, TitlebarOptions, Window,
+    WindowBackgroundAppearance, WindowBounds, WindowOptions, div, prelude::*, px, size,
 };
 #[cfg(target_os = "macos")]
 use gpui::{KeyBinding, Menu, MenuItem, OsAction, SystemMenuType, actions};
@@ -14,13 +14,48 @@ use gpui_component::Root;
 use gpui_component_assets::Assets;
 use tokio::runtime::Builder;
 
-use crate::{mcp::McpManager, storage::Storage};
+use crate::{
+    mcp::McpManager,
+    storage::{Storage, WindowSize as StoredWindowSize},
+};
 
 #[cfg(target_os = "macos")]
 actions!(onechat, [Hide, HideOthers, OpenRepository, Quit, ShowAll]);
 
 struct WindowContent {
     one_chat: Entity<OneChat>,
+    window_size_save_task: Task<()>,
+}
+
+impl WindowContent {
+    fn new(
+        one_chat: Entity<OneChat>,
+        storage: Arc<Storage>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let observed_storage = storage.clone();
+        cx.observe_window_bounds(window, move |this, window, cx| {
+            let size = stored_window_size(window);
+            let timer = cx.background_executor().timer(Duration::from_millis(200));
+            let storage = observed_storage.clone();
+            this.window_size_save_task = cx.background_executor().spawn(async move {
+                timer.await;
+                let _ = storage.save_window_size(size);
+            });
+        })
+        .detach();
+
+        window.on_window_should_close(cx, move |window, _| {
+            let _ = storage.save_window_size(stored_window_size(window));
+            true
+        });
+
+        Self {
+            one_chat,
+            window_size_save_task: Task::ready(()),
+        }
+    }
 }
 
 impl Render for WindowContent {
@@ -46,7 +81,7 @@ fn open_main_window(
     mcp: Arc<McpManager>,
     cx: &mut App,
 ) {
-    let bounds = Bounds::centered(None, size(px(1240.0), px(820.0)), cx);
+    let bounds = Bounds::centered(None, restored_window_size(&storage, cx), cx);
     cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -60,14 +95,39 @@ fn open_main_window(
             ..Default::default()
         },
         move |window, cx| {
-            let one_chat = cx.new(|cx| OneChat::new(storage, runtime, mcp, window, cx));
+            let one_chat = cx.new(|cx| OneChat::new(storage.clone(), runtime, mcp, window, cx));
             let initial_focus = one_chat.read(cx).initial_focus_handle(cx);
             window.focus(&initial_focus, cx);
-            let content = cx.new(|_| WindowContent { one_chat });
+            let content = cx.new(|cx| WindowContent::new(one_chat, storage, window, cx));
             cx.new(|cx| Root::new(content, window, cx).bg(gpui::transparent_black()))
         },
     )
     .expect("failed to open OneChat window");
+}
+
+fn restored_window_size(storage: &Storage, cx: &App) -> Size<Pixels> {
+    let Some(saved) = storage.load_window_size().ok().flatten().filter(|size| {
+        size.width.is_finite() && size.height.is_finite() && size.width > 0.0 && size.height > 0.0
+    }) else {
+        return size(px(1240.0), px(820.0));
+    };
+
+    let mut width = saved.width.max(900.0);
+    let mut height = saved.height.max(640.0);
+    if let Some(display) = cx.primary_display() {
+        let available = display.visible_bounds().size;
+        width = width.min(f32::from(available.width));
+        height = height.min(f32::from(available.height));
+    }
+    size(px(width), px(height))
+}
+
+fn stored_window_size(window: &Window) -> StoredWindowSize {
+    let size = window.window_bounds().get_bounds().size;
+    StoredWindowSize {
+        width: f32::from(size.width),
+        height: f32::from(size.height),
+    }
 }
 
 #[cfg(target_os = "macos")]
