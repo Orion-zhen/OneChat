@@ -16,9 +16,8 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     domain::{
-        AssistantResponse, GenerationError, GenerationErrorKind, GenerationEvent,
-        GenerationRequest, RequestInfo, ToolExecution, ToolExecutionStatus, ToolSelection,
-        message_tool_calls, now_timestamp,
+        AssistantResponse, GenerationError, GenerationEvent, GenerationRequest, RequestInfo,
+        ToolExecution, ToolExecutionStatus, ToolSelection, message_tool_calls, now_timestamp,
     },
     mcp::{McpManager, McpToolDefinition},
     providers,
@@ -29,7 +28,6 @@ use super::{PreparedGeneration, apply_event, interrupted_event};
 
 pub const UI_FLUSH_INTERVAL: Duration = Duration::from_millis(40);
 pub const STORAGE_FLUSH_INTERVAL: Duration = Duration::from_millis(320);
-pub const MAX_MODEL_STEPS: usize = 8;
 const MAX_TOOL_RESULT_BYTES: usize = 256 * 1024;
 
 pub struct GenerationSnapshot {
@@ -90,7 +88,7 @@ async fn agent_loop(
     events: &Sender<GenerationEvent>,
     cancellation: &CancellationToken,
 ) -> Result<(), GenerationError> {
-    for step in 0..MAX_MODEL_STEPS {
+    loop {
         if cancellation.is_cancelled() {
             return Err(GenerationError::cancelled());
         }
@@ -111,10 +109,6 @@ async fn agent_loop(
             )))
             .await
             .map_err(|_| GenerationError::cancelled())?;
-        if step + 1 == MAX_MODEL_STEPS {
-            break;
-        }
-
         let mut executions = Vec::with_capacity(calls.len());
         for call in calls {
             let route = available_tools
@@ -167,11 +161,6 @@ async fn agent_loop(
             return Err(GenerationError::cancelled());
         }
     }
-
-    Err(GenerationError::new(
-        GenerationErrorKind::Unknown,
-        "Model exceeded the MCP tool-call step limit",
-    ))
 }
 
 async fn execute_tool(

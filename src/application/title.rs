@@ -65,7 +65,6 @@ fn title_request(
 ) -> GenerationRequest {
     let (config, _) = GenerationConfig {
         temperature: Some(0.2),
-        max_output_tokens: Some(64),
         ..GenerationConfig::default()
     }
     .filtered_for(&model.capabilities);

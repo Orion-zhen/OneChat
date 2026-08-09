@@ -103,9 +103,7 @@ impl ExecutionEnvironment {
     #[cfg(windows)]
     fn extensions<'a>(&'a self, overrides: &'a BTreeMap<String, String>) -> Cow<'a, [OsString]> {
         environment_value(overrides, "PATHEXT")
-            .map(|value| {
-                Cow::<[OsString]>::Owned(path_extensions(Some(OsString::from(value))))
-            })
+            .map(|value| Cow::<[OsString]>::Owned(path_extensions(Some(OsString::from(value)))))
             .unwrap_or_else(|| Cow::Borrowed(self.path_ext.as_slice()))
     }
 }
