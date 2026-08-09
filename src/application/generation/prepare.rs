@@ -134,11 +134,15 @@ impl PreparedGeneration {
             &conversation.system_prompt,
             &messages,
         );
+        let mut config = turn.generation_config.clone();
+        config
+            .reasoning_preset
+            .clone_from(&conversation.generation_config.reasoning_preset);
         let provider_request = provider_request(
             provider,
             model,
             &conversation.system_prompt,
-            &turn.generation_config,
+            &config,
             messages,
         );
         Ok(Self {

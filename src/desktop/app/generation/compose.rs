@@ -261,15 +261,23 @@ impl OneChat {
             cx.notify();
             return;
         }
-        let (conversation, provider, model) = match self.generation_target(Some(&response.model_id))
-        {
-            Ok(target) => target,
-            Err(error) => {
-                self.data.error = Some(error);
-                cx.notify();
-                return;
-            }
-        };
+        let current_reasoning_preset = self
+            .chat
+            .generation_config_editor
+            .as_ref()
+            .map(|editor| editor.reasoning_preset().map(str::to_owned));
+        let (mut conversation, provider, model) =
+            match self.generation_target(Some(&response.model_id)) {
+                Ok(target) => target,
+                Err(error) => {
+                    self.data.error = Some(error);
+                    cx.notify();
+                    return;
+                }
+            };
+        if let Some(reasoning_preset) = current_reasoning_preset {
+            conversation.generation_config.reasoning_preset = reasoning_preset;
+        }
         if !model.capabilities.vision
             && context_has_visual_attachments(&self.data.snapshot.current_turns)
         {

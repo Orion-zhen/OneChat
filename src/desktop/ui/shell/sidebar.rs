@@ -262,7 +262,7 @@ fn render_conversation_row(
             .overflow_hidden()
             .whitespace_nowrap()
             .text_ellipsis()
-            .text_sm()
+            .text_base()
             .font_weight(if selected {
                 FontWeight::SEMIBOLD
             } else {

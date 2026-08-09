@@ -100,6 +100,37 @@ fn generation_preparation_uses_the_selected_history_and_model_capabilities() {
 }
 
 #[test]
+fn regeneration_uses_the_current_reasoning_preset() {
+    let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let mut conversation = Conversation::new("Chat", Some(&model), "");
+    conversation.generation_config.temperature = Some(0.2);
+    conversation.generation_config.reasoning_preset = Some("original".into());
+
+    let turn = completed_turn(&conversation, None, "question", "answer", &model, &provider);
+    let previous_response = turn.responses[0].clone();
+    conversation.generation_config.temperature = Some(0.9);
+    conversation.generation_config.reasoning_preset = Some("current".into());
+
+    let prepared = PreparedGeneration::regenerate(
+        &conversation,
+        &provider,
+        &model,
+        std::slice::from_ref(&turn),
+        &turn,
+        &previous_response,
+        &|user| Ok(Message::user(user.content.clone())),
+    )
+    .unwrap();
+
+    assert_eq!(prepared.provider_request.config.temperature, Some(0.2));
+    assert_eq!(
+        prepared.provider_request.config.reasoning_preset.as_deref(),
+        Some("current")
+    );
+}
+
+#[test]
 fn new_turn_history_follows_the_selected_branch() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
     let model = Model::new(&provider.id, "test-model", "Test Model");
