@@ -13,7 +13,7 @@ use top_bar::render_top_bar;
 
 use gpui::{
     AnyElement, App, ClickEvent, Context, DragMoveEvent, ElementId, Empty, Focusable as _,
-    FontWeight, KeyBinding, SharedString, Window, actions, div, prelude::*, px,
+    FontWeight, KeyBinding, MouseButton, SharedString, Window, actions, div, prelude::*, px,
 };
 use gpui_component::{
     ActiveTheme as _, Disableable as _, Selectable as _, Sizable as _, WindowExt as _,
@@ -312,10 +312,34 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
     let inspector = (app.navigation.page == Page::Chat
         && (app.navigation.inspector_open || inspector_progress > 0.0))
         .then(|| {
-            translated_x(
-                inspector::render(app, cx),
-                px(368.0 * (1.0 - inspector_progress)),
-            )
+            div()
+                .id("inspector-overlay")
+                .absolute()
+                .top_0()
+                .right_0()
+                .bottom_0()
+                .left_0()
+                .occlude()
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, window, cx| {
+                        if !window.has_active_prompt() {
+                            this.close_inspector(cx);
+                        }
+                    }),
+                )
+                .child(
+                    div()
+                        .absolute()
+                        .top(px(60.0))
+                        .right_0()
+                        .bottom_0()
+                        .left_0()
+                        .child(translated_x(
+                            inspector::render(app, cx),
+                            px(368.0 * (1.0 - inspector_progress)),
+                        )),
+                )
         });
 
     let root = div()
@@ -387,17 +411,10 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
                 .flex()
                 .flex_col()
                 .child(top_bar)
-                .child(
-                    div()
-                        .relative()
-                        .min_h_0()
-                        .flex_1()
-                        .flex()
-                        .child(page)
-                        .children(inspector),
-                ),
+                .child(div().relative().min_h_0().flex_1().flex().child(page)),
         )
         .children(sidebar_resize_handle)
+        .children(inspector)
         .children(picker_overlay)
         .into_any_element()
 }

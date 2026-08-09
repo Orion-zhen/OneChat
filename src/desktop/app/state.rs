@@ -63,28 +63,6 @@ pub(crate) struct NavigationState {
     pub(crate) pending_focus: Option<PendingFocus>,
     pub(crate) sidebar_width_motion: SidebarWidthMotion,
     pub(crate) inspector_motion: DrawerMotion,
-    pub(crate) inspector_pointer: InspectorPointerState,
-}
-
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) enum InspectorPointerState {
-    #[default]
-    Idle,
-    PressedOutside,
-}
-
-impl InspectorPointerState {
-    pub(crate) fn begin_outside(&mut self) {
-        *self = Self::PressedOutside;
-    }
-
-    pub(crate) fn cancel(&mut self) {
-        *self = Self::Idle;
-    }
-
-    pub(crate) fn release_outside(&mut self) -> bool {
-        std::mem::take(self) == Self::PressedOutside
-    }
 }
 
 pub(crate) struct SidebarState {

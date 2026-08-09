@@ -17,8 +17,7 @@ pub use editor::{
 use std::{fmt::Display, str::FromStr};
 
 use gpui::{
-    AnyElement, App, Context, Entity, FontWeight, MouseButton, MouseDownEvent, MouseUpEvent,
-    SharedString, Window, div, prelude::*, px,
+    AnyElement, App, Context, Entity, FontWeight, SharedString, Window, div, prelude::*, px,
 };
 use gpui_component::{
     ActiveTheme as _, Disableable as _, Sizable as _,
@@ -139,34 +138,7 @@ pub(crate) fn render(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
         .flex()
         .flex_col()
         .gap_4()
-        .when(app.navigation.inspector_open, |inspector| {
-            inspector
-                .capture_any_mouse_down(cx.listener(|this, event: &MouseDownEvent, _, _| {
-                    if event.button == MouseButton::Left {
-                        this.cancel_inspector_outside_press();
-                    }
-                }))
-                .on_mouse_down_out(cx.listener(|this, event: &MouseDownEvent, _, _| {
-                    if event.button == MouseButton::Left {
-                        this.begin_inspector_outside_press();
-                    }
-                }))
-                .capture_any_mouse_up(cx.listener(|this, event: &MouseUpEvent, _, _| {
-                    if event.button == MouseButton::Left {
-                        this.cancel_inspector_outside_press();
-                    }
-                }))
-                .on_mouse_up_out(
-                    MouseButton::Left,
-                    cx.listener(|this, _: &MouseUpEvent, window, cx| {
-                        if window.has_active_prompt() {
-                            this.cancel_inspector_outside_press();
-                        } else {
-                            this.release_inspector_outside(cx);
-                        }
-                    }),
-                )
-        })
+        .on_any_mouse_down(|_, _, cx| cx.stop_propagation())
         .child(
             div()
                 .flex()

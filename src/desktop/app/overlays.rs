@@ -181,27 +181,12 @@ impl OneChat {
         self.set_inspector_visible(false, cx);
     }
 
-    pub(crate) fn begin_inspector_outside_press(&mut self) {
-        self.navigation.inspector_pointer.begin_outside();
-    }
-
-    pub(crate) fn cancel_inspector_outside_press(&mut self) {
-        self.navigation.inspector_pointer.cancel();
-    }
-
-    pub(crate) fn release_inspector_outside(&mut self, cx: &mut Context<Self>) {
-        if self.navigation.inspector_pointer.release_outside() {
-            self.close_inspector(cx);
-        }
-    }
-
     pub(super) fn set_inspector_open(
         &mut self,
         open: bool,
         animated: bool,
         cx: &mut Context<Self>,
     ) {
-        self.navigation.inspector_pointer.cancel();
         self.navigation.inspector_open = open;
         self.navigation.inspector_motion.set_open(open, animated);
         cx.notify();

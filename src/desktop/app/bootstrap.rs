@@ -15,10 +15,9 @@ use gpui_component::{
 use tokio::runtime::Runtime;
 
 use super::{
-    ChatState, DataState, DefaultModelRole, DrawerMotion, FontRole, InspectorPointerState,
-    McpState, MessageScrollMotion, NavigationState, OneChat, OverlayState, Page, Services,
-    SettingsState, SidebarState, SidebarWidthMotion, SystemPromptMode, TimelineState,
-    VisibilityMotion,
+    ChatState, DataState, DefaultModelRole, DrawerMotion, FontRole, McpState, MessageScrollMotion,
+    NavigationState, OneChat, OverlayState, Page, Services, SettingsState, SidebarState,
+    SidebarWidthMotion, SystemPromptMode, TimelineState, VisibilityMotion,
 };
 use crate::{
     application::generation::GenerationManager,
@@ -332,7 +331,6 @@ impl OneChat {
                 pending_focus: None,
                 sidebar_width_motion: SidebarWidthMotion::new(SIDEBAR_WIDTH),
                 inspector_motion: DrawerMotion::new(false),
-                inspector_pointer: InspectorPointerState::default(),
             },
             sidebar: SidebarState {
                 width: SIDEBAR_WIDTH,

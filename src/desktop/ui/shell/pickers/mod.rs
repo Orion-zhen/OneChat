@@ -210,6 +210,7 @@ pub(crate) fn render_picker_overlay(
         .right_0()
         .bottom_0()
         .left_0()
+        .occlude()
         .bg(cx.theme().overlay)
         .opacity(progress)
         .on_mouse_down(
