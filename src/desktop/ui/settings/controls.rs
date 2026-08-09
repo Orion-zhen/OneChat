@@ -1,0 +1,213 @@
+use super::*;
+
+pub(crate) fn sync_controls(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>) {
+    let message_font_size = app.settings().message_font_size();
+    if (app
+        .settings_ui
+        .message_font_size_slider
+        .read(cx)
+        .value()
+        .start()
+        - message_font_size)
+        .abs()
+        > f32::EPSILON
+    {
+        app.settings_ui
+            .message_font_size_slider
+            .update(cx, |slider, cx| {
+                slider.set_value(message_font_size, window, cx)
+            });
+    }
+
+    let opacity = app.settings().background_opacity();
+    if (app
+        .settings_ui
+        .background_opacity_slider
+        .read(cx)
+        .value()
+        .start()
+        - opacity)
+        .abs()
+        > f32::EPSILON
+    {
+        app.settings_ui
+            .background_opacity_slider
+            .update(cx, |slider, cx| slider.set_value(opacity, window, cx));
+    }
+
+    let ratio = app.settings().message_width_ratio();
+    if (app
+        .settings_ui
+        .message_width_slider
+        .read(cx)
+        .value()
+        .start()
+        - ratio)
+        .abs()
+        > f32::EPSILON
+    {
+        app.settings_ui
+            .message_width_slider
+            .update(cx, |slider, cx| slider.set_value(ratio, window, cx));
+    }
+
+    let primary_items = default_model_items(app, DefaultModelRole::Primary);
+    let primary_changed = primary_items != app.settings_ui.synced_primary_models;
+    if primary_changed {
+        app.settings_ui
+            .synced_primary_models
+            .clone_from(&primary_items);
+        app.settings_ui
+            .primary_model_select
+            .update(cx, |select, cx| select.set_items(primary_items, window, cx));
+    }
+    let primary_value = app.settings().primary_model_id.clone().map(Some);
+    if primary_changed
+        || app
+            .settings_ui
+            .primary_model_select
+            .read(cx)
+            .selected_value()
+            .cloned()
+            != primary_value
+    {
+        app.settings_ui
+            .primary_model_select
+            .update(cx, |select, cx| match primary_value.as_ref() {
+                Some(value) => select.set_selected_value(value, window, cx),
+                None => select.set_selected_index(None, window, cx),
+            });
+    }
+
+    let title_items = default_model_items(app, DefaultModelRole::TitleGeneration);
+    let title_changed = title_items != app.settings_ui.synced_title_models;
+    if title_changed {
+        app.settings_ui.synced_title_models.clone_from(&title_items);
+        app.settings_ui
+            .title_model_select
+            .update(cx, |select, cx| select.set_items(title_items, window, cx));
+    }
+    let title_value = Some(app.settings().title_generation_model_id.clone());
+    if title_changed
+        || app
+            .settings_ui
+            .title_model_select
+            .read(cx)
+            .selected_value()
+            .cloned()
+            != title_value
+    {
+        app.settings_ui.title_model_select.update(cx, |select, cx| {
+            select.set_selected_value(
+                &app.settings().title_generation_model_id.clone(),
+                window,
+                cx,
+            )
+        });
+    }
+
+    let prompt_items = default_prompt_items(app);
+    let prompts_changed = prompt_items != app.settings_ui.synced_prompts;
+    if prompts_changed {
+        app.settings_ui.synced_prompts.clone_from(&prompt_items);
+        app.settings_ui
+            .default_prompt_select
+            .update(cx, |select, cx| select.set_items(prompt_items, window, cx));
+    }
+    let prompt_value = Some(app.settings().default_system_prompt_preset.clone());
+    if prompts_changed
+        || app
+            .settings_ui
+            .default_prompt_select
+            .read(cx)
+            .selected_value()
+            .cloned()
+            != prompt_value
+    {
+        app.settings_ui
+            .default_prompt_select
+            .update(cx, |select, cx| {
+                select.set_selected_value(
+                    &app.settings().default_system_prompt_preset.clone(),
+                    window,
+                    cx,
+                )
+            });
+    }
+
+    if let Some(editor) = &mut app.settings_ui.model_editor {
+        editor.sync_combobox(window, cx);
+    }
+}
+
+fn default_model_items(app: &OneChat, role: DefaultModelRole) -> Vec<DefaultModelItem> {
+    let selected_id = match role {
+        DefaultModelRole::Primary => app.settings().primary_model_id.as_deref(),
+        DefaultModelRole::TitleGeneration => app.settings().title_generation_model_id.as_deref(),
+    };
+    let mut items = Vec::new();
+    if role == DefaultModelRole::TitleGeneration {
+        items.push(DefaultModelItem::new(
+            None,
+            "Use Primary Model",
+            "Follow the primary model setting",
+            false,
+        ));
+    }
+    for model in &app.data.snapshot.models {
+        let availability = app.model_availability(model);
+        if availability.is_err() && selected_id != Some(model.id.as_str()) {
+            continue;
+        }
+        let provider = app
+            .provider_for_model(model)
+            .map(|provider| provider.name.as_str())
+            .unwrap_or("Missing provider");
+        let detail = availability.map_or_else(
+            |reason| format!("Unavailable · {reason}"),
+            |_| format!("{} · {provider}", model.remote_id),
+        );
+        items.push(DefaultModelItem::new(
+            Some(model.id.clone()),
+            model.display_name.clone(),
+            detail,
+            availability.is_err(),
+        ));
+    }
+    if let Some(selected_id) = selected_id
+        && !items
+            .iter()
+            .any(|item| item.value() == &Some(selected_id.to_string()))
+    {
+        items.push(DefaultModelItem::new(
+            Some(selected_id.to_string()),
+            format!("Missing · {selected_id}"),
+            "The configured model no longer exists",
+            true,
+        ));
+    }
+    items
+}
+
+fn default_prompt_items(app: &OneChat) -> Vec<PromptSelectItem> {
+    let selected = app.settings().default_system_prompt_preset.as_deref();
+    let mut items = vec![PromptSelectItem::new(None, "No System Prompt", false)];
+    items.extend(app.data.snapshot.prompt_presets.iter().map(|preset| {
+        PromptSelectItem::new(Some(preset.name.clone()), preset.name.clone(), false)
+    }));
+    if let Some(selected) = selected
+        && !app
+            .data
+            .snapshot
+            .prompt_presets
+            .iter()
+            .any(|preset| preset.name == selected)
+    {
+        items.push(PromptSelectItem::new(
+            Some(selected.to_string()),
+            format!("Missing · {selected}"),
+            true,
+        ));
+    }
+    items
+}

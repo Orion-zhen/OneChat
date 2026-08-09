@@ -1,4 +1,19 @@
-use super::*;
+use gpui::{App, Context, Entity, Window};
+use gpui_component::{WindowExt as _, input::InputState};
+
+use super::{ConversationGroup, OneChat, Page, PaletteCommand, PendingFocus};
+use crate::{
+    desktop::ui::{
+        inspector::InspectorTab,
+        settings::SettingsSection,
+        shell::{
+            CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate,
+            ReasoningPickerDelegate,
+        },
+    },
+    domain::{Conversation, now_timestamp},
+    storage::StorageError,
+};
 
 impl OneChat {
     pub(crate) fn conversation_groups(

@@ -1,13 +1,13 @@
-pub mod chat;
+pub(crate) mod chat;
 pub(crate) mod icons;
-pub mod inspector;
-pub mod markdown;
+pub(crate) mod inspector;
+pub(crate) mod markdown;
 pub(crate) mod motion;
 pub(crate) mod selectable_text;
-pub mod settings;
-pub mod shell;
-pub mod stream;
-pub mod theme;
+pub(crate) mod settings;
+pub(crate) mod shell;
+pub(crate) mod stream;
+pub(crate) mod theme;
 pub(crate) mod typography;
 
 use std::borrow::Cow;
@@ -32,7 +32,7 @@ pub(crate) fn spaced_select_item(content: impl IntoElement, cx: &App) -> Div {
     )
 }
 
-pub fn init(cx: &mut App) {
+pub(crate) fn init(cx: &mut App) {
     gpui_component::init(cx);
     cx.text_system()
         .add_fonts(vec![Cow::Borrowed(LUCIDE_FONT_BYTES)])

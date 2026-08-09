@@ -2,9 +2,9 @@ mod catalog;
 mod common;
 mod error;
 
-pub mod anthropic;
-pub mod gemini;
-pub mod openai;
+mod anthropic;
+mod gemini;
+mod openai;
 
 use async_channel::Sender;
 use tokio_util::sync::CancellationToken;

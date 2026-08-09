@@ -1,6 +1,8 @@
 mod config;
 mod executable;
 mod manager;
+mod oauth;
+mod snapshot;
 
 use std::fmt::{self, Display, Formatter};
 
@@ -8,9 +10,10 @@ pub use config::{
     McpConfig, McpHttpServerConfig, McpOAuthConfig, McpOAuthFlow, McpServerConfig,
     McpStdioServerConfig,
 };
-pub use manager::{
-    McpExecutableSnapshot, McpManager, McpServerSnapshot, McpServerStatus,
-    McpServerTransportSnapshot, McpSnapshot, McpToolDefinition, McpToolSnapshot,
+pub use manager::McpManager;
+pub use snapshot::{
+    McpExecutableSnapshot, McpServerSnapshot, McpServerStatus, McpServerTransportSnapshot,
+    McpSnapshot, McpToolDefinition, McpToolSnapshot,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]

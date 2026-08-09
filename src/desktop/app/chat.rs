@@ -1,4 +1,12 @@
-use super::*;
+use std::{collections::BTreeSet, time::Duration};
+
+use gpui::{ClipboardItem, Context, Window, prelude::*};
+
+use super::{DestructiveAction, OneChat, PendingFocus, SystemPromptMode, multiline_input};
+use crate::{
+    desktop::ui::inspector::GenerationParameter,
+    domain::{Theme, ToolRef, ToolSelection, now_timestamp},
+};
 
 impl OneChat {
     pub(crate) fn set_theme(&mut self, theme: Theme, cx: &mut Context<Self>) {

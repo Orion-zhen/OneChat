@@ -6,9 +6,6 @@ use std::{
     time::Duration,
 };
 
-#[cfg(unix)]
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-
 use futures_util::future::join_all;
 use rmcp::{
     RoleClient, ServiceExt,
@@ -16,8 +13,8 @@ use rmcp::{
     service::{Peer, RunningService},
     transport::{
         AuthClient, AuthorizationManager, AuthorizationRequest, ClientCredentialsConfig,
-        CredentialStore, StoredCredentials, StreamableHttpClientTransport, TokioChildProcess,
-        auth::OAuthState, streamable_http_client::StreamableHttpClientTransportConfig,
+        StreamableHttpClientTransport, TokioChildProcess, auth::OAuthState,
+        streamable_http_client::StreamableHttpClientTransportConfig,
     },
 };
 use serde_json::{Map, Value};
@@ -26,90 +23,23 @@ use tokio_util::sync::CancellationToken;
 
 use super::{
     McpConfig, McpError, McpHttpServerConfig, McpOAuthConfig, McpOAuthFlow, McpServerConfig,
-    McpStdioServerConfig, Result, executable::ExecutionEnvironment,
+    McpStdioServerConfig, Result,
+    executable::ExecutionEnvironment,
+    oauth::{
+        FileCredentialStore, oauth_cache_dir, oauth_fingerprint, oauth_store_path,
+        receive_oauth_callback,
+    },
+    snapshot::{
+        McpServerSnapshot, McpServerStatus, McpServerTransportSnapshot, McpSnapshot,
+        McpToolDefinition, McpToolSnapshot, executable_snapshots,
+    },
 };
 
 const INITIALIZE_TIMEOUT: Duration = Duration::from_secs(30);
 const LIST_TOOLS_TIMEOUT: Duration = Duration::from_secs(30);
 const CALL_TOOL_TIMEOUT: Duration = Duration::from_secs(120);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
-const OAUTH_CALLBACK_TIMEOUT: Duration = Duration::from_secs(120);
 const AUTHORIZATION_REQUIRED: &str = "OAuth authorization required";
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum McpServerStatus {
-    Disabled,
-    AuthorizationRequired,
-    Ready,
-    Failed(String),
-    Stopped,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct McpExecutableSnapshot {
-    pub name: String,
-    pub path: Option<PathBuf>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct McpToolSnapshot {
-    pub name: String,
-    pub enabled: bool,
-    pub title: Option<String>,
-    pub description: Option<String>,
-    pub input_schema: Value,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct McpToolDefinition {
-    pub name: String,
-    pub server_id: String,
-    pub enabled: bool,
-    pub tool_name: String,
-    pub description: String,
-    pub input_schema: Value,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum McpServerTransportSnapshot {
-    Stdio {
-        command: String,
-        resolved_command: Option<PathBuf>,
-    },
-    Http {
-        url: String,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct McpServerSnapshot {
-    pub id: String,
-    pub enabled: bool,
-    pub interactive_oauth: bool,
-    pub transport: McpServerTransportSnapshot,
-    pub status: McpServerStatus,
-    pub implementation: Option<String>,
-    pub tools: Vec<McpToolSnapshot>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct McpSnapshot {
-    pub config_path: PathBuf,
-    pub config_error: Option<String>,
-    pub executables: Vec<McpExecutableSnapshot>,
-    pub servers: Vec<McpServerSnapshot>,
-}
-
-impl McpSnapshot {
-    pub fn empty(config_path: impl Into<PathBuf>) -> Self {
-        Self {
-            config_path: config_path.into(),
-            config_error: None,
-            executables: executable_snapshots(&ExecutionEnvironment::inherited()),
-            servers: Vec::new(),
-        }
-    }
-}
 
 pub struct McpManager {
     config_path: PathBuf,
@@ -829,185 +759,4 @@ async fn close_sessions(sessions: BTreeMap<String, ServerSession>) {
     for (_, mut session) in sessions {
         let _ = session.service.close_with_timeout(SHUTDOWN_TIMEOUT).await;
     }
-}
-
-fn executable_snapshots(environment: &ExecutionEnvironment) -> Vec<McpExecutableSnapshot> {
-    ["npx", "uv", "docker"]
-        .into_iter()
-        .map(|name| McpExecutableSnapshot {
-            name: name.to_string(),
-            path: environment.resolve(name, None, &BTreeMap::new()),
-        })
-        .collect()
-}
-
-async fn receive_oauth_callback(listener: tokio::net::TcpListener) -> Result<(String, String)> {
-    let (mut stream, _) = tokio::time::timeout(OAUTH_CALLBACK_TIMEOUT, listener.accept())
-        .await
-        .map_err(|_| McpError::new("OAuth authorization timed out"))?
-        .map_err(McpError::from_display)?;
-    let mut request = Vec::new();
-    let mut chunk = [0_u8; 4096];
-    loop {
-        use tokio::io::AsyncReadExt as _;
-        let read = stream
-            .read(&mut chunk)
-            .await
-            .map_err(McpError::from_display)?;
-        if read == 0 || request.len() + read > 64 * 1024 {
-            return Err(McpError::new("Invalid OAuth callback request"));
-        }
-        request.extend_from_slice(&chunk[..read]);
-        if request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
-            break;
-        }
-    }
-    let first_line = String::from_utf8_lossy(&request)
-        .lines()
-        .next()
-        .ok_or_else(|| McpError::new("Invalid OAuth callback request"))?
-        .to_string();
-    let target = first_line
-        .split_whitespace()
-        .nth(1)
-        .ok_or_else(|| McpError::new("Invalid OAuth callback request"))?;
-    let url = reqwest::Url::parse(&format!("http://127.0.0.1{target}"))
-        .map_err(McpError::from_display)?;
-    if url.path() != "/callback" {
-        return Err(McpError::new("Invalid OAuth callback path"));
-    }
-    let mut code = None;
-    let mut state = None;
-    let mut oauth_error = None;
-    for (name, value) in url.query_pairs() {
-        match name.as_ref() {
-            "code" => code = Some(value.into_owned()),
-            "state" => state = Some(value.into_owned()),
-            "error" => oauth_error = Some(value.into_owned()),
-            _ => {}
-        }
-    }
-    let result = match oauth_error {
-        Some(error) => Err(McpError::new(format!(
-            "OAuth authorization failed: {error}"
-        ))),
-        None => Ok((
-            code.ok_or_else(|| McpError::new("OAuth callback is missing code"))?,
-            state.ok_or_else(|| McpError::new("OAuth callback is missing state"))?,
-        )),
-    };
-    let (status, message) = if result.is_ok() {
-        (
-            "200 OK",
-            "Authorization complete. You can close this tab and return to OneChat.",
-        )
-    } else {
-        (
-            "400 Bad Request",
-            "Authorization failed. Return to OneChat and try again.",
-        )
-    };
-    let body = format!("<html><body><h2>{message}</h2></body></html>");
-    let response = format!(
-        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-    );
-    use tokio::io::AsyncWriteExt as _;
-    let _ = stream.write_all(response.as_bytes()).await;
-    result
-}
-
-#[derive(Clone)]
-struct FileCredentialStore {
-    path: PathBuf,
-    fingerprint: String,
-}
-
-#[derive(serde::Deserialize, serde::Serialize)]
-struct StoredOAuthCredentials {
-    fingerprint: String,
-    credentials: StoredCredentials,
-}
-
-impl FileCredentialStore {
-    fn new(path: PathBuf, fingerprint: String) -> Self {
-        Self { path, fingerprint }
-    }
-
-    fn error(error: impl std::fmt::Display) -> rmcp::transport::AuthError {
-        rmcp::transport::AuthError::InternalError(error.to_string())
-    }
-}
-
-#[async_trait::async_trait]
-impl CredentialStore for FileCredentialStore {
-    async fn load(
-        &self,
-    ) -> std::result::Result<Option<StoredCredentials>, rmcp::transport::AuthError> {
-        let source = match fs::read_to_string(&self.path) {
-            Ok(source) => source,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-            Err(error) => return Err(Self::error(error)),
-        };
-        let stored: StoredOAuthCredentials = serde_json::from_str(&source).map_err(Self::error)?;
-        if stored.fingerprint != self.fingerprint {
-            let _ = fs::remove_file(&self.path);
-            return Ok(None);
-        }
-        Ok(Some(stored.credentials))
-    }
-
-    async fn save(
-        &self,
-        credentials: StoredCredentials,
-    ) -> std::result::Result<(), rmcp::transport::AuthError> {
-        if let Some(parent) = self.path.parent() {
-            fs::create_dir_all(parent).map_err(Self::error)?;
-        }
-        let source = serde_json::to_vec_pretty(&StoredOAuthCredentials {
-            fingerprint: self.fingerprint.clone(),
-            credentials,
-        })
-        .map_err(Self::error)?;
-        let mut options = fs::OpenOptions::new();
-        options.create(true).truncate(true).write(true);
-        #[cfg(unix)]
-        options.mode(0o600);
-        use std::io::Write as _;
-        let mut file = options.open(&self.path).map_err(Self::error)?;
-        #[cfg(unix)]
-        file.set_permissions(fs::Permissions::from_mode(0o600))
-            .map_err(Self::error)?;
-        file.write_all(&source).map_err(Self::error)
-    }
-
-    async fn clear(&self) -> std::result::Result<(), rmcp::transport::AuthError> {
-        match fs::remove_file(&self.path) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(Self::error(error)),
-        }
-    }
-}
-
-fn oauth_cache_dir(config_path: &Path) -> PathBuf {
-    config_path
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join("mcp-oauth")
-}
-
-fn oauth_store_path(cache_dir: &Path, server_id: &str) -> PathBuf {
-    cache_dir.join(format!("{:016x}.json", stable_hash(server_id)))
-}
-
-fn oauth_fingerprint(config: &McpHttpServerConfig) -> String {
-    let oauth = serde_json::to_string(&config.oauth).expect("OAuth config serialization");
-    format!("{:016x}", stable_hash(&format!("{}\n{oauth}", config.url)))
-}
-
-fn stable_hash(value: &str) -> u64 {
-    value.bytes().fold(0xcbf29ce484222325_u64, |hash, byte| {
-        (hash ^ u64::from(byte)).wrapping_mul(0x100000001b3)
-    })
 }

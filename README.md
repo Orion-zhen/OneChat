@@ -18,12 +18,12 @@ GPUI and the provider crates evolve quickly. Published dependencies intentionall
 The crate keeps reusable code independent from the GPUI desktop shell:
 
 - `domain`: serializable conversations, catalogs, preferences, and generation contracts
-- `application`: UI-independent generation preparation, reduction, cancellation, and streaming runner
+- `application`: UI-independent attachment ingestion plus generation preparation, reduction, cancellation, and streaming execution
 - `providers`: OpenAI, Anthropic, and Gemini adapters
 - `storage`: JSONC/JSON persistence behind the `Storage` facade
 - `mcp`: JSONC configuration and stdio/Streamable HTTP MCP server lifecycle
 - `markdown`: UI-independent Markdown AST, parsing, and formula rendering
-- `desktop`: GPUI application state and presentation
+- `desktop`: GPUI coordination and feature-oriented chat, settings, inspector, and shell presentation
 
 The desktop shell starts through `gpui_platform`, installs `gpui_component_assets`, and wraps each window in `gpui_component::Root`. Standard inputs, buttons, pickers, dialogs, forms, tabs, switches, sliders, alerts, and notifications come from `gpui-component`. `desktop/ui/theme.rs` is the single bridge from OneChat appearance settings to component theme tokens, while `desktop/ui/icons.rs` maps product semantics to component or Lucide icons. Chat layout, glass materials, product motion, Markdown/LaTeX rendering, and cross-node message selection remain OneChat-owned.
 
