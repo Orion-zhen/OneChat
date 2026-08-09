@@ -44,11 +44,6 @@ impl McpServerTransportEditor {
     }
 }
 
-pub struct McpEnvironmentVariableEditor {
-    pub name: Entity<InputState>,
-    pub value: Entity<InputState>,
-}
-
 pub struct McpServerEditor {
     original_id: Option<String>,
     enabled: bool,
@@ -59,9 +54,9 @@ pub struct McpServerEditor {
     pub command: Entity<InputState>,
     pub url: Entity<InputState>,
     pub args: Vec<Entity<InputState>>,
-    pub env: Vec<McpEnvironmentVariableEditor>,
+    pub env: Vec<KeyValueEditor>,
     pub cwd: Entity<InputState>,
-    pub headers: Vec<McpEnvironmentVariableEditor>,
+    pub headers: Vec<KeyValueEditor>,
     pub proxy: Entity<InputState>,
     pub bearer_token: Entity<InputState>,
     pub oauth_flow: Option<McpOAuthFlow>,
@@ -131,14 +126,14 @@ impl McpServerEditor {
         args.push(single_line_input("", "Argument", window, cx));
         let mut env = variables
             .into_iter()
-            .map(|(name, value)| McpEnvironmentVariableEditor::new(name, value, window, cx))
+            .map(|(name, value)| KeyValueEditor::new(name, value, window, cx))
             .collect::<Vec<_>>();
-        env.push(McpEnvironmentVariableEditor::new("", "", window, cx));
+        env.push(KeyValueEditor::new("", "", window, cx));
         let mut headers = headers
             .into_iter()
-            .map(|(name, value)| McpEnvironmentVariableEditor::new(name, value, window, cx))
+            .map(|(name, value)| KeyValueEditor::new(name, value, window, cx))
             .collect::<Vec<_>>();
-        headers.push(McpEnvironmentVariableEditor::new("", "", window, cx));
+        headers.push(KeyValueEditor::new("", "", window, cx));
         let oauth_flow = oauth.as_ref().map(|oauth| oauth.flow);
         let oauth_client_id = oauth
             .as_ref()
@@ -321,8 +316,7 @@ impl McpServerEditor {
             .last()
             .is_some_and(|variable| !variable.name.read(cx).value().trim().is_empty())
         {
-            self.env
-                .push(McpEnvironmentVariableEditor::new("", "", window, cx));
+            self.env.push(KeyValueEditor::new("", "", window, cx));
         }
     }
 
@@ -338,8 +332,7 @@ impl McpServerEditor {
             .last()
             .is_some_and(|header| !header.name.read(cx).value().trim().is_empty())
         {
-            self.headers
-                .push(McpEnvironmentVariableEditor::new("", "", window, cx));
+            self.headers.push(KeyValueEditor::new("", "", window, cx));
         }
     }
 
@@ -363,19 +356,5 @@ impl McpServerEditor {
             2 => Some(McpOAuthFlow::ClientCredentials),
             _ => None,
         };
-    }
-}
-
-impl McpEnvironmentVariableEditor {
-    fn new(
-        name: impl Into<String>,
-        value: impl Into<String>,
-        window: &mut Window,
-        cx: &mut Context<OneChat>,
-    ) -> Self {
-        Self {
-            name: single_line_input(name, "Name", window, cx),
-            value: single_line_input(value, "Value", window, cx),
-        }
     }
 }

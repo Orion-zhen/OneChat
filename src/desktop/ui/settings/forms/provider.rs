@@ -45,6 +45,56 @@ pub(in crate::desktop::ui::settings) fn provider_form(
                     .mask_toggle(),
             ),
         );
+    let headers =
+        div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .children(editor.headers.iter().enumerate().map(|(index, header)| {
+                let is_draft = index + 1 == editor.headers.len();
+                let action = if is_draft {
+                    icon_action(
+                        "add-provider-header",
+                        AppIcon::Plus,
+                        IconTone::Accent,
+                        "Add custom header",
+                        cx,
+                    )
+                    .on_click(
+                        cx.listener(|this, _, window, cx| this.add_provider_header(window, cx)),
+                    )
+                } else {
+                    icon_action(
+                        SharedString::from(format!("remove-provider-header-{index}")),
+                        AppIcon::Trash,
+                        IconTone::Danger,
+                        "Remove custom header",
+                        cx,
+                    )
+                    .on_click(
+                        cx.listener(move |this, _, _, cx| this.remove_provider_header(index, cx)),
+                    )
+                };
+                div()
+                    .w_full()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .min_w_0()
+                            .flex_1()
+                            .child(form_input(&header.name, "Custom header name")),
+                    )
+                    .child(
+                        div()
+                            .min_w_0()
+                            .flex_1()
+                            .child(form_input(&header.value, "Custom header value")),
+                    )
+                    .child(action)
+            }));
     let advanced = Form::vertical()
         .child(
             Field::new()
@@ -55,13 +105,8 @@ pub(in crate::desktop::ui::settings) fn provider_form(
         .child(
             Field::new()
                 .label("Custom Headers")
-                .description("Optional JSON object added to every request")
-                .child(
-                    Input::new(&editor.headers)
-                        .large()
-                        .aria_label("Custom headers JSON")
-                        .h(px(104.0)),
-                ),
+                .description("Header name and value pairs added to every request")
+                .child(headers),
         );
 
     div()

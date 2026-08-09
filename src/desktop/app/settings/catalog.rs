@@ -102,6 +102,20 @@ impl OneChat {
         self.mutate_and_reload(move |storage| storage.update_provider(&provider), cx);
     }
 
+    pub(crate) fn add_provider_header(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(editor) = &mut self.settings_ui.provider_editor {
+            editor.add_header(window, cx);
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn remove_provider_header(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some(editor) = &mut self.settings_ui.provider_editor {
+            editor.remove_header(index);
+            cx.notify();
+        }
+    }
+
     pub(crate) fn save_provider(&mut self, cx: &mut Context<Self>) {
         let Some(editor) = &self.settings_ui.provider_editor else {
             return;

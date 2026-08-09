@@ -13,6 +13,25 @@ pub(crate) use items::{
 pub(crate) use mcp::{McpServerEditor, McpServerEditorMode, McpServerTransportEditor};
 pub(crate) use prompt::PromptPresetEditor;
 
+pub(crate) struct KeyValueEditor {
+    pub name: Entity<InputState>,
+    pub value: Entity<InputState>,
+}
+
+impl KeyValueEditor {
+    fn new(
+        name: impl Into<String>,
+        value: impl Into<String>,
+        window: &mut Window,
+        cx: &mut Context<OneChat>,
+    ) -> Self {
+        Self {
+            name: single_line_input(name, "Name", window, cx),
+            value: single_line_input(value, "Value", window, cx),
+        }
+    }
+}
+
 fn single_line_input(
     value: impl Into<String>,
     placeholder: &'static str,

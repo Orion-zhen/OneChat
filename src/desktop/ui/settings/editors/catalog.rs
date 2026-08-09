@@ -6,7 +6,7 @@ pub struct ProviderEditor {
     pub name: Entity<InputState>,
     pub endpoint: Entity<InputState>,
     pub api_key: Entity<InputState>,
-    pub headers: Entity<InputState>,
+    pub headers: Vec<KeyValueEditor>,
     pub proxy: Entity<InputState>,
 }
 
@@ -19,7 +19,12 @@ impl ProviderEditor {
             .iter()
             .position(|kind| *kind == value.kind)
             .map(IndexPath::new);
-        let headers = serde_json::to_string_pretty(&value.headers).unwrap_or_else(|_| "{}".into());
+        let mut headers = value
+            .headers
+            .into_iter()
+            .map(|(name, value)| KeyValueEditor::new(name, value, window, cx))
+            .collect::<Vec<_>>();
+        headers.push(KeyValueEditor::new("", "", window, cx));
         Self {
             original: provider,
             kind: cx.new(|cx| {
@@ -41,7 +46,7 @@ impl ProviderEditor {
                     .placeholder("API key")
                     .masked(true)
             }),
-            headers: multiline_input(headers, "Custom headers JSON", window, cx),
+            headers,
             proxy: single_line_input(
                 value.proxy.unwrap_or_default(),
                 "Optional proxy URL",
@@ -79,10 +84,39 @@ impl ProviderEditor {
             return Err("Endpoint is required for an OpenAI-compatible provider.".into());
         }
         provider.api_key = self.api_key.read(cx).value().trim().to_string();
-        provider.headers = parse_headers(self.headers.read(cx).value().as_ref())?;
+        provider.headers.clear();
+        for header in &self.headers {
+            let name = header.name.read(cx).value().trim().to_string();
+            let value = header.value.read(cx).value().to_string();
+            if name.is_empty() && value.is_empty() {
+                continue;
+            }
+            if name.is_empty() {
+                return Err("Custom header name is required.".into());
+            }
+            if provider.headers.insert(name.clone(), value).is_some() {
+                return Err(format!("Custom header {name} is duplicated."));
+            }
+        }
         provider.proxy = nonempty(self.proxy.read(cx).value().as_ref());
         provider.updated_at = now_timestamp();
         Ok(provider)
+    }
+
+    pub fn add_header(&mut self, window: &mut Window, cx: &mut Context<OneChat>) {
+        if self
+            .headers
+            .last()
+            .is_some_and(|header| !header.name.read(cx).value().trim().is_empty())
+        {
+            self.headers.push(KeyValueEditor::new("", "", window, cx));
+        }
+    }
+
+    pub fn remove_header(&mut self, index: usize) {
+        if index + 1 < self.headers.len() {
+            self.headers.remove(index);
+        }
     }
 
     pub fn select_kind(

@@ -338,13 +338,6 @@ fn prompt_preview(prompt: &str) -> String {
     }
 }
 
-fn parse_headers(value: &str) -> Result<BTreeMap<String, String>, String> {
-    if value.trim().is_empty() {
-        return Ok(BTreeMap::new());
-    }
-    serde_json::from_str(value).map_err(|error| format!("Invalid headers JSON: {error}"))
-}
-
 fn nonempty(value: &str) -> Option<String> {
     let value = value.trim();
     (!value.is_empty()).then(|| value.to_string())
