@@ -121,20 +121,12 @@ pub(super) fn mcp_page(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
             .path
             .as_ref()
             .map(|path| path.display().to_string())
-            .unwrap_or_else(|| "Not found in the system execution PATH".to_string());
+            .unwrap_or_else(|| "Not found in PATH".to_string());
         configuration = configuration
-            .child(setting_row(
+            .child(mcp_executable_row(
                 &executable.name,
                 &detail,
-                status_pill(
-                    if executable.path.is_some() {
-                        "Available"
-                    } else {
-                        "Missing"
-                    },
-                    executable.path.is_some(),
-                    cx,
-                ),
+                executable.path.is_some(),
                 cx,
             ))
             .when(index + 1 < snapshot.executables.len(), |content| {
@@ -929,6 +921,42 @@ pub(super) fn system_prompts_page(app: &OneChat, cx: &mut Context<OneChat>) -> A
                 cx,
             )),
     )
+}
+
+fn mcp_executable_row(name: &str, path: &str, available: bool, cx: &App) -> AnyElement {
+    div()
+        .w_full()
+        .min_h(px(44.0))
+        .px_4()
+        .py_2()
+        .flex()
+        .items_center()
+        .gap_3()
+        .child(
+            div()
+                .w(px(64.0))
+                .flex_none()
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(name.to_string()),
+        )
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .text_size(px(12.0))
+                .text_color(cx.theme().muted_foreground)
+                .child(path.to_string()),
+        )
+        .child(status_pill(
+            if available { "Available" } else { "Missing" },
+            available,
+            cx,
+        ))
+        .into_any_element()
 }
 
 fn status_pill(label: impl Into<SharedString>, accent: bool, cx: &App) -> AnyElement {

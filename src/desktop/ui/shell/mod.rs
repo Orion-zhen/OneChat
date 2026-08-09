@@ -28,7 +28,8 @@ use super::{
 use crate::{
     desktop::app::{ConnectionTestStatus, OneChat, Page, PendingFocus},
     desktop::ui::{chat, inspector, settings},
-    domain::{AutoTitleState, Conversation, ToolSelection},
+    domain::{AutoTitleState, Conversation},
+    mcp::McpServerStatus,
 };
 
 actions!(
@@ -344,9 +345,22 @@ fn render_top_bar(
     let can_choose_prompt = current_conversation.is_some() && !app.is_current_generating();
     let tool_label = current_conversation.map_or_else(
         || "Tools".to_string(),
-        |conversation| match &conversation.tool_selection {
-            ToolSelection::Default => "Default".to_string(),
-            ToolSelection::Only(tools) => format!("{} selected", tools.len()),
+        |conversation| {
+            let selected_count = app
+                .mcp
+                .snapshot
+                .servers
+                .iter()
+                .filter(|server| server.enabled && server.status == McpServerStatus::Ready)
+                .flat_map(|server| {
+                    server.tools.iter().filter(move |tool| {
+                        conversation
+                            .tool_selection
+                            .resolves(&server.id, &tool.name, tool.enabled)
+                    })
+                })
+                .count();
+            format!("{selected_count} selected")
         },
     );
     let (connection, connection_color) = provider.map_or(

@@ -832,7 +832,7 @@ async fn close_sessions(sessions: BTreeMap<String, ServerSession>) {
 }
 
 fn executable_snapshots(environment: &ExecutionEnvironment) -> Vec<McpExecutableSnapshot> {
-    ["npx", "uv"]
+    ["npx", "uv", "docker"]
         .into_iter()
         .map(|name| McpExecutableSnapshot {
             name: name.to_string(),
