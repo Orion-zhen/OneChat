@@ -77,11 +77,7 @@ fn render_sent_image(
         .overflow_hidden()
         .rounded(px(16.0))
         .border_1()
-        .border_color(if cx.theme().is_dark() {
-            rgba(0xffffff26)
-        } else {
-            rgba(0x0000001f)
-        })
+        .border_color(crate::desktop::ui::theme::palette(cx).media_border)
         .bg(muted)
         .shadow_xs()
         .child(
@@ -194,8 +190,8 @@ fn render_sent_file(
                     .overflow_hidden()
                     .rounded(px(9.0))
                     .border_1()
-                    .border_color(rgba(0x0000001f))
-                    .bg(rgba(0xffffffff))
+                    .border_color(crate::desktop::ui::theme::palette(cx).document_border)
+                    .bg(crate::desktop::ui::theme::palette(cx).document_background)
                     .shadow_xs()
                     .child(img(path).size_full().object_fit(ObjectFit::Contain))
                     .into_any_element()

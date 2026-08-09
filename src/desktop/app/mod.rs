@@ -280,7 +280,7 @@ pub struct OneChat {
     pub(crate) overlays: OverlayState,
     pub(crate) chat: ChatState,
     pub(crate) settings_ui: SettingsState,
-    pub(crate) applied_component_theme: Option<gpui_component::ThemeMode>,
+    pub(crate) applied_component_theme: Option<(gpui_component::ThemeMode, String)>,
 }
 
 impl OneChat {

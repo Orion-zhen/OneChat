@@ -15,6 +15,13 @@ pub(in crate::desktop::ui::settings) fn general_page(
             cx,
         ))
         .child(setting_divider(cx))
+        .child(setting_row(
+            "Theme Color",
+            "Personalize controls, links, selections, and your messages.",
+            theme_color_picker(app, cx),
+            cx,
+        ))
+        .child(setting_divider(cx))
         .child(setting_row_with_preview(
             "Interface Font",
             font_preview(FontRole::Ui, cx),

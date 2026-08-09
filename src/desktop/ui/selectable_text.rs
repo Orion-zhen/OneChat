@@ -4,7 +4,7 @@ use gpui::{
     App, Bounds, ClipboardItem, CursorStyle, Element, ElementId, FocusHandle, FontWeight,
     GlobalElementId, HighlightStyle, Hitbox, HitboxBehavior, InspectorElementId, IntoElement,
     KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad,
-    Pixels, Point, Rgba, SharedString, StyledText, TextStyle, Window, fill, rgba, size,
+    Pixels, Point, Rgba, SharedString, StyledText, TextStyle, Window, fill, size,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -243,12 +243,8 @@ impl TextSelection {
     }
 }
 
-pub(crate) fn selection_color(dark: bool) -> Rgba {
-    if dark {
-        rgba(0x0a84ff52)
-    } else {
-        rgba(0x007aff38)
-    }
+pub(crate) fn selection_color(cx: &App) -> Rgba {
+    crate::desktop::ui::theme::palette(cx).selection.into()
 }
 
 impl SelectableText {

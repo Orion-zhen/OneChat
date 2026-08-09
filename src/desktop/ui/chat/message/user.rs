@@ -181,7 +181,7 @@ fn render_user_message(
             )
             .into_any_element()
     } else {
-        let palette = crate::desktop::ui::theme::user_message_palette(cx);
+        let palette = crate::desktop::ui::theme::palette(cx).user_message;
         div()
             .max_w(px(user_message_max_width))
             .min_w_0()

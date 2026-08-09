@@ -1,4 +1,7 @@
+use std::time::Duration;
+
 use gpui::Context;
+use gpui_component::Colorize as _;
 
 use crate::{
     desktop::app::{FontRole, OneChat},
@@ -6,6 +9,40 @@ use crate::{
 };
 
 impl OneChat {
+    pub(crate) fn update_theme_color_from_controls(&mut self, cx: &mut Context<Self>) {
+        let color = self.settings_ui.theme_color.color(cx);
+        self.set_theme_color(color.to_hex(), cx);
+    }
+
+    pub(crate) fn reset_theme_color(&mut self, cx: &mut Context<Self>) {
+        self.set_theme_color(crate::domain::DEFAULT_THEME_COLOR.into(), cx);
+    }
+
+    pub(crate) fn set_theme_color(&mut self, color: String, cx: &mut Context<Self>) {
+        let color = crate::desktop::ui::theme::parse_theme_color(&color)
+            .to_hex()
+            .to_string()
+            .to_uppercase();
+        if self.data.snapshot.settings.theme_color == color {
+            return;
+        }
+        self.data.snapshot.settings.theme_color = color;
+        self.settings_ui.theme_color_save_revision =
+            self.settings_ui.theme_color_save_revision.wrapping_add(1);
+        let revision = self.settings_ui.theme_color_save_revision;
+        let timer = cx.background_executor().timer(Duration::from_millis(350));
+        cx.spawn(async move |this, cx| {
+            timer.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.settings_ui.theme_color_save_revision == revision {
+                    this.save_settings(cx);
+                }
+            });
+        })
+        .detach();
+        cx.notify();
+    }
+
     fn font_families(&self, role: FontRole) -> &[String] {
         match role {
             FontRole::Ui => &self.data.snapshot.settings.ui_font_families,

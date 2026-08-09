@@ -1,6 +1,9 @@
 use super::*;
 
 pub(crate) fn sync_controls(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>) {
+    let theme_color = crate::desktop::ui::theme::parse_theme_color(&app.settings().theme_color);
+    app.settings_ui.theme_color.sync(theme_color, window, cx);
+
     let message_font_size = app.settings().message_font_size();
     if (app
         .settings_ui

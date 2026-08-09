@@ -13,7 +13,7 @@ use std::time::Duration;
 use gpui::{
     Animation, AnimationExt as _, AnyElement, App, BoxShadow, Context, ElementId, FontWeight,
     MouseButton, ObjectFit, Role, SharedString, StyledImage as _, div, ease_out_quint, img, point,
-    prelude::*, px, rgba,
+    prelude::*, px,
 };
 use gpui_component::{
     ActiveTheme as _, Disableable as _, Selectable as _,
@@ -223,23 +223,9 @@ pub(crate) fn render(
         .child(messages)
         .children(timeline)
         .children((jump_to_latest_progress > 0.0).then(|| {
-            let dark = cx.theme().is_dark();
-            let glass = if dark {
-                rgba(0x2c2c2ef2)
-            } else {
-                rgba(0xfffffff2)
-            };
-            let glass_border = if dark {
-                rgba(0xffffff38)
-            } else {
-                rgba(0x3c3c4326)
-            };
+            let palette = crate::desktop::ui::theme::palette(cx);
             let glass_shadow = vec![BoxShadow {
-                color: if dark {
-                    rgba(0x0000005c).into()
-                } else {
-                    rgba(0x1d1d1f24).into()
-                },
+                color: palette.floating_shadow,
                 offset: point(px(0.0), px(6.0)),
                 blur_radius: px(18.0),
                 spread_radius: px(-7.0),
@@ -260,9 +246,9 @@ pub(crate) fn render(
                             .rounded(px(20.0))
                             .h(px(40.0))
                             .px_3()
-                            .bg(glass)
+                            .bg(palette.floating_glass)
                             .border_1()
-                            .border_color(glass_border)
+                            .border_color(palette.floating_border)
                             .shadow(glass_shadow)
                             .flex()
                             .items_center()

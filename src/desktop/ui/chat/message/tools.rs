@@ -82,11 +82,7 @@ fn render_tool_execution(
                     div()
                         .rounded_full()
                         .bg(if danger {
-                            if cx.theme().is_dark() {
-                                rgba(0xff453a24).into()
-                            } else {
-                                rgba(0xd7001518).into()
-                            }
+                            crate::desktop::ui::theme::palette(cx).danger_soft
                         } else {
                             cx.theme().secondary
                         })
@@ -207,7 +203,7 @@ fn tool_detail(
                     SharedString::from(format!("tool-{}-{}", label.to_lowercase(), execution_id)),
                     content,
                     app.chat.text_selection.clone(),
-                    selection_color(cx.theme().is_dark()),
+                    selection_color(cx),
                 )),
         )
         .into_any_element()

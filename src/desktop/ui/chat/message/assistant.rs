@@ -472,11 +472,7 @@ fn status_badge(status: MessageStatus, typography: MessageTypography, cx: &App) 
     div()
         .rounded_full()
         .bg(if danger {
-            if cx.theme().is_dark() {
-                rgba(0xff453a24).into()
-            } else {
-                rgba(0xd7001518).into()
-            }
+            crate::desktop::ui::theme::palette(cx).danger_soft
         } else {
             cx.theme().muted
         })
@@ -524,11 +520,7 @@ fn render_error_card(
         div()
             .mt_4()
             .rounded_xl()
-            .bg(if cx.theme().is_dark() {
-                rgba(0xff453a16)
-            } else {
-                rgba(0xd700150d)
-            })
+            .bg(crate::desktop::ui::theme::palette(cx).danger_subtle)
             .p_4()
             .flex()
             .flex_col()

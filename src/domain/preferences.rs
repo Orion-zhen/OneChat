@@ -24,6 +24,7 @@ pub const DEFAULT_MESSAGE_FONT_SIZE: f32 = 16.0;
 pub const MIN_MESSAGE_FONT_SIZE: f32 = 13.0;
 pub const MAX_MESSAGE_FONT_SIZE: f32 = 22.0;
 pub const DEFAULT_BACKGROUND_OPACITY: f32 = 0.8;
+pub const DEFAULT_THEME_COLOR: &str = "#007AFF";
 pub const MIN_BACKGROUND_OPACITY: f32 = 0.0;
 pub const MAX_BACKGROUND_OPACITY: f32 = 1.0;
 pub const DEFAULT_UI_FONT_FAMILY: &str = ".SystemUIFont";
@@ -61,6 +62,7 @@ pub struct AppSettings {
     pub send_message_shortcut: SendMessageShortcut,
     pub sidebar_collapsed: bool,
     pub theme: Theme,
+    pub theme_color: String,
     pub ui_font_families: Vec<String>,
     pub code_font_families: Vec<String>,
     pub code_block_wrap: bool,
@@ -109,6 +111,7 @@ impl Default for AppSettings {
             send_message_shortcut: SendMessageShortcut::default(),
             sidebar_collapsed: false,
             theme: Theme::default(),
+            theme_color: DEFAULT_THEME_COLOR.into(),
             ui_font_families: vec![DEFAULT_UI_FONT_FAMILY.into()],
             code_font_families: vec![DEFAULT_CODE_FONT_FAMILY.into()],
             code_block_wrap: false,

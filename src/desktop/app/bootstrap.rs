@@ -27,14 +27,14 @@ use crate::{
         selectable_text::TextSelection,
         settings::{
             DefaultModelItem, FontFamilyItem, PromptSelectItem, ReasoningPresetSelectItem,
-            SearchableItems, SettingsSection,
+            SearchableItems, SettingsSection, ThemeColorControl,
         },
         shell::{
             CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate,
             ReasoningPickerDelegate,
         },
     },
-    domain::{AppSettings, Theme},
+    domain::AppSettings,
     mcp::{McpManager, McpSnapshot},
     storage::{Storage, StorageSnapshot},
 };
@@ -49,10 +49,7 @@ impl OneChat {
     ) -> Self {
         let root_focus = cx.focus_handle();
         let timeline_focus = cx.focus_handle().tab_stop(true);
-        let applied_component_theme = Some(crate::desktop::ui::theme::component_mode(
-            Theme::System,
-            window.appearance(),
-        ));
+        let applied_component_theme = None;
         let search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
         cx.subscribe(&search_input, |_, _, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Change) {
@@ -146,6 +143,8 @@ impl OneChat {
             },
         )
         .detach();
+
+        let theme_color = ThemeColorControl::new(window, cx);
 
         let message_width_slider = cx.new(|_| {
             SliderState::new()
@@ -394,6 +393,8 @@ impl OneChat {
                 section: SettingsSection::default(),
                 ui_font_select,
                 code_font_select,
+                theme_color,
+                theme_color_save_revision: 0,
                 message_font_size_slider,
                 background_opacity_slider,
                 message_width_slider,

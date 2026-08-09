@@ -6,6 +6,7 @@ mod navigation;
 mod pages;
 mod providers;
 mod reasoning;
+mod theme_color;
 
 pub(crate) use controls::sync_controls;
 pub(crate) use dialog::prompt_preset_dialog;
@@ -26,6 +27,8 @@ pub(crate) use reasoning::{
     ReasoningParameterPathEditor, ReasoningParameterScope, ReasoningParameterType,
     default_reasoning_format,
 };
+pub(crate) use theme_color::ThemeColorControl;
+use theme_color::theme_color_picker;
 
 use std::{
     collections::{BTreeMap, BTreeSet},

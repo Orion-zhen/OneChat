@@ -25,7 +25,7 @@ The crate keeps reusable code independent from the GPUI desktop shell:
 - `markdown`: UI-independent Markdown AST, parsing, and formula rendering
 - `desktop`: GPUI coordination and feature-oriented chat, settings, inspector, and shell presentation
 
-The desktop shell starts through `gpui_platform`, installs `gpui_component_assets`, and wraps each window in `gpui_component::Root`. Standard inputs, buttons, pickers, dialogs, forms, tabs, switches, sliders, alerts, and notifications come from `gpui-component`. `desktop/ui/theme.rs` is the single bridge from OneChat appearance settings to component theme tokens, while `desktop/ui/icons.rs` maps product semantics to component or Lucide icons. Chat layout, glass materials, product motion, Markdown/LaTeX rendering, and cross-node message selection remain OneChat-owned.
+The desktop shell starts through `gpui_platform`, installs `gpui_component_assets`, and wraps each window in `gpui_component::Root`. Standard inputs, buttons, pickers, dialogs, forms, tabs, switches, sliders, alerts, and notifications come from `gpui-component`. `desktop/ui/theme.rs` is the semantic color center: it generates light and dark palettes from the configured theme color, feeds component theme tokens, and owns product-specific message, Markdown, status, media, glass, and selection colors. `desktop/ui/icons.rs` maps product semantics to component or Lucide icons. Chat layout, glass materials, product motion, Markdown/LaTeX rendering, and cross-node message selection remain OneChat-owned.
 
 `src/main.rs` only starts `desktop::run()`. Another UI or CLI can reuse the library modules without depending on desktop internals.
 

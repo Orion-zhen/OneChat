@@ -151,7 +151,7 @@ pub(crate) fn render_picker_overlay(
         .rounded(px(22.0))
         .border_1()
         .border_color(cx.theme().border)
-        .bg(cx.theme().popover.alpha(0.95))
+        .bg(crate::desktop::ui::theme::palette(cx).overlay_panel)
         .shadow_xl()
         .flex()
         .flex_col()
@@ -243,7 +243,7 @@ fn picker_dialog(
         .p(px(22.0))
         .rounded(px(22.0))
         .border_color(cx.theme().border)
-        .bg(cx.theme().popover.alpha(0.95))
+        .bg(crate::desktop::ui::theme::palette(cx).overlay_panel)
         .shadow_xl()
         .close_button(false)
         .title(

@@ -139,6 +139,8 @@ pub(crate) struct SettingsState {
     pub(crate) section: SettingsSection,
     pub(crate) ui_font_select: Entity<SelectState<SearchableItems<FontFamilyItem>>>,
     pub(crate) code_font_select: Entity<SelectState<SearchableItems<FontFamilyItem>>>,
+    pub(crate) theme_color: crate::desktop::ui::settings::ThemeColorControl,
+    pub(crate) theme_color_save_revision: u64,
     pub(crate) message_font_size_slider: Entity<SliderState>,
     pub(crate) background_opacity_slider: Entity<SliderState>,
     pub(crate) message_width_slider: Entity<SliderState>,

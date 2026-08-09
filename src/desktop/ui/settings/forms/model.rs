@@ -689,7 +689,7 @@ fn capability_group(
                 .toggled(enabled)
                 .when(enabled, |button| {
                     button
-                        .border_color(cx.theme().primary.opacity(0.35))
+                        .border_color(crate::desktop::ui::theme::palette(cx).accent_border)
                         .text_color(cx.theme().primary)
                 })
                 .on_click(cx.listener(move |this, _, _, cx| {

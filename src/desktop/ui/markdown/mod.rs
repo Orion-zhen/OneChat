@@ -4,7 +4,6 @@ use std::{
 };
 
 use gpui::{AnyElement, App, Hsla, Rgba, SharedString, div, prelude::*, px};
-use gpui_component::ActiveTheme as _;
 
 use super::selectable_text::{SelectableText, TextSelection, selection_color};
 use super::typography::MessageTypography;
@@ -31,35 +30,28 @@ struct MarkdownPalette {
 
 impl MarkdownPalette {
     fn assistant(cx: &App) -> Self {
-        let foreground = cx.theme().foreground;
-        let accent = cx.theme().primary;
+        let palette = crate::desktop::ui::theme::palette(cx);
         Self {
-            foreground,
-            muted_foreground: cx.theme().muted_foreground,
-            accent,
-            soft_emphasis: foreground.blend(accent.alpha(0.3)),
-            border: cx.theme().border,
-            surface: cx.theme().muted,
-            selection: selection_color(cx.theme().is_dark()),
+            foreground: palette.foreground,
+            muted_foreground: palette.muted_foreground,
+            accent: palette.link,
+            soft_emphasis: palette.emphasis,
+            border: palette.border,
+            surface: palette.raised,
+            selection: selection_color(cx),
         }
     }
 
     fn user(cx: &App) -> Self {
-        let palette = crate::desktop::ui::theme::user_message_palette(cx);
-        let foreground = palette.foreground.into();
-        let accent = palette.accent.into();
+        let palette = crate::desktop::ui::theme::palette(cx).user_message;
         Self {
-            foreground,
-            muted_foreground: palette.muted_foreground.into(),
-            accent,
-            soft_emphasis: foreground.blend(accent.alpha(if cx.theme().is_dark() {
-                0.4
-            } else {
-                0.28
-            })),
-            border: palette.border.into(),
-            surface: palette.surface.into(),
-            selection: palette.selection,
+            foreground: palette.foreground,
+            muted_foreground: palette.muted_foreground,
+            accent: palette.link,
+            soft_emphasis: palette.emphasis,
+            border: palette.border,
+            surface: palette.surface,
+            selection: palette.selection.into(),
         }
     }
 }

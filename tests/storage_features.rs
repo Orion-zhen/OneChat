@@ -108,6 +108,7 @@ fn catalog_settings_and_prompt_presets_round_trip() {
         primary_model_id: Some(model.id.clone()),
         title_generation_model_id: Some(model.id.clone()),
         title_generation_reasoning_preset: Some("low".into()),
+        theme_color: "#AF52DE".into(),
         code_block_wrap: true,
         ..AppSettings::default()
     };
@@ -133,6 +134,7 @@ fn catalog_settings_and_prompt_presets_round_trip() {
     );
     assert_eq!(snapshot.settings.primary_model_id, Some(model.id.clone()));
     assert!(snapshot.settings.code_block_wrap);
+    assert_eq!(snapshot.settings.theme_color, "#AF52DE");
     assert_eq!(
         snapshot
             .settings

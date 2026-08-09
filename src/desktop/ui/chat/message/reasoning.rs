@@ -83,7 +83,7 @@ pub(super) fn render_reasoning(
             SharedString::from(format!("thinking-text-{}", message.id)),
             message.thinking.clone(),
             app.chat.text_selection.clone(),
-            selection_color(cx.theme().is_dark()),
+            selection_color(cx),
         ));
     let body = if let Some(scroll) = scroll.as_ref() {
         body.track_scroll(scroll)

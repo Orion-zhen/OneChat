@@ -133,7 +133,7 @@ pub(crate) fn render(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
         .rounded(px(16.0))
         .border_1()
         .border_color(cx.theme().border)
-        .bg(cx.theme().popover.alpha(0.95))
+        .bg(crate::desktop::ui::theme::palette(cx).overlay_panel)
         .p_4()
         .flex()
         .flex_col()

@@ -150,8 +150,10 @@ fn primary_icon_button(id: impl Into<ElementId>, icon: AppIcon, cx: &App) -> But
 }
 
 pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>) -> AnyElement {
+    let theme_color = app.settings().theme_color.clone();
     component_theme::sync_component_theme(
         app.theme(),
+        &theme_color,
         &mut app.applied_component_theme,
         window,
         cx,
