@@ -129,6 +129,7 @@ fn render_assistant_message(
             &app.chat.text_selection,
             scale_factor,
             typography,
+            app.settings().code_block_wrap,
             cx,
         )
     } else {

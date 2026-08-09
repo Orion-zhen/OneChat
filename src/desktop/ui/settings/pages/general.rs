@@ -30,6 +30,13 @@ pub(in crate::desktop::ui::settings) fn general_page(
         ))
         .child(setting_divider(cx))
         .child(setting_row(
+            "Code Block Wrapping",
+            "Wrap long code lines to fit the message width.",
+            code_block_wrap_toggle(app, cx),
+            cx,
+        ))
+        .child(setting_divider(cx))
+        .child(setting_row(
             "Message Size",
             "Conversation text size; code stays one pixel smaller.",
             message_font_size_slider(app, cx),
@@ -80,6 +87,15 @@ pub(in crate::desktop::ui::settings) fn general_page(
             .child(section("Appearance", None, appearance, cx))
             .child(section("Behavior", None, behavior, cx)),
     )
+}
+
+fn code_block_wrap_toggle(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
+    Switch::new("code-block-wrap-toggle")
+        .small()
+        .checked(app.settings().code_block_wrap)
+        .color(cx.theme().primary)
+        .on_click(cx.listener(|this, _: &bool, _, cx| this.toggle_code_block_wrap(cx)))
+        .into_any_element()
 }
 
 fn auto_title_toggle(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {

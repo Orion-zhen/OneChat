@@ -90,6 +90,7 @@ fn catalog_settings_and_prompt_presets_round_trip() {
         primary_model_id: Some(model.id.clone()),
         title_generation_model_id: Some(model.id.clone()),
         title_generation_reasoning_preset: Some("low".into()),
+        code_block_wrap: true,
         ..AppSettings::default()
     };
     storage.save_settings(&settings).unwrap();
@@ -113,6 +114,7 @@ fn catalog_settings_and_prompt_presets_round_trip() {
         vec![SystemPromptPreset::new("Direct", "Answer directly.")]
     );
     assert_eq!(snapshot.settings.primary_model_id, Some(model.id.clone()));
+    assert!(snapshot.settings.code_block_wrap);
     assert_eq!(
         snapshot
             .settings

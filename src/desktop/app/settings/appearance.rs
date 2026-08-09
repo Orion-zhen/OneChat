@@ -110,6 +110,12 @@ impl OneChat {
         cx.notify();
     }
 
+    pub(crate) fn toggle_code_block_wrap(&mut self, cx: &mut Context<Self>) {
+        self.data.snapshot.settings.code_block_wrap = !self.data.snapshot.settings.code_block_wrap;
+        self.save_settings(cx);
+        cx.notify();
+    }
+
     pub(crate) fn set_send_message_shortcut(
         &mut self,
         shortcut: SendMessageShortcut,

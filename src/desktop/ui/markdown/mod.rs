@@ -53,12 +53,18 @@ impl MarkdownPalette {
     }
 }
 
+struct MarkdownOptions {
+    palette: MarkdownPalette,
+    code_block_wrap: bool,
+}
+
 struct MarkdownContext<'a> {
     message_id: &'a str,
     selection: &'a TextSelection,
     scale_factor: f32,
     typography: MessageTypography,
     palette: MarkdownPalette,
+    code_block_wrap: bool,
     cx: &'a App,
 }
 
@@ -92,6 +98,7 @@ pub(crate) fn render(
     selection: &TextSelection,
     scale_factor: f32,
     typography: MessageTypography,
+    code_block_wrap: bool,
     cx: &App,
 ) -> AnyElement {
     render_with_palette(
@@ -100,7 +107,10 @@ pub(crate) fn render(
         selection,
         scale_factor,
         typography,
-        MarkdownPalette::assistant(cx),
+        MarkdownOptions {
+            palette: MarkdownPalette::assistant(cx),
+            code_block_wrap,
+        },
         cx,
     )
 }
@@ -111,6 +121,7 @@ pub(crate) fn render_user(
     selection: &TextSelection,
     scale_factor: f32,
     typography: MessageTypography,
+    code_block_wrap: bool,
     cx: &App,
 ) -> AnyElement {
     render_with_palette(
@@ -119,7 +130,10 @@ pub(crate) fn render_user(
         selection,
         scale_factor,
         typography,
-        MarkdownPalette::user(cx),
+        MarkdownOptions {
+            palette: MarkdownPalette::user(cx),
+            code_block_wrap,
+        },
         cx,
     )
 }
@@ -130,7 +144,7 @@ fn render_with_palette(
     selection: &TextSelection,
     scale_factor: f32,
     typography: MessageTypography,
-    palette: MarkdownPalette,
+    options: MarkdownOptions,
     cx: &App,
 ) -> AnyElement {
     let context = MarkdownContext {
@@ -138,7 +152,8 @@ fn render_with_palette(
         selection,
         scale_factor,
         typography,
-        palette,
+        palette: options.palette,
+        code_block_wrap: options.code_block_wrap,
         cx,
     };
     let mut text_index = 0;

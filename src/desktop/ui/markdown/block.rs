@@ -142,12 +142,17 @@ pub(super) fn render_block(
                     div()
                         .id(element_key("code", content))
                         .w_full()
-                        .overflow_scroll()
+                        .min_w_0()
+                        .when(context.code_block_wrap, |element| {
+                            element.overflow_hidden().whitespace_normal()
+                        })
+                        .when(!context.code_block_wrap, |element| {
+                            element.overflow_x_scroll().whitespace_nowrap()
+                        })
                         .p_3()
                         .font(theme::code_font(cx))
                         .text_size(px(typography.code_size))
                         .line_height(px(typography.code_line_height))
-                        .whitespace_nowrap()
                         .child(
                             selectable(
                                 message_id,
