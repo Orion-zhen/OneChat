@@ -46,12 +46,23 @@ pub(super) fn general_page(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEleme
             message_width_slider(app, cx),
             cx,
         ));
-    let automation = setting_row(
-        "Automatic Titles",
-        "Generate a title after the first completed response.",
-        auto_title_toggle(app, cx),
-        cx,
-    );
+    let behavior = div()
+        .w_full()
+        .flex()
+        .flex_col()
+        .child(setting_row(
+            "Send Message",
+            "Choose which keyboard shortcut sends the current message.",
+            send_message_shortcut_selector(app, cx),
+            cx,
+        ))
+        .child(setting_divider(cx))
+        .child(setting_row(
+            "Automatic Titles",
+            "Generate a title after the first completed response.",
+            auto_title_toggle(app, cx),
+            cx,
+        ));
 
     detail_page(
         div()
@@ -64,7 +75,7 @@ pub(super) fn general_page(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEleme
                 cx,
             ))
             .child(section("Appearance", None, appearance, cx))
-            .child(section("Automation", None, automation, cx)),
+            .child(section("Behavior", None, behavior, cx)),
     )
 }
 
@@ -553,6 +564,33 @@ fn auto_title_toggle(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
         .checked(app.settings().auto_title_enabled)
         .color(cx.theme().primary)
         .on_click(cx.listener(|this, _: &bool, _, cx| this.toggle_auto_title_enabled(cx)))
+        .into_any_element()
+}
+
+fn send_message_shortcut_selector(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
+    let selected = match app.settings().send_message_shortcut {
+        SendMessageShortcut::Enter => 0,
+        SendMessageShortcut::SecondaryEnter => 1,
+    };
+    let secondary_label = if cfg!(target_os = "macos") {
+        "⌘ Enter"
+    } else {
+        "Ctrl+Enter"
+    };
+    TabBar::new("send-message-shortcut-selector")
+        .segmented()
+        .large()
+        .w(px(300.0))
+        .selected_index(selected)
+        .child(Tab::new().w(px(144.0)).label("Enter"))
+        .child(Tab::new().w(px(144.0)).label(secondary_label))
+        .on_click(cx.listener(|this, index: &usize, _, cx| {
+            let shortcut = [
+                SendMessageShortcut::Enter,
+                SendMessageShortcut::SecondaryEnter,
+            ][*index];
+            this.set_send_message_shortcut(shortcut, cx);
+        }))
         .into_any_element()
 }
 

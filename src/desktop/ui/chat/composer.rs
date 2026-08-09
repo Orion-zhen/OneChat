@@ -109,6 +109,17 @@ pub(super) fn render_composer(
         .bg(cx.theme().popover)
         .shadow_md()
         .capture_action(cx.listener(|this, _: &Paste, _, cx| this.paste_composer_image(cx)))
+        .capture_action(cx.listener(|this, action: &Enter, window, cx| {
+            let send = !action.shift
+                && match this.settings().send_message_shortcut {
+                    SendMessageShortcut::Enter => !action.secondary,
+                    SendMessageShortcut::SecondaryEnter => action.secondary,
+                };
+            if send {
+                cx.stop_propagation();
+                this.send_composer(window, cx);
+            }
+        }))
         .children(attachments)
         .child(
             Input::new(&app.chat.composer)

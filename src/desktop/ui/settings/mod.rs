@@ -51,7 +51,7 @@ use crate::{
     desktop::app::{ConnectionTestStatus, DefaultModelRole, FontRole, OneChat, Page},
     domain::{
         DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, Model, ModelCapabilities, Provider, ProviderKind,
-        SystemPromptPreset, Theme, now_timestamp,
+        SendMessageShortcut, SystemPromptPreset, Theme, now_timestamp,
     },
     mcp::{
         McpConfig, McpHttpServerConfig, McpOAuthConfig, McpOAuthFlow, McpServerConfig,

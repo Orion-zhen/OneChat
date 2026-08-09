@@ -18,7 +18,7 @@ use gpui::{
 use gpui_component::{
     ActiveTheme as _, Disableable as _, Selectable as _,
     button::{Button, ButtonVariants as _},
-    input::{Escape as InputEscape, Input, Paste},
+    input::{Enter, Escape as InputEscape, Input, Paste},
 };
 
 use super::{
@@ -32,7 +32,7 @@ use crate::{
     desktop::app::{COLLAPSED_THINKING_HEIGHT, OneChat, SystemPromptMode},
     domain::{
         AssistantResponse, MAX_MESSAGE_WIDTH_RATIO, MIN_MESSAGE_WIDTH_RATIO, MessageStatus,
-        RequestInfo, ToolExecution, ToolExecutionStatus, Turn,
+        RequestInfo, SendMessageShortcut, ToolExecution, ToolExecutionStatus, Turn,
     },
 };
 

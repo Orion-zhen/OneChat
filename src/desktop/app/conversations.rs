@@ -261,7 +261,7 @@ impl OneChat {
         });
     }
 
-    fn delete_conversation(&mut self, id: String, cx: &mut Context<Self>) {
+    pub(crate) fn delete_conversation(&mut self, id: String, cx: &mut Context<Self>) {
         self.chat.generations.stop(&id);
         let mut settings = self.data.snapshot.settings.clone();
         if settings.current_conversation_id.as_deref() == Some(&id) {

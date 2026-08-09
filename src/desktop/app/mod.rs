@@ -60,8 +60,8 @@ use crate::{
     domain::{
         AppSettings, AssistantResponse, AttachmentDraft, AttachmentDraftFile, AttachmentKind,
         AutoTitleState, Conversation, DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, Message,
-        MessageStatus, Model, Provider, RequestInfo, SystemPromptPreset, Theme, ToolRef,
-        ToolSelection, Turn, active_turns, new_id, now_timestamp, user_branches,
+        MessageStatus, Model, Provider, RequestInfo, SendMessageShortcut, SystemPromptPreset,
+        Theme, ToolRef, ToolSelection, Turn, active_turns, new_id, now_timestamp, user_branches,
     },
     markdown::MarkdownDocument,
     mcp::{McpConfig, McpManager, McpServerConfig, McpSnapshot},
@@ -121,10 +121,6 @@ enum MessageEditorTarget {
 struct MessageEditor {
     target: MessageEditorTarget,
     input: Entity<InputState>,
-}
-
-fn is_composer_submit(event: &InputEvent) -> bool {
-    matches!(event, InputEvent::PressEnter { shift: false, .. })
 }
 
 fn multiline_input(
@@ -346,20 +342,13 @@ impl OneChat {
             InputState::new(window, cx)
                 .auto_grow(1, 8)
                 .soft_wrap(true)
-                .submit_on_enter(true)
                 .placeholder("Message")
         });
-        cx.subscribe_in(
-            &composer,
-            window,
-            |this, _, event: &InputEvent, window, cx| {
-                if is_composer_submit(event) {
-                    this.send_composer(window, cx);
-                } else if matches!(event, InputEvent::Change) {
-                    cx.notify();
-                }
-            },
-        )
+        cx.subscribe_in(&composer, window, |_, _, event: &InputEvent, _, cx| {
+            if matches!(event, InputEvent::Change) {
+                cx.notify();
+            }
+        })
         .detach();
 
         let command_picker =

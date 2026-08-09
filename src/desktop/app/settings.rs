@@ -105,6 +105,19 @@ impl OneChat {
         cx.notify();
     }
 
+    pub(crate) fn set_send_message_shortcut(
+        &mut self,
+        shortcut: SendMessageShortcut,
+        cx: &mut Context<Self>,
+    ) {
+        if self.data.snapshot.settings.send_message_shortcut == shortcut {
+            return;
+        }
+        self.data.snapshot.settings.send_message_shortcut = shortcut;
+        self.save_settings(cx);
+        cx.notify();
+    }
+
     pub(crate) fn select_settings_section(
         &mut self,
         section: SettingsSection,

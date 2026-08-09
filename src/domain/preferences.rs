@@ -9,6 +9,14 @@ pub enum Theme {
     Dark,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SendMessageShortcut {
+    Enter,
+    #[default]
+    SecondaryEnter,
+}
+
 pub const DEFAULT_MESSAGE_WIDTH_RATIO: f32 = 0.7;
 pub const MIN_MESSAGE_WIDTH_RATIO: f32 = 0.5;
 pub const MAX_MESSAGE_WIDTH_RATIO: f32 = 1.0;
@@ -49,6 +57,7 @@ pub struct AppSettings {
     pub primary_model_id: Option<String>,
     pub title_generation_model_id: Option<String>,
     pub auto_title_enabled: bool,
+    pub send_message_shortcut: SendMessageShortcut,
     pub sidebar_collapsed: bool,
     pub theme: Theme,
     pub ui_font_families: Vec<String>,
@@ -94,6 +103,7 @@ impl Default for AppSettings {
             primary_model_id: None,
             title_generation_model_id: None,
             auto_title_enabled: true,
+            send_message_shortcut: SendMessageShortcut::default(),
             sidebar_collapsed: false,
             theme: Theme::default(),
             ui_font_families: vec![DEFAULT_UI_FONT_FAMILY.into()],

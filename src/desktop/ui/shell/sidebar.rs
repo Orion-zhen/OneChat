@@ -238,9 +238,15 @@ fn render_conversation_row(
                     IconTone::Danger,
                     cx,
                 )
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.request_delete_conversation(delete_id.clone(), window, cx)
-                })),
+                .on_click(cx.listener(
+                    move |this, event: &gpui::ClickEvent, window, cx| {
+                        if event.modifiers().secondary() {
+                            this.delete_conversation(delete_id.clone(), cx);
+                        } else {
+                            this.request_delete_conversation(delete_id.clone(), window, cx);
+                        }
+                    },
+                )),
             );
     }
 
