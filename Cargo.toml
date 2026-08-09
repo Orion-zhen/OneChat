@@ -57,6 +57,9 @@ two-face = "*"
 unicode-segmentation = "*"
 unicode-linebreak = "*"
 
+[dev-dependencies]
+tempfile = "*"
+
 [target.'cfg(unix)'.dependencies]
 libc = "*"
 
