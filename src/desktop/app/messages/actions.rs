@@ -120,14 +120,10 @@ impl OneChat {
         cx.write_to_clipboard(ClipboardItem::new_string(content));
     }
 
-    pub(crate) fn user_message_editor(&self, turn: &Turn) -> Option<Entity<InputState>> {
-        self.chat
-            .message_editor
-            .as_ref()
-            .filter(
-                |editor| matches!(&editor.target, MessageEditorTarget::User(id) if id == &turn.id),
-            )
-            .map(|editor| editor.input.clone())
+    pub(crate) fn user_message_editor(&self, turn: &Turn) -> Option<&MessageEditor> {
+        self.chat.message_editor.as_ref().filter(
+            |editor| matches!(&editor.target, MessageEditorTarget::User(id) if id == &turn.id),
+        )
     }
 
     pub(crate) fn assistant_message_editor(
@@ -159,13 +155,13 @@ impl OneChat {
         if self.is_current_generating() || self.chat.message_editor.is_some() {
             return;
         }
-        let Some(content) = self
+        let Some((content, attachments)) = self
             .data
             .snapshot
             .current_turns
             .iter()
             .find(|turn| turn.id == turn_id)
-            .map(|turn| turn.user.content.clone())
+            .map(|turn| (turn.user.content.clone(), turn.user.attachments.clone()))
         else {
             return;
         };
@@ -179,6 +175,10 @@ impl OneChat {
         self.chat.message_editor = Some(MessageEditor {
             target: MessageEditorTarget::User(turn_id),
             input,
+            attachments,
+            attachment_drafts: Vec::new(),
+            attachment_previews: Default::default(),
+            attachment_load_id: None,
         });
         self.navigation.pending_focus = Some(PendingFocus::MessageEditor);
         cx.notify();
@@ -209,6 +209,10 @@ impl OneChat {
         self.chat.message_editor = Some(MessageEditor {
             target: MessageEditorTarget::Assistant(response_id),
             input,
+            attachments: Vec::new(),
+            attachment_drafts: Vec::new(),
+            attachment_previews: Default::default(),
+            attachment_load_id: None,
         });
         self.navigation.pending_focus = Some(PendingFocus::MessageEditor);
         cx.notify();
@@ -226,7 +230,12 @@ impl OneChat {
         ) else {
             return;
         };
+        if editor.attachment_load_id.is_some() {
+            return;
+        }
         let content = editor.input.read(cx).value().trim().to_string();
+        let retained_attachments = editor.attachments.clone();
+        let attachment_drafts = editor.attachment_drafts.clone();
         let Some(turn) = self
             .data
             .snapshot
@@ -237,12 +246,15 @@ impl OneChat {
         else {
             return;
         };
-        if content.is_empty() && turn.user.attachments.is_empty() {
+        if content.is_empty() && retained_attachments.is_empty() && attachment_drafts.is_empty() {
             self.data.error = Some("User messages cannot be empty.".into());
             cx.notify();
             return;
         }
-        if content == turn.user.content {
+        if content == turn.user.content
+            && retained_attachments == turn.user.attachments
+            && attachment_drafts.is_empty()
+        {
             self.cancel_message_edit(cx);
             return;
         }
@@ -255,11 +267,12 @@ impl OneChat {
             }
         };
         if !model.capabilities.vision
-            && turn
-                .user
-                .attachments
+            && (retained_attachments
                 .iter()
                 .any(|attachment| attachment.kind != AttachmentKind::Text)
+                || attachment_drafts
+                    .iter()
+                    .any(|attachment| attachment.kind != AttachmentKind::Text))
         {
             self.data.error = Some(
                 "The selected model cannot use the image or PDF attachments on this message."
@@ -268,6 +281,20 @@ impl OneChat {
             cx.notify();
             return;
         }
+        let new_attachments = match self
+            .services
+            .storage
+            .store_attachments(&conversation.id, &attachment_drafts)
+        {
+            Ok(attachments) => attachments,
+            Err(error) => {
+                self.data.error = Some(format!("Could not save attachments: {error}"));
+                cx.notify();
+                return;
+            }
+        };
+        let mut attachments = retained_attachments;
+        attachments.extend(new_attachments.clone());
         let storage = self.services.storage.clone();
         let conversation_id = conversation.id.clone();
         let user_message = |user: &crate::domain::UserMessage| {
@@ -281,16 +308,21 @@ impl OneChat {
             &model,
             &self.data.snapshot.current_turns,
             turn.parent_response_id,
-            crate::domain::UserMessage::new(content, turn.user.attachments),
+            crate::domain::UserMessage::new(content, attachments),
             &user_message,
         ) {
             Ok(prepared) => prepared,
             Err(error) => {
+                let _ = self
+                    .services
+                    .storage
+                    .remove_attachments(&conversation.id, &new_attachments);
                 self.data.error = Some(format!("Could not load attachments: {error}"));
                 cx.notify();
                 return;
             }
-        };
+        }
+        .with_new_attachments(new_attachments);
         self.chat.message_editor = None;
         self.navigation.pending_focus = Some(PendingFocus::Composer);
         self.begin_prepared_generation(prepared, cx);

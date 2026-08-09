@@ -39,11 +39,20 @@ fn render_user_message(
     let content = if let Some(editor) = editor {
         let save_id = turn.id.clone();
         let save_on_mouse_down_id = save_id.clone();
-        let width = user_editor_width(
-            &editor.read(cx).value(),
-            user_message_max_width,
-            typography.body_size,
-        );
+        let add_id = turn.id.clone();
+        let editor_input = editor.input.clone();
+        let attachment_count = editor.attachments.len() + editor.attachment_drafts.len();
+        let attachments_loading = editor.attachment_load_id.is_some();
+        let has_attachments = attachment_count > 0 || attachments_loading;
+        let width = if has_attachments {
+            user_message_max_width
+        } else {
+            user_editor_width(
+                &editor_input.read(cx).value(),
+                user_message_max_width,
+                typography.body_size,
+            )
+        };
         div()
             .w(px(width))
             .rounded(px(18.0))
@@ -51,6 +60,33 @@ fn render_user_message(
             .border_color(cx.theme().border)
             .bg(cx.theme().popover)
             .p_3()
+            .children(has_attachments.then(|| {
+                div()
+                    .id(SharedString::from(format!(
+                        "edit-user-attachments-{}",
+                        turn.id
+                    )))
+                    .w_full()
+                    .min_w_0()
+                    .overflow_x_scroll()
+                    .restrict_scroll_to_axis()
+                    .pb_3()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .children(editor.attachments.iter().map(|attachment| {
+                        render_edit_stored_attachment(app, &turn.id, attachment, cx)
+                    }))
+                    .children(editor.attachment_drafts.iter().map(|attachment| {
+                        render_edit_draft_attachment(
+                            &turn.id,
+                            attachment,
+                            editor.attachment_previews.get(&attachment.id).cloned(),
+                            cx,
+                        )
+                    }))
+                    .children(attachments_loading.then(|| render_edit_attachment_loading(cx)))
+            }))
             .child(
                 div()
                     .w_full()
@@ -64,7 +100,7 @@ fn render_user_message(
                         cx.listener(|this, _: &InputEscape, _, cx| this.cancel_message_edit(cx)),
                     )
                     .child(
-                        Input::new(&editor)
+                        Input::new(&editor_input)
                             .aria_label("Edit user message")
                             .bg(cx.theme().muted)
                             .text_size(px(typography.body_size))
@@ -76,40 +112,69 @@ fn render_user_message(
                     .pt_3()
                     .flex()
                     .items_center()
-                    .justify_end()
+                    .justify_between()
                     .gap_2()
                     .child(
-                        large_icon_button(
-                            SharedString::from(format!("cancel-edit-user-{}", turn.id)),
-                            AppIcon::Close,
-                            IconTone::Muted,
-                            cx,
+                        Button::new(SharedString::from(format!(
+                            "add-edit-user-attachment-{}",
+                            turn.id
+                        )))
+                        .ghost()
+                        .rounded(px(18.0))
+                        .tooltip("Add attachment")
+                        .size(px(36.0))
+                        .p_0()
+                        .disabled(
+                            attachments_loading
+                                || attachment_count
+                                    >= crate::application::attachments::MAX_ATTACHMENTS,
                         )
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _, _, cx| {
-                                this.cancel_message_edit(cx);
-                                cx.stop_propagation();
-                            }),
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| this.cancel_message_edit(cx))),
+                        .child(render_icon(AppIcon::Plus, IconTone::Muted, 20.0, cx))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.add_message_edit_attachments(add_id.clone(), cx)
+                        })),
                     )
                     .child(
-                        primary_icon_button(
-                            SharedString::from(format!("save-edit-user-{}", turn.id)),
-                            AppIcon::Save,
-                            cx,
-                        )
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(move |this, _, _, cx| {
-                                this.save_user_edit(save_on_mouse_down_id.clone(), cx);
-                                cx.stop_propagation();
-                            }),
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.save_user_edit(save_id.clone(), cx)
-                        })),
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                large_icon_button(
+                                    SharedString::from(format!("cancel-edit-user-{}", turn.id)),
+                                    AppIcon::Close,
+                                    IconTone::Muted,
+                                    cx,
+                                )
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(|this, _, _, cx| {
+                                        this.cancel_message_edit(cx);
+                                        cx.stop_propagation();
+                                    }),
+                                )
+                                .on_click(
+                                    cx.listener(|this, _, _, cx| this.cancel_message_edit(cx)),
+                                ),
+                            )
+                            .child(
+                                primary_icon_button(
+                                    SharedString::from(format!("save-edit-user-{}", turn.id)),
+                                    AppIcon::Save,
+                                    cx,
+                                )
+                                .disabled(attachments_loading)
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(move |this, _, _, cx| {
+                                        this.save_user_edit(save_on_mouse_down_id.clone(), cx);
+                                        cx.stop_propagation();
+                                    }),
+                                )
+                                .on_click(cx.listener(
+                                    move |this, _, _, cx| this.save_user_edit(save_id.clone(), cx),
+                                )),
+                            ),
                     ),
             )
             .into_any_element()
@@ -274,5 +339,177 @@ fn render_user_message(
                 .child(content)
                 .child(action_bar),
         )
+        .into_any_element()
+}
+
+fn render_edit_stored_attachment(
+    app: &OneChat,
+    turn_id: &str,
+    attachment: &crate::domain::Attachment,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    let visual = match attachment.kind {
+        crate::domain::AttachmentKind::Text => edit_attachment_icon(cx),
+        crate::domain::AttachmentKind::Image | crate::domain::AttachmentKind::Pdf => attachment
+            .files
+            .first()
+            .and_then(|file| app.attachment_file_path(file))
+            .map(|path| {
+                img(path)
+                    .size_full()
+                    .object_fit(ObjectFit::Contain)
+                    .into_any_element()
+            })
+            .unwrap_or_else(|| edit_attachment_icon(cx)),
+    };
+    edit_attachment_card(
+        turn_id,
+        &attachment.id,
+        &attachment.name,
+        edit_attachment_detail(attachment.kind, attachment.files.len()),
+        visual,
+        cx,
+    )
+}
+
+fn render_edit_draft_attachment(
+    turn_id: &str,
+    attachment: &crate::domain::AttachmentDraft,
+    preview: Option<std::sync::Arc<gpui::Image>>,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    let visual = preview
+        .map(|preview| {
+            img(preview)
+                .size_full()
+                .object_fit(ObjectFit::Contain)
+                .into_any_element()
+        })
+        .unwrap_or_else(|| edit_attachment_icon(cx));
+    edit_attachment_card(
+        turn_id,
+        &attachment.id,
+        &attachment.name,
+        edit_attachment_detail(attachment.kind, attachment.files.len()),
+        visual,
+        cx,
+    )
+}
+
+fn edit_attachment_detail(kind: crate::domain::AttachmentKind, file_count: usize) -> String {
+    match kind {
+        crate::domain::AttachmentKind::Text => "Text document".into(),
+        crate::domain::AttachmentKind::Image => "Image".into(),
+        crate::domain::AttachmentKind::Pdf => format!(
+            "PDF · {file_count} page{}",
+            if file_count == 1 { "" } else { "s" }
+        ),
+    }
+}
+
+fn edit_attachment_icon(cx: &App) -> AnyElement {
+    div()
+        .size_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(render_icon(AppIcon::FileText, IconTone::Accent, 21.0, cx))
+        .into_any_element()
+}
+
+fn edit_attachment_card(
+    turn_id: &str,
+    attachment_id: &str,
+    name: &str,
+    detail: String,
+    visual: AnyElement,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    let remove_turn_id = turn_id.to_string();
+    let remove_attachment_id = attachment_id.to_string();
+    div()
+        .relative()
+        .w(px(196.0))
+        .h(px(68.0))
+        .flex_none()
+        .rounded(px(14.0))
+        .border_1()
+        .border_color(cx.theme().border)
+        .bg(cx.theme().muted)
+        .p_2()
+        .pr_8()
+        .flex()
+        .items_center()
+        .gap_3()
+        .child(
+            div()
+                .size(px(44.0))
+                .flex_none()
+                .overflow_hidden()
+                .rounded(px(11.0))
+                .bg(cx.theme().accent)
+                .child(visual),
+        )
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .min_w_0()
+                        .text_size(px(12.0))
+                        .line_height(px(15.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .truncate()
+                        .child(name.to_string()),
+                )
+                .child(
+                    div()
+                        .text_size(px(10.0))
+                        .line_height(px(12.0))
+                        .text_color(cx.theme().muted_foreground)
+                        .child(detail),
+                ),
+        )
+        .child(
+            Button::new(SharedString::from(format!(
+                "remove-edit-attachment-{turn_id}-{attachment_id}"
+            )))
+            .ghost()
+            .tooltip("Remove attachment")
+            .size(px(24.0))
+            .p_0()
+            .rounded(px(12.0))
+            .absolute()
+            .top(px(5.0))
+            .right(px(5.0))
+            .child(render_icon(AppIcon::Close, IconTone::Foreground, 12.0, cx))
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.remove_message_edit_attachment(
+                    remove_turn_id.clone(),
+                    remove_attachment_id.clone(),
+                    cx,
+                )
+            })),
+        )
+        .into_any_element()
+}
+
+fn render_edit_attachment_loading(cx: &App) -> AnyElement {
+    div()
+        .w(px(108.0))
+        .h(px(68.0))
+        .flex_none()
+        .rounded(px(14.0))
+        .bg(cx.theme().muted)
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_size(px(11.0))
+        .text_color(cx.theme().muted_foreground)
+        .child("Preparing…")
         .into_any_element()
 }

@@ -15,13 +15,21 @@ use motion::*;
 pub use navigation::{ConversationGroup, Page};
 use state::*;
 
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use gpui::{Context, Entity, FocusHandle, Render, Window, prelude::*};
 use gpui_component::input::InputState;
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::{desktop::ui::shell, markdown::MarkdownDocument};
+use crate::{
+    desktop::ui::shell,
+    domain::{Attachment, AttachmentDraft},
+    markdown::MarkdownDocument,
+};
 
 #[derive(Clone, Debug)]
 pub(crate) enum ConnectionTestStatus {
@@ -72,9 +80,13 @@ enum MessageEditorTarget {
     Assistant(String),
 }
 
-struct MessageEditor {
+pub(crate) struct MessageEditor {
     target: MessageEditorTarget,
-    input: Entity<InputState>,
+    pub(crate) input: Entity<InputState>,
+    pub(crate) attachments: Vec<Attachment>,
+    pub(crate) attachment_drafts: Vec<AttachmentDraft>,
+    pub(crate) attachment_previews: HashMap<String, Arc<gpui::Image>>,
+    pub(crate) attachment_load_id: Option<String>,
 }
 
 fn multiline_input(
