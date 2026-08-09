@@ -1,8 +1,8 @@
 use std::ops::Range;
 
 use gpui::{
-    AnyElement, FontStyle, FontWeight, HighlightStyle, SharedString, StrikethroughStyle, div,
-    prelude::*, px,
+    AnyElement, FontStyle, FontWeight, HighlightStyle, SharedString, StrikethroughStyle,
+    UnderlineStyle, div, prelude::*, px,
 };
 use unicode_linebreak::{BreakOpportunity, linebreaks};
 
@@ -11,7 +11,10 @@ use super::{
     selectable,
 };
 use crate::{
-    desktop::ui::{selectable_text::SelectableText, theme},
+    desktop::ui::{
+        selectable_text::{AdaptiveHighlight, SelectableText},
+        theme,
+    },
     markdown::Inline,
 };
 
@@ -53,7 +56,7 @@ pub(super) fn render_inlines(
                                 selection,
                                 palette,
                             )
-                            .with_highlights(highlights),
+                            .with_adaptive_highlights(highlights),
                         )
                         .into_any_element(),
                 );
@@ -64,24 +67,23 @@ pub(super) fn render_inlines(
                     div()
                         .max_w_full()
                         .whitespace_normal()
-                        .when(style.emphasis, |element| element.italic())
-                        .when(style.strong, |element| {
-                            element.font_weight(FontWeight::BOLD)
-                        })
-                        .when(style.strike, |element| element.line_through())
                         .rounded_md()
                         .bg(palette.surface)
                         .px_1()
                         .font(theme::code_font(cx))
                         .text_size(px(metrics.code_size()))
-                        .when(style.link, |element| element.text_color(palette.accent))
-                        .child(selectable(
-                            message_id,
-                            next_text_index(text_index),
-                            content.clone(),
-                            selection,
-                            palette,
-                        ))
+                        .child(
+                            selectable(
+                                message_id,
+                                next_text_index(text_index),
+                                content.clone(),
+                                selection,
+                                palette,
+                            )
+                            .with_adaptive_highlights([
+                                adaptive_highlight(0..content.len(), *style, palette),
+                            ]),
+                        )
                         .into_any_element(),
                 );
                 inline_index += 1;
@@ -224,7 +226,7 @@ fn render_mixed_inlines(
                             selection.clone(),
                             palette.selection,
                         )
-                        .with_highlights(highlights)
+                        .with_adaptive_highlights(highlights)
                         .into_any_element(),
                     );
                 }
@@ -282,24 +284,25 @@ fn render_inline_code(
     div()
         .flex_none()
         .whitespace_nowrap()
-        .when(style.emphasis, |element| element.italic())
-        .when(style.strong, |element| {
-            element.font_weight(FontWeight::BOLD)
-        })
-        .when(style.strike, |element| element.line_through())
         .rounded_md()
         .bg(palette.surface)
         .px_1()
         .font(theme::code_font(cx))
         .text_size(px(metrics.code_size()))
-        .when(style.link, |element| element.text_color(palette.accent))
-        .child(selectable(
-            message_id,
-            next_text_index(text_index),
-            content.to_string(),
-            selection,
-            palette,
-        ))
+        .child(
+            selectable(
+                message_id,
+                next_text_index(text_index),
+                content.to_string(),
+                selection,
+                palette,
+            )
+            .with_adaptive_highlights([adaptive_highlight(
+                0..content.len(),
+                style,
+                palette,
+            )]),
+        )
         .into_any_element()
 }
 
@@ -307,33 +310,57 @@ fn text_highlights(
     styles: &[(Range<usize>, crate::markdown::InlineStyle)],
     source_range: Range<usize>,
     palette: MarkdownPalette,
-) -> Vec<(Range<usize>, HighlightStyle)> {
+) -> Vec<AdaptiveHighlight> {
     styles
         .iter()
         .filter_map(|(range, style)| {
             let start = range.start.max(source_range.start);
             let end = range.end.min(source_range.end);
             (start < end).then(|| {
-                (
+                adaptive_highlight(
                     (start - source_range.start)..(end - source_range.start),
-                    text_highlight(*style, palette),
+                    *style,
+                    palette,
                 )
             })
         })
-        .filter(|(_, highlight)| *highlight != HighlightStyle::default())
+        .filter(|highlight| highlight.style != HighlightStyle::default())
         .collect()
 }
 
-fn text_highlight(style: crate::markdown::InlineStyle, palette: MarkdownPalette) -> HighlightStyle {
-    HighlightStyle {
-        color: style.link.then_some(palette.accent),
-        font_weight: style.strong.then_some(FontWeight::BOLD),
-        font_style: style.emphasis.then_some(FontStyle::Italic),
-        strikethrough: style.strike.then_some(StrikethroughStyle {
-            thickness: px(1.0),
+fn adaptive_highlight(
+    range: Range<usize>,
+    style: crate::markdown::InlineStyle,
+    palette: MarkdownPalette,
+) -> AdaptiveHighlight {
+    AdaptiveHighlight {
+        range,
+        style: HighlightStyle {
+            color: style.link.then_some(palette.accent),
+            font_weight: style.strong.then_some(FontWeight::BOLD),
+            font_style: style.emphasis.then_some(FontStyle::Italic),
+            strikethrough: style.strike.then_some(StrikethroughStyle {
+                thickness: px(1.0),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        missing_weight: style.strong.then_some(HighlightStyle {
+            color: (!style.link).then_some(palette.soft_emphasis),
+            underline: style.link.then_some(UnderlineStyle {
+                thickness: px(2.0),
+                color: Some(palette.accent),
+                ..Default::default()
+            }),
             ..Default::default()
         }),
-        ..Default::default()
+        missing_style: style.emphasis.then_some(HighlightStyle {
+            underline: Some(UnderlineStyle {
+                thickness: px(1.0),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }),
     }
 }
 

@@ -1,10 +1,10 @@
 use std::{cell::RefCell, collections::HashMap, ops::Range, rc::Rc};
 
 use gpui::{
-    App, Bounds, ClipboardItem, CursorStyle, Element, ElementId, FocusHandle, GlobalElementId,
-    HighlightStyle, Hitbox, HitboxBehavior, InspectorElementId, IntoElement, KeyDownEvent,
-    LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
-    Rgba, SharedString, StyledText, Window, fill, rgba, size,
+    App, Bounds, ClipboardItem, CursorStyle, Element, ElementId, FocusHandle, FontWeight,
+    GlobalElementId, HighlightStyle, Hitbox, HitboxBehavior, InspectorElementId, IntoElement,
+    KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad,
+    Pixels, Point, Rgba, SharedString, StyledText, TextStyle, Window, fill, rgba, size,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -49,8 +49,16 @@ pub(crate) struct SelectableText {
     source: SharedString,
     source_range: Range<usize>,
     text: StyledText,
+    highlights: Vec<AdaptiveHighlight>,
     selection: TextSelection,
     selection_color: Rgba,
+}
+
+pub(crate) struct AdaptiveHighlight {
+    pub range: Range<usize>,
+    pub style: HighlightStyle,
+    pub missing_weight: Option<HighlightStyle>,
+    pub missing_style: Option<HighlightStyle>,
 }
 
 pub(crate) struct PrepaintState {
@@ -257,6 +265,7 @@ impl SelectableText {
             text: StyledText::new(source.clone()),
             source,
             source_range,
+            highlights: Vec::new(),
             selection,
             selection_color,
         }
@@ -278,6 +287,7 @@ impl SelectableText {
             text: StyledText::new(text.to_string()),
             source,
             source_range,
+            highlights: Vec::new(),
             selection,
             selection_color,
         }
@@ -287,12 +297,62 @@ impl SelectableText {
         mut self,
         highlights: impl IntoIterator<Item = (Range<usize>, HighlightStyle)>,
     ) -> Self {
-        let highlights = highlights.into_iter().collect::<Vec<_>>();
-        if !highlights.is_empty() {
-            self.text = self.text.with_highlights(highlights);
-        }
+        self.highlights.extend(
+            highlights
+                .into_iter()
+                .map(|(range, style)| AdaptiveHighlight {
+                    range,
+                    style,
+                    missing_weight: None,
+                    missing_style: None,
+                }),
+        );
         self
     }
+
+    pub(crate) fn with_adaptive_highlights(
+        mut self,
+        highlights: impl IntoIterator<Item = AdaptiveHighlight>,
+    ) -> Self {
+        self.highlights.extend(highlights);
+        self
+    }
+}
+
+fn missing_font_variant(
+    text: &str,
+    baseline: &TextStyle,
+    target: &TextStyle,
+    font_size: Pixels,
+    window: &mut Window,
+) -> bool {
+    let mut indices = text
+        .char_indices()
+        .filter_map(|(index, character)| character.is_alphanumeric().then_some(index))
+        .collect::<Vec<_>>();
+    if indices.is_empty() {
+        indices.extend(
+            text.char_indices()
+                .filter_map(|(index, character)| (!character.is_whitespace()).then_some(index)),
+        );
+    }
+    if indices.is_empty() {
+        return false;
+    }
+
+    let baseline =
+        window
+            .text_system()
+            .layout_line(text, font_size, &[baseline.to_run(text.len())], None);
+    let target =
+        window
+            .text_system()
+            .layout_line(text, font_size, &[target.to_run(text.len())], None);
+    indices.into_iter().any(|index| {
+        baseline
+            .font_id_for_index(index)
+            .is_some_and(|font_id| target.font_id_for_index(index) == Some(font_id))
+    })
 }
 
 impl IntoElement for SelectableText {
@@ -322,6 +382,37 @@ impl Element for SelectableText {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
+        if !self.highlights.is_empty() {
+            let source = &self.source[self.source_range.clone()];
+            let default_style = window.text_style();
+            let font_size = default_style.font_size.to_pixels(window.rem_size());
+            let highlights = std::mem::take(&mut self.highlights)
+                .into_iter()
+                .map(|highlight| {
+                    let text = &source[highlight.range.clone()];
+                    let target_style = default_style.clone().highlight(highlight.style);
+                    let mut style = highlight.style;
+
+                    if let Some(fallback) = highlight.missing_style {
+                        let mut baseline = target_style.clone();
+                        baseline.font_style = default_style.font_style;
+                        if missing_font_variant(text, &baseline, &target_style, font_size, window) {
+                            style = style.highlight(fallback);
+                        }
+                    }
+                    if let Some(fallback) = highlight.missing_weight {
+                        let mut baseline = target_style.clone();
+                        baseline.font_weight = FontWeight::MEDIUM;
+                        if missing_font_variant(text, &baseline, &target_style, font_size, window) {
+                            style = style.highlight(fallback);
+                        }
+                    }
+                    (highlight.range, style)
+                })
+                .collect::<Vec<_>>();
+            let text = std::mem::replace(&mut self.text, StyledText::new(""));
+            self.text = text.with_highlights(highlights);
+        }
         self.text.request_layout(None, inspector_id, window, cx)
     }
 

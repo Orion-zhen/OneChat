@@ -23,6 +23,7 @@ struct MarkdownPalette {
     foreground: Hsla,
     muted_foreground: Hsla,
     accent: Hsla,
+    soft_emphasis: Hsla,
     border: Hsla,
     surface: Hsla,
     selection: Rgba,
@@ -30,10 +31,13 @@ struct MarkdownPalette {
 
 impl MarkdownPalette {
     fn assistant(cx: &App) -> Self {
+        let foreground = cx.theme().foreground;
+        let accent = cx.theme().primary;
         Self {
-            foreground: cx.theme().foreground,
+            foreground,
             muted_foreground: cx.theme().muted_foreground,
-            accent: cx.theme().primary,
+            accent,
+            soft_emphasis: foreground.blend(accent.alpha(0.3)),
             border: cx.theme().border,
             surface: cx.theme().muted,
             selection: selection_color(cx.theme().is_dark()),
@@ -42,10 +46,17 @@ impl MarkdownPalette {
 
     fn user(cx: &App) -> Self {
         let palette = crate::desktop::ui::theme::user_message_palette(cx);
+        let foreground = palette.foreground.into();
+        let accent = palette.accent.into();
         Self {
-            foreground: palette.foreground.into(),
+            foreground,
             muted_foreground: palette.muted_foreground.into(),
-            accent: palette.accent.into(),
+            accent,
+            soft_emphasis: foreground.blend(accent.alpha(if cx.theme().is_dark() {
+                0.4
+            } else {
+                0.28
+            })),
             border: palette.border.into(),
             surface: palette.surface.into(),
             selection: palette.selection,
