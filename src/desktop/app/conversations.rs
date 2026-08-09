@@ -38,14 +38,14 @@ impl OneChat {
             })
             .cloned();
         let Some(model) = model else {
-            self.navigation.page = Page::Settings;
+            self.set_page(Page::Settings, cx);
             self.settings_ui.section = SettingsSection::DefaultModels;
             self.data.error = Some("Choose a model before creating a conversation.".into());
             cx.notify();
             return;
         };
         if let Err(reason) = self.model_availability(&model) {
-            self.navigation.page = Page::Settings;
+            self.set_page(Page::Settings, cx);
             self.settings_ui.section = SettingsSection::DefaultModels;
             self.data.error = Some(format!(
                 "Choose an available model before creating a conversation: {reason}."
@@ -88,8 +88,7 @@ impl OneChat {
             .as_deref()
             == Some(&id)
         {
-            self.navigation.page = Page::Chat;
-            cx.notify();
+            self.set_page(Page::Chat, cx);
             return;
         }
         let mut settings = self.data.snapshot.settings.clone();
@@ -97,7 +96,7 @@ impl OneChat {
         self.data.snapshot.settings = settings.clone();
         self.data.snapshot.current_turns.clear();
         self.data.snapshot.current_requests.clear();
-        self.navigation.page = Page::Chat;
+        self.set_page(Page::Chat, cx);
         self.reset_conversation_ui(cx);
         self.navigation.pending_focus = Some(PendingFocus::Composer);
         self.mutate_and_reload(move |storage| storage.save_settings(&settings), cx);

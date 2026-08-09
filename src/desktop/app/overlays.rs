@@ -4,6 +4,7 @@ use gpui_component::{WindowExt as _, input::InputState};
 use super::{ConversationGroup, OneChat, Page, PaletteCommand, PendingFocus};
 use crate::{
     desktop::ui::{
+        SIDEBAR_WIDTH,
         inspector::InspectorTab,
         settings::SettingsSection,
         shell::{
@@ -63,7 +64,17 @@ impl OneChat {
     }
 
     pub(crate) fn set_page(&mut self, page: Page, cx: &mut Context<Self>) {
-        self.navigation.page = page;
+        if self.navigation.page != page {
+            let sidebar_width = match page {
+                Page::Chat if self.settings().sidebar_collapsed => 0.0,
+                Page::Chat => self.sidebar.width,
+                Page::Settings => SIDEBAR_WIDTH,
+            };
+            self.navigation
+                .sidebar_width_motion
+                .set_target(sidebar_width, true);
+            self.navigation.page = page;
+        }
         self.overlays.response_model_turn_id = None;
         cx.notify();
     }
@@ -98,7 +109,11 @@ impl OneChat {
             PaletteCommand::FocusConversationSearch => {
                 if self.data.snapshot.settings.sidebar_collapsed {
                     self.data.snapshot.settings.sidebar_collapsed = false;
-                    self.navigation.sidebar_motion.set_open(true, true);
+                    if self.navigation.page == Page::Chat {
+                        self.navigation
+                            .sidebar_width_motion
+                            .set_target(self.sidebar.width, true);
+                    }
                     self.save_settings(cx);
                 }
                 self.navigation.pending_focus = Some(PendingFocus::ConversationSearch);
@@ -107,7 +122,7 @@ impl OneChat {
             PaletteCommand::ToggleSidebar => self.toggle_sidebar(cx),
             PaletteCommand::ToggleInspector => self.toggle_inspector_immediate(cx),
             PaletteCommand::EditSystemPrompt => {
-                self.navigation.page = Page::Chat;
+                self.set_page(Page::Chat, cx);
                 if self.current_conversation().is_some() {
                     self.begin_edit_system_prompt(window, cx);
                 } else {
@@ -116,7 +131,7 @@ impl OneChat {
                 }
             }
             PaletteCommand::OpenChat => {
-                self.navigation.page = Page::Chat;
+                self.set_page(Page::Chat, cx);
                 self.navigation.pending_focus = Some(PendingFocus::Composer);
                 cx.notify();
             }
@@ -140,9 +155,14 @@ impl OneChat {
     pub(crate) fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
         self.data.snapshot.settings.sidebar_collapsed =
             !self.data.snapshot.settings.sidebar_collapsed;
-        self.navigation
-            .sidebar_motion
-            .set_open(!self.data.snapshot.settings.sidebar_collapsed, true);
+        if self.navigation.page == Page::Chat {
+            let width = if self.data.snapshot.settings.sidebar_collapsed {
+                0.0
+            } else {
+                self.sidebar.width
+            };
+            self.navigation.sidebar_width_motion.set_target(width, true);
+        }
         self.save_settings(cx);
         cx.notify();
     }
@@ -340,7 +360,7 @@ impl OneChat {
     }
 
     pub(crate) fn open_prompt_settings(&mut self, cx: &mut Context<Self>) {
-        self.navigation.page = Page::Settings;
+        self.set_page(Page::Settings, cx);
         self.settings_ui.section = SettingsSection::SystemPrompts;
         self.reload_snapshot(cx);
         cx.notify();

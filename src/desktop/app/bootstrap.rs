@@ -17,11 +17,13 @@ use tokio::runtime::Runtime;
 use super::{
     ChatState, DataState, DefaultModelRole, DrawerMotion, FontRole, InspectorPointerState,
     McpState, MessageScrollMotion, NavigationState, OneChat, OverlayState, Page, Services,
-    SettingsState, SidebarState, SystemPromptMode, TimelineState, VisibilityMotion,
+    SettingsState, SidebarState, SidebarWidthMotion, SystemPromptMode, TimelineState,
+    VisibilityMotion,
 };
 use crate::{
     application::generation::GenerationManager,
     desktop::ui::{
+        SIDEBAR_WIDTH,
         inspector::InspectorTab,
         selectable_text::TextSelection,
         settings::{
@@ -328,11 +330,12 @@ impl OneChat {
                 inspector_open: false,
                 inspector_tab: InspectorTab::default(),
                 pending_focus: None,
-                sidebar_motion: DrawerMotion::new(true),
+                sidebar_width_motion: SidebarWidthMotion::new(SIDEBAR_WIDTH),
                 inspector_motion: DrawerMotion::new(false),
                 inspector_pointer: InspectorPointerState::default(),
             },
             sidebar: SidebarState {
+                width: SIDEBAR_WIDTH,
                 search_input,
                 hovered_conversation_id: None,
                 rename_editor: None,

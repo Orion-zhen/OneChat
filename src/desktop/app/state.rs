@@ -14,7 +14,9 @@ use tokio::runtime::Runtime;
 use super::{
     CachedMarkdown, ConnectionTestStatus, DestructiveAction, MessageEditor, Page, PendingFocus,
     PendingTitleTransition, RenameEditor, SystemPromptMode, TitleTransition,
-    motion::{DrawerMotion, MessageScrollMotion, ThinkingMotion, VisibilityMotion},
+    motion::{
+        DrawerMotion, MessageScrollMotion, SidebarWidthMotion, ThinkingMotion, VisibilityMotion,
+    },
 };
 use crate::{
     application::generation::GenerationManager,
@@ -59,7 +61,7 @@ pub(crate) struct NavigationState {
     pub(crate) inspector_open: bool,
     pub(crate) inspector_tab: InspectorTab,
     pub(crate) pending_focus: Option<PendingFocus>,
-    pub(crate) sidebar_motion: DrawerMotion,
+    pub(crate) sidebar_width_motion: SidebarWidthMotion,
     pub(crate) inspector_motion: DrawerMotion,
     pub(crate) inspector_pointer: InspectorPointerState,
 }
@@ -86,6 +88,7 @@ impl InspectorPointerState {
 }
 
 pub(crate) struct SidebarState {
+    pub(crate) width: f32,
     pub(crate) search_input: Entity<InputState>,
     pub(crate) hovered_conversation_id: Option<String>,
     pub(super) rename_editor: Option<RenameEditor>,

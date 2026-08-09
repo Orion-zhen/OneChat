@@ -4,6 +4,8 @@ use gpui::Window;
 
 const DRAWER_RESPONSE_SECONDS: f32 = 0.34;
 const DRAWER_DAMPING_RATIO: f32 = 1.0;
+const SIDEBAR_WIDTH_RESPONSE_SECONDS: f32 = 0.4;
+const SIDEBAR_WIDTH_DAMPING_RATIO: f32 = 1.0;
 
 pub(crate) struct DrawerMotion {
     value: f32,
@@ -154,6 +156,80 @@ impl DrawerMotion {
             self.value = self.target;
             self.velocity = 0.0;
             self.last_frame = None;
+        }
+    }
+}
+
+pub(crate) struct SidebarWidthMotion {
+    value: f32,
+    velocity: f32,
+    target: f32,
+    last_frame: Option<Instant>,
+}
+
+impl SidebarWidthMotion {
+    pub(crate) fn new(width: f32) -> Self {
+        Self {
+            value: width,
+            velocity: 0.0,
+            target: width,
+            last_frame: None,
+        }
+    }
+
+    pub(crate) fn set_target(&mut self, width: f32, animated: bool) {
+        let now = Instant::now();
+        self.advance(now);
+        if (width - self.target).abs() < f32::EPSILON {
+            return;
+        }
+        if !animated {
+            self.snap(width);
+            return;
+        }
+
+        self.target = width;
+        self.last_frame = Some(now);
+    }
+
+    pub(crate) fn snap(&mut self, width: f32) {
+        self.value = width;
+        self.velocity = 0.0;
+        self.target = width;
+        self.last_frame = None;
+    }
+
+    pub(crate) fn progress(&mut self, window: &mut Window, reduce_motion: bool) -> f32 {
+        if reduce_motion {
+            self.snap(self.target);
+            return self.value;
+        }
+        self.advance(Instant::now());
+        if self.last_frame.is_some() {
+            window.request_animation_frame();
+        }
+        self.value
+    }
+
+    fn advance(&mut self, now: Instant) {
+        let Some(last_frame) = self.last_frame else {
+            return;
+        };
+
+        let elapsed = (now - last_frame).as_secs_f32().min(0.064);
+        self.last_frame = Some(now);
+        let steps = (elapsed / (1.0 / 120.0)).ceil().max(1.0) as usize;
+        let delta = elapsed / steps as f32;
+        let omega = std::f32::consts::TAU / SIDEBAR_WIDTH_RESPONSE_SECONDS;
+        for _ in 0..steps {
+            let acceleration = omega * omega * (self.target - self.value)
+                - 2.0 * SIDEBAR_WIDTH_DAMPING_RATIO * omega * self.velocity;
+            self.velocity += acceleration * delta;
+            self.value += self.velocity * delta;
+        }
+
+        if (self.target - self.value).abs() < 0.05 && self.velocity.abs() < 0.05 {
+            self.snap(self.target);
         }
     }
 }

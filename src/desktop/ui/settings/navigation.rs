@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn settings_sidebar(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
+pub(super) fn settings_sidebar(app: &OneChat, width: f32, cx: &mut Context<OneChat>) -> AnyElement {
     let general_selected = app.settings_ui.section == SettingsSection::General;
     let default_models_selected = app.settings_ui.section == SettingsSection::DefaultModels;
     let prompts_selected = app.settings_ui.section == SettingsSection::SystemPrompts;
@@ -31,7 +31,7 @@ pub(super) fn settings_sidebar(app: &OneChat, cx: &mut Context<OneChat>) -> AnyE
     }
 
     div()
-        .w(px(SIDEBAR_WIDTH))
+        .w(px(width))
         .h_full()
         .flex_none()
         .flex()

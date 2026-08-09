@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use gpui::{Context, ScrollHandle, Task, Window, prelude::*};
 use gpui_component::select::SelectEvent;
 
-use super::super::{CachedMarkdown, OneChat, PendingFocus, SystemPromptMode, TitleTransition};
+use super::super::{
+    CachedMarkdown, OneChat, Page, PendingFocus, SystemPromptMode, TitleTransition,
+};
 use crate::{
     desktop::ui::inspector::{
         GenerationConfigEditor, GenerationParameterItem, ReasoningPresetItem,
@@ -33,9 +35,16 @@ impl OneChat {
     fn apply_snapshot(&mut self, result: StorageResult<StorageSnapshot>, cx: &mut Context<Self>) {
         match result {
             Ok(mut snapshot) => {
-                self.navigation
-                    .sidebar_motion
-                    .set_open(!snapshot.settings.sidebar_collapsed, false);
+                if self.navigation.page == Page::Chat {
+                    let width = if snapshot.settings.sidebar_collapsed {
+                        0.0
+                    } else {
+                        self.sidebar.width
+                    };
+                    self.navigation
+                        .sidebar_width_motion
+                        .set_target(width, false);
+                }
                 let completed_title_transitions = snapshot
                     .conversations
                     .iter()

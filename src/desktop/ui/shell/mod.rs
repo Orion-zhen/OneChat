@@ -2,6 +2,8 @@ mod pickers;
 mod sidebar;
 mod top_bar;
 
+use std::cell::Cell;
+
 pub(crate) use pickers::{
     CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate, ReasoningPickerDelegate,
     command_palette_dialog, model_picker_dialog, prompt_picker_dialog, reasoning_picker_dialog,
@@ -10,8 +12,8 @@ use sidebar::render_sidebar;
 use top_bar::render_top_bar;
 
 use gpui::{
-    AnyElement, App, Context, ElementId, Focusable as _, FontWeight, KeyBinding, SharedString,
-    Window, actions, div, prelude::*, px,
+    AnyElement, App, ClickEvent, Context, DragMoveEvent, ElementId, Empty, Focusable as _,
+    FontWeight, KeyBinding, SharedString, Window, actions, div, prelude::*, px,
 };
 use gpui_component::{
     ActiveTheme as _, Disableable as _, Selectable as _, Sizable as _, WindowExt as _,
@@ -33,6 +35,15 @@ use crate::{
     domain::{AutoTitleState, Conversation},
     mcp::McpServerStatus,
 };
+
+const CHAT_SIDEBAR_MIN_WIDTH: f32 = 220.0;
+const CHAT_SIDEBAR_MAX_WIDTH: f32 = 380.0;
+const SIDEBAR_RESIZE_HANDLE_WIDTH: f32 = 6.0;
+
+#[derive(Default)]
+struct SidebarResizeDrag {
+    pointer_offset: Cell<f32>,
+}
 
 actions!(
     onechat,
@@ -213,10 +224,6 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         .navigation
         .inspector_motion
         .progress(window, reduce_motion);
-    let sidebar_progress = app
-        .navigation
-        .sidebar_motion
-        .progress(window, reduce_motion);
     let jump_to_latest_visible = app.navigation.page == Page::Chat
         && app.current_conversation().is_some()
         && !app.chat.follow_latest
@@ -234,7 +241,10 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         .expansion_motion
         .progress(window, reduce_motion);
     let timeline_focused = app.chat.timeline.focus.is_focused(window);
-    let sidebar_width = SIDEBAR_WIDTH * sidebar_progress;
+    let sidebar_width = app
+        .navigation
+        .sidebar_width_motion
+        .progress(window, reduce_motion);
     let chat_available_width = (f32::from(window.bounds().size.width) - sidebar_width).max(0.0);
     let sidebar = (app.navigation.page == Page::Chat && sidebar_width > 0.01).then(|| {
         div()
@@ -242,8 +252,40 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
             .h_full()
             .flex_none()
             .overflow_hidden()
-            .child(render_sidebar(app, animated_title.as_deref(), cx))
+            .child(render_sidebar(
+                app,
+                sidebar_width,
+                animated_title.as_deref(),
+                cx,
+            ))
     });
+    let sidebar_resize_handle =
+        (app.navigation.page == Page::Chat && !app.settings().sidebar_collapsed).then(|| {
+            div()
+                .id("sidebar-resize-handle")
+                .absolute()
+                .top_0()
+                .bottom_0()
+                .left(px(sidebar_width - SIDEBAR_RESIZE_HANDLE_WIDTH / 2.0))
+                .w(px(SIDEBAR_RESIZE_HANDLE_WIDTH))
+                .cursor_col_resize()
+                .on_drag(
+                    SidebarResizeDrag::default(),
+                    |drag, pointer_offset, _, cx| {
+                        drag.pointer_offset.set(f32::from(pointer_offset.x));
+                        cx.new(|_| Empty)
+                    },
+                )
+                .on_click(cx.listener(|this, event: &ClickEvent, _, cx| {
+                    if event.click_count() >= 2 && this.sidebar.width != SIDEBAR_WIDTH {
+                        this.sidebar.width = SIDEBAR_WIDTH;
+                        this.navigation
+                            .sidebar_width_motion
+                            .set_target(SIDEBAR_WIDTH, true);
+                        cx.notify();
+                    }
+                }))
+        });
     let top_bar = render_top_bar(app, animated_title.as_deref(), cx);
     let page = match app.navigation.page {
         Page::Chat => render_chat_page(
@@ -255,7 +297,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
             timeline_focused,
             cx,
         ),
-        Page::Settings => settings::render(app, cx),
+        Page::Settings => settings::render(app, sidebar_width, cx),
     };
     let inspector = (app.navigation.page == Page::Chat
         && (app.navigation.inspector_open || inspector_progress > 0.0))
@@ -271,7 +313,20 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         .size_full()
         .flex()
         .track_focus(&app.root_focus)
-        .key_context("OneChat");
+        .key_context("OneChat")
+        .on_drag_move(
+            cx.listener(|this, event: &DragMoveEvent<SidebarResizeDrag>, _, cx| {
+                let pointer_offset = event.drag(cx).pointer_offset.get();
+                let width = (f32::from(event.event.position.x) - pointer_offset
+                    + SIDEBAR_RESIZE_HANDLE_WIDTH / 2.0)
+                    .clamp(CHAT_SIDEBAR_MIN_WIDTH, CHAT_SIDEBAR_MAX_WIDTH);
+                if this.sidebar.width != width {
+                    this.sidebar.width = width;
+                    this.navigation.sidebar_width_motion.snap(width);
+                    cx.notify();
+                }
+            }),
+        );
     #[cfg(target_os = "macos")]
     let root = root
         .on_action(cx.listener(|_, _: &AboutOneChat, window, cx| {
@@ -332,6 +387,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
                         .children(inspector),
                 ),
         )
+        .children(sidebar_resize_handle)
         .into_any_element()
 }
 

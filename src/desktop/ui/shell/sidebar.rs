@@ -2,6 +2,7 @@ use super::*;
 
 pub(super) fn render_sidebar(
     app: &mut OneChat,
+    width: f32,
     animated_title: Option<&str>,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
@@ -59,7 +60,7 @@ pub(super) fn render_sidebar(
     }
 
     div()
-        .w(px(SIDEBAR_WIDTH))
+        .w(px(width))
         .h_full()
         .flex_none()
         .flex()

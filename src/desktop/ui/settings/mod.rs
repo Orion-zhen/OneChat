@@ -53,10 +53,7 @@ use gpui_component::{
     tab::{Tab, TabBar},
 };
 
-use super::{
-    SIDEBAR_WIDTH,
-    icons::{AppIcon, IconTone, render_icon},
-};
+use super::icons::{AppIcon, IconTone, render_icon};
 use crate::{
     desktop::app::{ConnectionTestStatus, DefaultModelRole, FontRole, OneChat, Page},
     domain::{
@@ -106,7 +103,7 @@ fn danger_icon_action(
     icon_action(id, icon, IconTone::OnAccent, tooltip, cx).danger()
 }
 
-pub(crate) fn render(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
+pub(crate) fn render(app: &OneChat, sidebar_width: f32, cx: &mut Context<OneChat>) -> AnyElement {
     let detail = match &app.settings_ui.section {
         SettingsSection::General => general_page(app, cx),
         SettingsSection::DefaultModels => default_models_page(app, cx),
@@ -128,7 +125,7 @@ pub(crate) fn render(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
         .size_full()
         .min_w_0()
         .flex()
-        .child(settings_sidebar(app, cx))
+        .child(settings_sidebar(app, sidebar_width, cx))
         .child(detail)
         .into_any_element()
 }
