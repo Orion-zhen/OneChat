@@ -7,6 +7,8 @@ pub(super) fn render_composer(
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let generating = app.is_current_generating();
+    let multiline = composer_is_multiline(app, message_max_width, cx);
+    let expanded = multiline && app.chat.composer_expanded.get();
     let invalid_for_model = !app.attachment_context_supported();
     let can_send = (!app.chat.composer.read(cx).value().trim().is_empty()
         || !app.chat.attachments.is_empty())
@@ -52,6 +54,49 @@ pub(super) fn render_composer(
             .on_click(cx.listener(|this, _, window, cx| this.send_composer(window, cx)))
             .into_any_element()
     };
+
+    let expand = multiline.then(|| {
+        Button::new("composer-expand")
+            .ghost()
+            .rounded(px(17.0))
+            .tooltip(if expanded {
+                "Collapse input"
+            } else {
+                "Expand input"
+            })
+            .size(px(34.0))
+            .p_0()
+            .absolute()
+            .right(px(49.0))
+            .bottom(px(7.0))
+            .child(render_icon(
+                if expanded {
+                    AppIcon::Minimize
+                } else {
+                    AppIcon::Maximize
+                },
+                IconTone::Muted,
+                18.0,
+                cx,
+            ))
+            .on_click(cx.listener(|this, _, window, cx| {
+                this.chat
+                    .composer_expanded
+                    .set(!this.chat.composer_expanded.get());
+                let composer = this.chat.composer.clone();
+                let selection = composer.read(cx).selected_range();
+                composer.update(cx, |composer, cx| composer.focus(window, cx));
+                cx.on_next_frame(window, move |_, window, cx| {
+                    cx.on_next_frame(window, move |_, window, cx| {
+                        composer.update(cx, |composer, cx| {
+                            composer.set_selected_range(selection, cx);
+                            composer.focus(window, cx);
+                        });
+                    });
+                });
+                cx.notify();
+            }))
+    });
 
     let add_disabled = generating || app.chat.attachments_loading;
     let add = Button::new("composer-add-attachment")
@@ -121,18 +166,35 @@ pub(super) fn render_composer(
             }
         }))
         .children(attachments)
-        .child(
-            Input::new(&app.chat.composer)
+        .child({
+            let input = Input::new(&app.chat.composer)
                 .aria_label("Message")
                 .appearance(false)
-                .pl(px(56.0))
-                .pr(px(56.0))
-                .py(px(12.0))
                 .text_size(px(typography.body_size))
-                .line_height(px(typography.body_line_height)),
-        )
+                .line_height(px(typography.body_line_height));
+
+            if multiline {
+                let input = input.px(px(12.0)).py(px(0.0));
+                let input = if expanded { input.h(px(480.0)) } else { input };
+                div()
+                    .w_full()
+                    .min_w_0()
+                    .pt(px(12.0))
+                    .pr(px(4.0))
+                    .child(input)
+                    .into_any_element()
+            } else {
+                input
+                    .pl(px(56.0))
+                    .pr(px(56.0))
+                    .py(px(12.0))
+                    .into_any_element()
+            }
+        })
+        .children(multiline.then(|| div().h(px(48.0)).flex_none()))
         .child(add)
-        .child(action);
+        .child(action)
+        .children(expand);
 
     div()
         .flex_none()
@@ -148,6 +210,34 @@ pub(super) fn render_composer(
                 .child(input),
         )
         .into_any_element()
+}
+
+fn composer_is_multiline(app: &OneChat, width: f32, cx: &App) -> bool {
+    let composer = app.chat.composer.read(cx);
+    let value = composer.value();
+    if value.is_empty() {
+        app.chat.composer_multiline.set(false);
+        app.chat.composer_expanded.set(false);
+        return false;
+    }
+    if value.contains('\n') {
+        app.chat.composer_multiline.set(true);
+        return true;
+    }
+
+    let Some((bounds, line_height)) = composer
+        .range_to_bounds(&(0..value.len()))
+        .zip(composer.line_height())
+    else {
+        return app.chat.composer_multiline.get();
+    };
+    let multiline = bounds.size.height > line_height + px(0.5)
+        || bounds.size.width > px((width - 112.0).max(0.0));
+    app.chat.composer_multiline.set(multiline);
+    if !multiline {
+        app.chat.composer_expanded.set(false);
+    }
+    multiline
 }
 
 fn render_attachment(

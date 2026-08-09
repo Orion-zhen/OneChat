@@ -13,6 +13,7 @@ pub use navigation::{ConversationGroup, Page};
 use state::*;
 
 use std::{
+    cell::Cell,
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     sync::Arc,
     time::{Duration, Instant},
@@ -620,6 +621,8 @@ impl OneChat {
                 generation_config_save_revision: 0,
                 parameter_error: None,
                 composer,
+                composer_multiline: Cell::new(false),
+                composer_expanded: Cell::new(false),
                 attachments: Vec::new(),
                 attachment_previews: HashMap::new(),
                 attachments_loading: false,

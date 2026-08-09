@@ -200,7 +200,7 @@ pub(crate) fn init(cx: &mut App) {
         &light
     });
     theme.list.active_highlight = false;
-    theme.scrollbar_show = ScrollbarShow::Always;
+    theme.scrollbar_show = ScrollbarShow::Scrolling;
     cx.set_global(app_fonts(&[], &[]));
 }
 
