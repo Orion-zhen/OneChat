@@ -34,7 +34,7 @@ pub const DEFAULT_CODE_FONT_FAMILY: &str = if cfg!(target_os = "macos") {
 } else {
     "DejaVu Sans Mono"
 };
-pub const DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT: &str = "Generate a concise title for this conversation. Use the same language as the user. Return only the title without quotes, Markdown, labels, or explanation.";
+pub const DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT: &str = "Create a concise title in the user's language, no longer than 15 characters or 5 short words. Return only the plain title without quotes, Markdown, labels, or explanation.";
 
 pub fn normalize_font_families(families: Vec<String>, default: &str) -> Vec<String> {
     let mut normalized = Vec::new();
