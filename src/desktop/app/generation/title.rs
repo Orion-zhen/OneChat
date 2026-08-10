@@ -6,6 +6,14 @@ use crate::{
     domain::{AssistantResponse, AutoTitleState, MessageStatus},
 };
 
+enum AutoTitleRequest {
+    Initial {
+        user_message: String,
+        assistant_response: String,
+    },
+    Regenerate,
+}
+
 enum AutoTitleUpdate {
     Claimed,
     Finished(Option<String>),
@@ -20,16 +28,40 @@ impl OneChat {
         response: &AssistantResponse,
         cx: &mut Context<Self>,
     ) {
-        if !self.data.snapshot.settings.auto_title_enabled
-            || response.status != MessageStatus::Completed
-            || response.content.trim().is_empty()
-        {
+        if response.status != MessageStatus::Completed || response.content.trim().is_empty() {
             return;
         }
         if !self.data.snapshot.conversations.iter().any(|conversation| {
             conversation.id == conversation_id
                 && conversation.auto_title_state == AutoTitleState::Pending
         }) {
+            return;
+        }
+        self.run_auto_title(
+            conversation_id,
+            AutoTitleRequest::Initial {
+                user_message,
+                assistant_response: response.content.clone(),
+            },
+            cx,
+        );
+    }
+
+    pub(crate) fn regenerate_auto_title(
+        &mut self,
+        conversation_id: String,
+        cx: &mut Context<Self>,
+    ) {
+        self.run_auto_title(conversation_id, AutoTitleRequest::Regenerate, cx);
+    }
+
+    fn run_auto_title(
+        &mut self,
+        conversation_id: String,
+        request: AutoTitleRequest,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.data.snapshot.settings.auto_title_enabled {
             return;
         }
 
@@ -54,26 +86,32 @@ impl OneChat {
                     .map(|provider| (provider.clone(), model.clone()))
             })
             .filter(|_| !system_prompt.is_empty());
-        let assistant_response = response.content.clone();
         let storage = self.services.storage.clone();
         let claim_id = conversation_id.clone();
         let (sender, receiver) = async_channel::bounded::<AutoTitleUpdate>(2);
         self.services.runtime.spawn(async move {
-            let claimed = tokio::task::spawn_blocking(move || {
-                storage
+            let claimed = tokio::task::spawn_blocking(move || match request {
+                AutoTitleRequest::Initial {
+                    user_message,
+                    assistant_response,
+                } => storage
                     .claim_auto_title(&claim_id)
-                    .map_err(|error| error.to_string())
+                    .map(|claimed| claimed.then_some((user_message, assistant_response))),
+                AutoTitleRequest::Regenerate => storage.restart_auto_title(&claim_id),
             })
             .await;
-            match claimed {
-                Ok(Ok(true)) => {
+            let (user_message, assistant_response) = match claimed {
+                Ok(Ok(Some(source))) => {
                     if sender.send(AutoTitleUpdate::Claimed).await.is_err() {
                         return;
                     }
+                    source
                 }
-                Ok(Ok(false)) => return,
+                Ok(Ok(None)) => return,
                 Ok(Err(error)) => {
-                    let _ = sender.send(AutoTitleUpdate::ClaimFailed(error)).await;
+                    let _ = sender
+                        .send(AutoTitleUpdate::ClaimFailed(error.to_string()))
+                        .await;
                     return;
                 }
                 Err(error) => {
@@ -84,7 +122,7 @@ impl OneChat {
                         .await;
                     return;
                 }
-            }
+            };
 
             let title = match target {
                 Some((provider, model)) => generate_title(
@@ -115,10 +153,7 @@ impl OneChat {
                             .snapshot
                             .conversations
                             .iter_mut()
-                            .find(|conversation| {
-                                conversation.id == conversation_id
-                                    && conversation.auto_title_state == AutoTitleState::Pending
-                            })
+                            .find(|conversation| conversation.id == conversation_id)
                         {
                             conversation.auto_title_state = AutoTitleState::Running;
                             cx.notify();

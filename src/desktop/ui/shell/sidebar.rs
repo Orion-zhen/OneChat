@@ -182,7 +182,7 @@ fn render_conversation_row(
     let delete_id = conversation.id.clone();
     let row_id: SharedString = format!("conversation-{}", conversation.id).into();
     let pinned = conversation.pinned;
-    let title_waiting = selected && conversation.auto_title_state == AutoTitleState::Running;
+    let title_waiting = conversation.auto_title_state == AutoTitleState::Running;
     let title_animation_id: SharedString =
         format!("waiting-sidebar-title-{}", conversation.id).into();
     let displayed_title = if selected {
@@ -228,9 +228,15 @@ fn render_conversation_row(
                     IconTone::Muted,
                     cx,
                 )
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.start_rename(rename_id.clone(), window, cx)
-                })),
+                .on_click(cx.listener(
+                    move |this, event: &gpui::ClickEvent, window, cx| {
+                        if event.modifiers().secondary() {
+                            this.regenerate_auto_title(rename_id.clone(), cx);
+                        } else {
+                            this.start_rename(rename_id.clone(), window, cx);
+                        }
+                    },
+                )),
             )
             .child(
                 icon_button(

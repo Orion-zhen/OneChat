@@ -438,11 +438,20 @@ pub(super) fn waiting_label(message: &AssistantResponse) -> String {
 
 pub(super) fn format_message_stats(request: &RequestInfo) -> String {
     let mut stats = Vec::new();
-    if let Some(tokens) = request.usage.output_tokens {
+    if request.usage.input_tokens.is_some() || request.usage.output_tokens.is_some() {
+        let format_tokens = |tokens: Option<u64>| {
+            tokens.map_or_else(
+                || "—".into(),
+                |tokens| format!("{}{tokens}", if request.usage.estimated { "~" } else { "" }),
+            )
+        };
         stats.push(format!(
-            "{}{tokens} tokens",
-            if request.usage.estimated { "~" } else { "" }
+            "Tokens {} in / {} out",
+            format_tokens(request.usage.input_tokens),
+            format_tokens(request.usage.output_tokens)
         ));
+    }
+    if let Some(tokens) = request.usage.output_tokens {
         if let (Some(duration_ms), Some(ttft_ms)) = (request.duration_ms, request.ttft_ms) {
             let generation_ms = duration_ms.saturating_sub(ttft_ms);
             if generation_ms > 0 {

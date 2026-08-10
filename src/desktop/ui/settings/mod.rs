@@ -38,8 +38,8 @@ use std::{
 };
 
 use gpui::{
-    AlignItems, AnyElement, App, Context, Div, ElementId, Entity, FontWeight, SharedString,
-    Stateful, Task, Window, div, prelude::*, px,
+    AlignItems, AnyElement, App, Context, Div, DragMoveEvent, ElementId, Entity, FontWeight,
+    Render, SharedString, Stateful, Task, Window, div, prelude::*, px,
 };
 use gpui_component::{
     ActiveTheme as _, Disableable as _, Icon, IconName, IndexPath, Selectable as _, Sizable as _,

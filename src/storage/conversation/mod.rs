@@ -85,6 +85,34 @@ impl Storage {
         Ok(true)
     }
 
+    pub fn restart_auto_title(&self, conversation_id: &str) -> Result<Option<(String, String)>> {
+        let _guard = self.lock()?;
+        if !self.conversation_path(conversation_id)?.exists() {
+            return Ok(None);
+        }
+        let mut file = self.read_conversation(conversation_id)?;
+        if file.conversation.auto_title_state == AutoTitleState::Running {
+            return Ok(None);
+        }
+        let Some((user_message, assistant_response)) =
+            active_turns(&file.turns).first().and_then(|turn| {
+                turn.continuation_response_id
+                    .as_deref()
+                    .and_then(|id| turn.response(id))
+                    .filter(|response| {
+                        response.status == MessageStatus::Completed
+                            && !response.content.trim().is_empty()
+                    })
+                    .map(|response| (turn.user.content.clone(), response.content.clone()))
+            })
+        else {
+            return Ok(None);
+        };
+        file.conversation.auto_title_state = AutoTitleState::Running;
+        self.write_conversation(&file)?;
+        Ok(Some((user_message, assistant_response)))
+    }
+
     pub fn finish_auto_title(&self, conversation_id: &str, title: Option<&str>) -> Result<bool> {
         let _guard = self.lock()?;
         if !self.conversation_path(conversation_id)?.exists() {

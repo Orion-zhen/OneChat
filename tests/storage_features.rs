@@ -40,6 +40,41 @@ fn window_state_round_trips() {
     assert_eq!(storage.load_window_state().unwrap(), Some(state));
 }
 
+#[test]
+fn provider_order_round_trips() {
+    let (_directory, storage) = open_storage();
+    let providers = ["Zulu", "Alpha", "Middle"].map(|name| {
+        let provider = Provider::new(name, ProviderKind::OpenAi);
+        storage.insert_provider(&provider).unwrap();
+        provider
+    });
+
+    assert_eq!(
+        storage
+            .load_snapshot()
+            .unwrap()
+            .providers
+            .iter()
+            .map(|provider| provider.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Zulu", "Alpha", "Middle"]
+    );
+
+    let ordered_ids = [2, 0, 1].map(|index| providers[index].id.clone()).to_vec();
+    storage.reorder_providers(&ordered_ids).unwrap();
+
+    assert_eq!(
+        storage
+            .load_snapshot()
+            .unwrap()
+            .providers
+            .iter()
+            .map(|provider| provider.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Middle", "Zulu", "Alpha"]
+    );
+}
+
 fn catalog(storage: &Storage) -> (Provider, Model) {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
     storage.insert_provider(&provider).unwrap();
@@ -673,6 +708,48 @@ fn documents_reject_invalid_shapes_and_only_require_present_included_resources()
             .unwrap_err()
             .to_string()
             .contains("No such file")
+    );
+}
+
+#[test]
+fn automatic_title_can_restart_from_a_stored_conversation() {
+    let (_directory, storage) = open_storage();
+    let (provider, model) = catalog(&storage);
+    let conversation = Conversation::new("Old title", Some(&model), "");
+    storage.insert_conversation(&conversation).unwrap();
+
+    let prepared = prepare_turn(
+        &storage,
+        &conversation,
+        &provider,
+        &model,
+        &[],
+        None,
+        UserMessage::new("question", Vec::new()),
+    );
+    begin_and_complete(&storage, prepared, "answer");
+    storage
+        .rename_conversation(&conversation.id, "Manual title")
+        .unwrap();
+
+    assert_eq!(
+        storage.restart_auto_title(&conversation.id).unwrap(),
+        Some(("question".into(), "answer".into()))
+    );
+    assert_eq!(
+        storage.load_snapshot().unwrap().conversations[0].auto_title_state,
+        AutoTitleState::Running
+    );
+    assert_eq!(storage.restart_auto_title(&conversation.id).unwrap(), None);
+
+    assert!(
+        storage
+            .finish_auto_title(&conversation.id, Some("Generated title"))
+            .unwrap()
+    );
+    assert_eq!(
+        storage.restart_auto_title(&conversation.id).unwrap(),
+        Some(("question".into(), "answer".into()))
     );
 }
 

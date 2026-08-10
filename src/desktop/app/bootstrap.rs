@@ -418,6 +418,7 @@ impl OneChat {
                 expanded_mcp_server_ids: HashSet::new(),
                 mcp_connection_tests: BTreeMap::new(),
                 connection_tests: BTreeMap::new(),
+                provider_drop_target: None,
                 provider_editor: None,
                 pending_provider_exit: None,
                 model_editor: None,

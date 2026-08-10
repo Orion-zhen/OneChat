@@ -171,6 +171,7 @@ pub(crate) struct SettingsState {
     pub(crate) expanded_mcp_server_ids: HashSet<String>,
     pub(crate) mcp_connection_tests: BTreeMap<String, ConnectionTestStatus>,
     pub(crate) connection_tests: BTreeMap<String, ConnectionTestStatus>,
+    pub(crate) provider_drop_target: Option<(String, bool)>,
     pub(crate) provider_editor: Option<ProviderEditor>,
     pub(crate) pending_provider_exit: Option<ProviderEditorExit>,
     pub(crate) model_editor: Option<ModelEditor>,

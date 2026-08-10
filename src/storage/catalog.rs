@@ -44,6 +44,28 @@ impl Storage {
         self.write_settings(&settings)
     }
 
+    pub fn reorder_providers(&self, ordered_ids: &[String]) -> Result<()> {
+        let _guard = self.lock()?;
+        let mut settings = self.read_settings()?;
+        if ordered_ids.len() != settings.providers.len() {
+            return Err(StorageError::InvalidData(
+                "provider order does not match the configured providers".into(),
+            ));
+        }
+
+        let mut providers = Vec::with_capacity(ordered_ids.len());
+        for id in ordered_ids {
+            let index = settings
+                .providers
+                .iter()
+                .position(|provider| &provider.id == id)
+                .ok_or_else(|| missing("provider", id))?;
+            providers.push(settings.providers.remove(index));
+        }
+        settings.providers = providers;
+        self.write_settings(&settings)
+    }
+
     pub fn delete_provider(&self, id: &str) -> Result<()> {
         let _guard = self.lock()?;
         let mut settings = self.read_settings()?;

@@ -109,6 +109,73 @@ impl OneChat {
         .detach();
     }
 
+    pub(crate) fn set_provider_drop_target(
+        &mut self,
+        target: String,
+        after: Option<bool>,
+        cx: &mut Context<Self>,
+    ) {
+        let target = match after {
+            Some(after) => Some((target, after)),
+            None if self
+                .settings_ui
+                .provider_drop_target
+                .as_ref()
+                .is_some_and(|(current, _)| current == &target) =>
+            {
+                None
+            }
+            None => return,
+        };
+        if self.settings_ui.provider_drop_target != target {
+            self.settings_ui.provider_drop_target = target;
+            cx.notify();
+        }
+    }
+
+    pub(crate) fn reorder_provider(
+        &mut self,
+        provider_id: String,
+        target_id: String,
+        after: bool,
+        cx: &mut Context<Self>,
+    ) {
+        self.settings_ui.provider_drop_target = None;
+        let providers = &mut self.data.snapshot.providers;
+        let Some(from) = providers
+            .iter()
+            .position(|provider| provider.id == provider_id)
+        else {
+            cx.notify();
+            return;
+        };
+        let Some(target) = providers
+            .iter()
+            .position(|provider| provider.id == target_id)
+        else {
+            cx.notify();
+            return;
+        };
+
+        let mut destination = target + usize::from(after);
+        if from < destination {
+            destination -= 1;
+        }
+        if from == destination {
+            cx.notify();
+            return;
+        }
+
+        let provider = providers.remove(from);
+        providers.insert(destination.min(providers.len()), provider);
+        let ordered_ids = providers
+            .iter()
+            .map(|provider| provider.id.clone())
+            .collect::<Vec<_>>();
+        self.mutate_and_reload(move |storage| storage.reorder_providers(&ordered_ids), cx);
+        cx.notify();
+    }
+
     pub(crate) fn set_provider_enabled(
         &mut self,
         id: String,

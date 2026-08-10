@@ -1,13 +1,33 @@
 use super::*;
 
+#[derive(Clone)]
+struct ProviderDrag {
+    id: String,
+    name: SharedString,
+}
+
+impl Render for ProviderDrag {
+    fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px_3()
+            .py_2()
+            .rounded(px(10.0))
+            .bg(cx.theme().accent)
+            .text_color(cx.theme().accent_foreground)
+            .text_sm()
+            .shadow_md()
+            .child(self.name.clone())
+    }
+}
+
 pub(super) fn settings_sidebar(app: &OneChat, width: f32, cx: &mut Context<OneChat>) -> AnyElement {
     let general_selected = app.settings_ui.section == SettingsSection::General;
     let default_models_selected = app.settings_ui.section == SettingsSection::DefaultModels;
     let prompts_selected = app.settings_ui.section == SettingsSection::SystemPrompts;
     let mcp_selected = app.settings_ui.section == SettingsSection::Mcp;
-    let mut providers = div().flex().flex_col().gap_1();
+    let mut providers = div().flex().flex_col().gap_1().py(px(3.0));
 
-    for provider in &app.data.snapshot.providers {
+    for (index, provider) in app.data.snapshot.providers.iter().enumerate() {
         let selected = app.settings_ui.section == SettingsSection::Provider(provider.id.clone());
         let model_count = app
             .data
@@ -16,7 +36,20 @@ pub(super) fn settings_sidebar(app: &OneChat, width: f32, cx: &mut Context<OneCh
             .iter()
             .filter(|model| model.provider_id == provider.id)
             .count();
-        providers = providers.child(provider_nav_row(provider, model_count, selected, cx));
+        let drop_after = app
+            .settings_ui
+            .provider_drop_target
+            .as_ref()
+            .filter(|(id, _)| id == &provider.id)
+            .map(|(_, after)| *after);
+        providers = providers.child(provider_nav_row(
+            provider,
+            index,
+            model_count,
+            selected,
+            drop_after,
+            cx,
+        ));
     }
 
     if app.data.snapshot.providers.is_empty() {
@@ -251,20 +284,44 @@ fn settings_nav_row(
 
 fn provider_nav_row(
     provider: &Provider,
+    index: usize,
     model_count: usize,
     selected: bool,
+    drop_after: Option<bool>,
     cx: &mut Context<OneChat>,
 ) -> Stateful<Div> {
     let select_id = provider.id.clone();
     let toggle_id = provider.id.clone();
+    let drag_target_id = provider.id.clone();
+    let drop_target_id = provider.id.clone();
+    let app = cx.entity().downgrade();
+    let drag = ProviderDrag {
+        id: provider.id.clone(),
+        name: provider.name.clone().into(),
+    };
     let accent = cx.theme().accent;
     let hover = cx.theme().list_hover;
+    let indicator = drop_after.map(|after| {
+        let line = div()
+            .absolute()
+            .left_2()
+            .right_2()
+            .h(px(2.0))
+            .rounded_full()
+            .bg(cx.theme().primary);
+        if after {
+            line.bottom(px(-3.0))
+        } else {
+            line.top(px(-3.0))
+        }
+    });
 
     div()
         .id(SharedString::from(format!(
             "settings-provider-{}",
             provider.id
         )))
+        .relative()
         .rounded(px(10.0))
         .px_3()
         .py_2()
@@ -276,7 +333,9 @@ fn provider_nav_row(
         } else {
             cx.theme().transparent
         })
+        .cursor_grab()
         .hover(move |style| style.bg(if selected { accent } else { hover }))
+        .children(indicator)
         .child(
             Switch::new(SharedString::from(format!(
                 "toggle-provider-sidebar-{}",
@@ -348,4 +407,42 @@ fn provider_nav_row(
                         .child(provider.kind.label()),
                 ),
         )
+        .on_drag(drag, move |drag, _, _, cx| {
+            _ = app.update(cx, |this, cx| {
+                if this.settings_ui.provider_drop_target.take().is_some() {
+                    cx.notify();
+                }
+            });
+            cx.new(|_| drag.clone())
+        })
+        .on_drag_move(
+            cx.listener(move |this, event: &DragMoveEvent<ProviderDrag>, _, cx| {
+                let after = if event.bounds.contains(&event.event.position) {
+                    let after = event.event.position.y >= event.bounds.center().y;
+                    let from = this
+                        .data
+                        .snapshot
+                        .providers
+                        .iter()
+                        .position(|provider| provider.id == event.drag(cx).id);
+                    let gap = index + usize::from(after);
+                    from.filter(|from| gap != *from && gap != *from + 1)
+                        .map(|_| after)
+                } else {
+                    None
+                };
+                this.set_provider_drop_target(drag_target_id.clone(), after, cx);
+            }),
+        )
+        .on_drop(cx.listener(move |this, drag: &ProviderDrag, _, cx| {
+            let Some((target_id, after)) = this
+                .settings_ui
+                .provider_drop_target
+                .clone()
+                .filter(|(target_id, _)| target_id == &drop_target_id)
+            else {
+                return;
+            };
+            this.reorder_provider(drag.id.clone(), target_id, after, cx);
+        }))
 }

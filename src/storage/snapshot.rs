@@ -58,13 +58,7 @@ impl Storage {
             })
             .unwrap_or_default();
 
-        let mut providers = settings.providers;
-        providers.sort_by(|a, b| {
-            a.name
-                .to_lowercase()
-                .cmp(&b.name.to_lowercase())
-                .then_with(|| a.id.cmp(&b.id))
-        });
+        let providers = settings.providers;
         let mut models = settings.models;
         models.sort_by(|a, b| {
             a.display_name
