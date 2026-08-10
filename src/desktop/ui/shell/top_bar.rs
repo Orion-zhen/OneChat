@@ -54,6 +54,13 @@ pub(super) fn render_top_bar(
     let model_label = selected_model
         .map(|model| model.display_name.clone())
         .unwrap_or_else(|| "Choose Model".into());
+    let model_icon = selected_model.map_or(AppIcon::Bot, |model| {
+        if model.capabilities.vision {
+            AppIcon::Eye
+        } else {
+            AppIcon::MessageText
+        }
+    });
     let prompt_label = current_conversation
         .map(|conversation| app.system_prompt_label(&conversation.system_prompt))
         .unwrap_or_else(|| "None".into());
@@ -168,7 +175,7 @@ pub(super) fn render_top_bar(
                         .flex()
                         .items_center()
                         .gap_2()
-                        .child(render_icon(AppIcon::Bot, IconTone::Muted, 14.0, cx))
+                        .child(render_icon(model_icon, IconTone::Muted, 14.0, cx))
                         .child(div().whitespace_nowrap().child(model_label))
                         .child(render_icon(AppIcon::ChevronDown, IconTone::Muted, 14.0, cx))
                         .on_click(
