@@ -55,8 +55,8 @@ pub(super) fn settings_sidebar(app: &OneChat, width: f32, cx: &mut Context<OneCh
                         general_selected,
                         cx,
                     )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.select_settings_section(SettingsSection::General, cx)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.request_select_settings_section(SettingsSection::General, window, cx)
                     })),
                 )
                 .child(
@@ -68,8 +68,12 @@ pub(super) fn settings_sidebar(app: &OneChat, width: f32, cx: &mut Context<OneCh
                         default_models_selected,
                         cx,
                     )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.select_settings_section(SettingsSection::DefaultModels, cx)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.request_select_settings_section(
+                            SettingsSection::DefaultModels,
+                            window,
+                            cx,
+                        )
                     })),
                 )
                 .child(
@@ -81,8 +85,12 @@ pub(super) fn settings_sidebar(app: &OneChat, width: f32, cx: &mut Context<OneCh
                         prompts_selected,
                         cx,
                     )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.select_settings_section(SettingsSection::SystemPrompts, cx)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.request_select_settings_section(
+                            SettingsSection::SystemPrompts,
+                            window,
+                            cx,
+                        )
                     })),
                 )
                 .child(
@@ -94,8 +102,8 @@ pub(super) fn settings_sidebar(app: &OneChat, width: f32, cx: &mut Context<OneCh
                         mcp_selected,
                         cx,
                     )
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.select_settings_section(SettingsSection::Mcp, cx)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.request_select_settings_section(SettingsSection::Mcp, window, cx)
                     })),
                 ),
         )
@@ -123,7 +131,7 @@ pub(super) fn settings_sidebar(app: &OneChat, width: f32, cx: &mut Context<OneCh
                         cx,
                     )
                     .on_click(
-                        cx.listener(|this, _, window, cx| this.begin_add_provider(window, cx)),
+                        cx.listener(|this, _, window, cx| this.request_add_provider(window, cx)),
                     ),
                 ),
         )
@@ -162,7 +170,9 @@ pub(super) fn settings_sidebar(app: &OneChat, width: f32, cx: &mut Context<OneCh
                         14.0,
                         cx,
                     ))
-                    .on_click(cx.listener(|this, _, _, cx| this.set_page(Page::Chat, cx))),
+                    .on_click(
+                        cx.listener(|this, _, window, cx| this.request_leave_settings(window, cx)),
+                    ),
             ),
         )
         .into_any_element()
@@ -293,8 +303,12 @@ fn provider_nav_row(
                 .min_w_0()
                 .flex_1()
                 .cursor_pointer()
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.select_settings_section(SettingsSection::Provider(select_id.clone()), cx)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.request_select_settings_section(
+                        SettingsSection::Provider(select_id.clone()),
+                        window,
+                        cx,
+                    )
                 }))
                 .child(
                     div()

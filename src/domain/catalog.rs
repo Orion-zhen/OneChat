@@ -90,9 +90,15 @@ pub struct Provider {
     pub api_key: String,
     pub headers: BTreeMap<String, String>,
     pub proxy: Option<String>,
+    #[serde(default = "default_true")]
+    pub streaming: bool,
     pub enabled: bool,
     pub created_at: Timestamp,
     pub updated_at: Timestamp,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Provider {
@@ -106,6 +112,7 @@ impl Provider {
             api_key: String::new(),
             headers: BTreeMap::new(),
             proxy: None,
+            streaming: true,
             enabled: true,
             created_at: now,
             updated_at: now,
@@ -115,7 +122,6 @@ impl Provider {
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ModelCapabilities {
-    pub streaming: bool,
     #[serde(default)]
     pub tools: bool,
     pub vision: bool,
@@ -132,7 +138,6 @@ pub struct ModelCapabilities {
 impl Default for ModelCapabilities {
     fn default() -> Self {
         Self {
-            streaming: true,
             tools: false,
             vision: false,
             temperature: true,
@@ -230,5 +235,33 @@ impl Model {
             created_at: now,
             updated_at: now,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn providers_support_streaming_by_default() {
+        let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+        assert!(provider.streaming);
+
+        let mut value = serde_json::to_value(provider).unwrap();
+        value.as_object_mut().unwrap().remove("streaming");
+        let provider: Provider = serde_json::from_value(value).unwrap();
+        assert!(provider.streaming);
+    }
+
+    #[test]
+    fn streaming_is_not_a_model_capability() {
+        let mut value = serde_json::to_value(ModelCapabilities::default()).unwrap();
+        assert!(value.get("streaming").is_none());
+
+        value
+            .as_object_mut()
+            .unwrap()
+            .insert("streaming".into(), true.into());
+        serde_json::from_value::<ModelCapabilities>(value).unwrap();
     }
 }

@@ -238,13 +238,13 @@ impl OneChat {
         }
         .cloned()
         .ok_or_else(|| "Choose a model before sending.".to_string())?;
-        if !model.capabilities.streaming {
-            return Err("The selected model does not support streaming.".into());
-        }
         let provider = self
             .provider_for_model(&model)
             .cloned()
             .ok_or_else(|| "The selected model has no provider.".to_string())?;
+        if !provider.streaming {
+            return Err("The selected provider does not support streaming.".into());
+        }
         if !provider.enabled {
             return Err("The selected provider is disabled.".into());
         }

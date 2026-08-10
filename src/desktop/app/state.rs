@@ -135,6 +135,13 @@ pub(crate) struct ChatState {
     pub(super) title_transitions: HashMap<String, TitleTransition>,
 }
 
+#[derive(Clone, Debug)]
+pub(crate) enum ProviderEditorExit {
+    Section(SettingsSection),
+    Page(Page),
+    AddProvider,
+}
+
 pub(crate) struct SettingsState {
     pub(crate) section: SettingsSection,
     pub(crate) ui_font_select: Entity<SelectState<SearchableItems<FontFamilyItem>>>,
@@ -165,6 +172,7 @@ pub(crate) struct SettingsState {
     pub(crate) mcp_connection_tests: BTreeMap<String, ConnectionTestStatus>,
     pub(crate) connection_tests: BTreeMap<String, ConnectionTestStatus>,
     pub(crate) provider_editor: Option<ProviderEditor>,
+    pub(crate) pending_provider_exit: Option<ProviderEditorExit>,
     pub(crate) model_editor: Option<ModelEditor>,
     pub(super) model_fetch_revision: u64,
     pub(crate) form_error: Option<String>,

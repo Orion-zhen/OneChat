@@ -58,6 +58,7 @@ actions!(
         MinimizeWindow,
         NewConversation,
         OpenSettings,
+        SaveSettingsEdit,
         ShowCommandPalette,
         ShowModelPicker,
         #[cfg(target_os = "macos")]
@@ -89,6 +90,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new(&shortcut("l"), ShowModelPicker, Some("OneChat")),
         KeyBinding::new(&shortcut("shift-s"), ToggleSidebar, Some("OneChat")),
         KeyBinding::new(&shortcut(","), OpenSettings, Some("OneChat")),
+        KeyBinding::new(&shortcut("s"), SaveSettingsEdit, Some("OneChat")),
         #[cfg(target_os = "macos")]
         KeyBinding::new("cmd-w", CloseWindow, Some("OneChat")),
         #[cfg(target_os = "macos")]
@@ -395,6 +397,12 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         }))
         .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
         .on_action(cx.listener(|this, _: &OpenSettings, _, cx| this.set_page(Page::Settings, cx)))
+        .on_action(cx.listener(|this, _: &SaveSettingsEdit, window, cx| {
+            if this.navigation.page == Page::Settings && this.settings_ui.provider_editor.is_some()
+            {
+                this.save_provider(window, cx);
+            }
+        }))
         .on_action(
             cx.listener(|this, _: &DismissOverlay, window, cx| this.dismiss_overlay(window, cx)),
         )

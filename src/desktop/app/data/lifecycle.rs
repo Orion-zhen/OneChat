@@ -32,7 +32,11 @@ impl OneChat {
         });
     }
 
-    fn apply_snapshot(&mut self, result: StorageResult<StorageSnapshot>, cx: &mut Context<Self>) {
+    pub(in crate::desktop::app) fn apply_snapshot(
+        &mut self,
+        result: StorageResult<StorageSnapshot>,
+        cx: &mut Context<Self>,
+    ) {
         match result {
             Ok(mut snapshot) => {
                 if self.navigation.page == Page::Chat {

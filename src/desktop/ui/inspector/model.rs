@@ -102,9 +102,6 @@ pub(super) fn render_model(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEleme
 pub(crate) fn capability_summary(model: &Model) -> String {
     let capabilities = &model.capabilities;
     let mut labels = Vec::new();
-    if capabilities.streaming {
-        labels.push("Streaming");
-    }
     if capabilities.tools {
         labels.push("Tools");
     }

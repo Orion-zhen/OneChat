@@ -143,7 +143,7 @@ impl OneChat {
         if !provider.enabled {
             return Err("Provider disabled");
         }
-        if !model.capabilities.streaming {
+        if !provider.streaming {
             return Err("Streaming disabled");
         }
         Ok(())

@@ -17,7 +17,7 @@ pub(crate) use editors::{
     ProviderEditor, ProviderKindItem, ReasoningPresetSelectItem, SearchableItems, SettingsSection,
     font_family_label,
 };
-use forms::{mcp_server_form, model_form, provider_form};
+use forms::{mcp_server_form, model_form, provider_form, provider_form_actions};
 use navigation::settings_sidebar;
 use pages::{
     default_models_page, general_page, mcp_page, prompt_preset_dialog_body,
@@ -49,7 +49,7 @@ use gpui_component::{
     combobox::{Combobox, ComboboxEvent, ComboboxState},
     dialog::Dialog,
     form::{Field, Form},
-    input::{Input, InputContentType, InputState},
+    input::{Escape as InputEscape, Input, InputContentType, InputState},
     searchable_list::{SearchableListDelegate, SearchableListItem},
     select::{Select, SelectEvent, SelectState},
     slider::{Slider, SliderState},
@@ -63,7 +63,7 @@ use super::{
     icons::{AppIcon, IconTone, render_icon},
 };
 use crate::{
-    desktop::app::{ConnectionTestStatus, DefaultModelRole, FontRole, OneChat, Page},
+    desktop::app::{ConnectionTestStatus, DefaultModelRole, FontRole, OneChat},
     domain::{
         CustomReasoningPreset, DEFAULT_PROMPT_COMMAND_TIMEOUT_MS,
         DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, KnownReasoningFormat, KnownReasoningPreset, Model,

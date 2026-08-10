@@ -145,10 +145,13 @@ impl OneChat {
             self.overlays.destructive_action = None;
             self.settings_ui.prompt_preset_editor = None;
             self.settings_ui.viewed_prompt_preset = None;
+            self.settings_ui.pending_provider_exit = None;
             self.settings_ui.form_error = None;
             window.close_dialog(cx);
         } else if self.overlays.picker.is_some() {
             self.close_picker_overlay(false, cx);
+        } else if self.settings_ui.provider_editor.is_some() {
+            self.cancel_provider_editor(window, cx);
         } else if self.settings_ui.title_prompt_editor.is_some() {
             self.cancel_title_prompt_edit(cx);
         }

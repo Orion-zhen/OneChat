@@ -10,4 +10,4 @@ fn form_input(state: &Entity<InputState>, label: &'static str) -> Input {
 
 pub(super) use mcp::mcp_server_form;
 pub(super) use model::model_form;
-pub(super) use provider::provider_form;
+pub(super) use provider::{provider_form, provider_form_actions};

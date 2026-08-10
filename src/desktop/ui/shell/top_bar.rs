@@ -27,8 +27,9 @@ pub(super) fn render_top_bar(
                     .child("Settings"),
             )
             .child(
-                large_icon_button("chat-page", AppIcon::Close, IconTone::Muted, cx)
-                    .on_click(cx.listener(|this, _, _, cx| this.set_page(Page::Chat, cx))),
+                large_icon_button("chat-page", AppIcon::Close, IconTone::Muted, cx).on_click(
+                    cx.listener(|this, _, window, cx| this.request_leave_settings(window, cx)),
+                ),
             )
             .into_any_element();
     }

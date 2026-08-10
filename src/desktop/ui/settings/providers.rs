@@ -1,34 +1,38 @@
 use super::*;
 
 pub(super) fn new_provider_page(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
-    let content = if let Some(editor) = &app.settings_ui.provider_editor {
-        provider_form(editor, cx)
-    } else {
-        div()
-            .text_sm()
-            .text_color(cx.theme().muted_foreground)
-            .child("Preparing provider settings…")
-            .into_any_element()
+    let Some(editor) = &app.settings_ui.provider_editor else {
+        return detail_page(
+            div()
+                .text_sm()
+                .text_color(cx.theme().muted_foreground)
+                .child("Preparing provider settings…"),
+        );
     };
-
-    detail_page(
-        div()
-            .flex()
-            .flex_col()
-            .gap_6()
-            .child(page_header(
-                "Add Provider",
-                "Connect OneChat to an LLM service.",
-                cx,
-            ))
-            .children(
-                app.settings_ui
-                    .form_error
-                    .as_ref()
-                    .map(|error| error_banner(error)),
-            )
-            .child(content),
-    )
+    let header = div()
+        .flex()
+        .items_start()
+        .justify_between()
+        .gap_5()
+        .child(div().min_w_0().flex_1().child(page_header(
+            "Add Provider",
+            "Connect OneChat to an LLM service.",
+            cx,
+        )))
+        .child(provider_form_actions(editor, cx));
+    let content = div()
+        .flex()
+        .flex_col()
+        .gap_6()
+        .child(header)
+        .children(
+            app.settings_ui
+                .form_error
+                .as_ref()
+                .map(|error| error_banner(error)),
+        )
+        .child(provider_form(editor, cx));
+    detail_page(content)
 }
 
 pub(super) fn provider_page(
@@ -36,13 +40,66 @@ pub(super) fn provider_page(
     provider: &Provider,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    let (status, status_color) = provider_status(app, provider, cx);
+    let (saved_status, saved_status_color) = provider_status(app, provider, cx);
+    let editing = app.settings_ui.provider_editor.as_ref();
+    let (title, status, status_color) = if let Some(editor) = editing {
+        (
+            format!("Edit “{}”", provider.name),
+            if editor.is_dirty(cx) {
+                "Unsaved changes".to_string()
+            } else {
+                saved_status
+            },
+            if editor.is_dirty(cx) {
+                cx.theme().muted_foreground
+            } else {
+                saved_status_color
+            },
+        )
+    } else {
+        (provider.name.clone(), saved_status, saved_status_color)
+    };
     let provider_id = provider.id.clone();
     let edit_id = provider.id.clone();
     let testing = matches!(
         app.settings_ui.connection_tests.get(&provider.id),
         Some(ConnectionTestStatus::Testing)
     );
+    let header_actions = if let Some(editor) = editing {
+        provider_form_actions(editor, cx)
+    } else {
+        div()
+            .flex_none()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(
+                icon_action(
+                    SharedString::from(format!("test-provider-{}", provider.id)),
+                    AppIcon::Plug,
+                    IconTone::Muted,
+                    "Test connection",
+                    cx,
+                )
+                .loading(testing)
+                .disabled(testing)
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.test_provider_connection(provider_id.clone(), cx)
+                })),
+            )
+            .child(
+                primary_icon_action(
+                    SharedString::from(format!("edit-provider-{}", provider.id)),
+                    AppIcon::Pencil,
+                    "Edit provider",
+                    cx,
+                )
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    this.begin_edit_provider(edit_id.clone(), window, cx)
+                })),
+            )
+            .into_any_element()
+    };
     let header = div()
         .flex()
         .items_start()
@@ -56,7 +113,7 @@ pub(super) fn provider_page(
                     div()
                         .text_size(px(28.0))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child(provider.name.clone()),
+                        .child(title),
                 )
                 .child(
                     div()
@@ -76,42 +133,7 @@ pub(super) fn provider_page(
                         .child(format!("{} · {status}", provider.kind.label())),
                 ),
         )
-        .when(app.settings_ui.provider_editor.is_none(), |element| {
-            element.child(
-                div()
-                    .flex_none()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        icon_action(
-                            SharedString::from(format!("test-provider-{}", provider.id)),
-                            AppIcon::Plug,
-                            IconTone::Muted,
-                            "Test connection",
-                            cx,
-                        )
-                        .loading(testing)
-                        .disabled(testing)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.test_provider_connection(provider_id.clone(), cx)
-                        })),
-                    )
-                    .child(
-                        primary_icon_action(
-                            SharedString::from(format!("edit-provider-{}", provider.id)),
-                            AppIcon::Pencil,
-                            "Edit provider",
-                            cx,
-                        )
-                        .on_click(cx.listener(
-                            move |this, _, window, cx| {
-                                this.begin_edit_provider(edit_id.clone(), window, cx)
-                            },
-                        )),
-                    ),
-            )
-        });
+        .child(header_actions);
 
     let body = if let Some(editor) = &app.settings_ui.provider_editor {
         provider_form(editor, cx)
@@ -126,35 +148,35 @@ pub(super) fn provider_page(
             .into_any_element()
     };
 
-    detail_page(
-        div()
-            .flex()
-            .flex_col()
-            .gap_6()
-            .child(header)
-            .children(
-                app.settings_ui
-                    .form_error
-                    .as_ref()
-                    .map(|error| error_banner(error)),
-            )
-            .children(
-                app.settings_ui.connection_tests.get(&provider.id).and_then(
-                    |status| match status {
-                        ConnectionTestStatus::Failed(message) => Some(
-                            Alert::error("provider-connection-error", message.clone())
-                                .into_any_element(),
-                        ),
-                        ConnectionTestStatus::Connected => Some(
-                            Alert::success("provider-connection-success", "Connection succeeded")
-                                .into_any_element(),
-                        ),
-                        ConnectionTestStatus::Testing => None,
-                    },
-                ),
-            )
-            .child(body),
-    )
+    let content = div()
+        .flex()
+        .flex_col()
+        .gap_6()
+        .child(header)
+        .children(
+            app.settings_ui
+                .form_error
+                .as_ref()
+                .map(|error| error_banner(error)),
+        )
+        .children(
+            app.settings_ui
+                .connection_tests
+                .get(&provider.id)
+                .and_then(|status| match status {
+                    ConnectionTestStatus::Failed(message) => Some(
+                        Alert::error("provider-connection-error", message.clone())
+                            .into_any_element(),
+                    ),
+                    ConnectionTestStatus::Connected => Some(
+                        Alert::success("provider-connection-success", "Connection succeeded")
+                            .into_any_element(),
+                    ),
+                    ConnectionTestStatus::Testing => None,
+                }),
+        )
+        .child(body);
+    detail_page(content)
 }
 
 fn provider_status(app: &OneChat, provider: &Provider, cx: &App) -> (String, gpui::Hsla) {
@@ -185,7 +207,7 @@ fn provider_summary(provider: &Provider, cx: &App) -> AnyElement {
         .w_full()
         .flex()
         .flex_col()
-        .child(summary_row("Endpoint", provider.endpoint.clone(), cx))
+        .child(provider_endpoint_row(provider, cx))
         .child(setting_divider(cx))
         .child(summary_row("API Key", api_key, cx))
         .child(setting_divider(cx))
@@ -198,6 +220,47 @@ fn provider_summary(provider: &Provider, cx: &App) -> AnyElement {
         content,
         cx,
     )
+}
+
+fn provider_endpoint_row(provider: &Provider, cx: &App) -> AnyElement {
+    div()
+        .w_full()
+        .min_h(px(56.0))
+        .rounded(px(10.0))
+        .bg(cx.theme().transparent)
+        .px_4()
+        .py_3()
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap_5()
+        .child(
+            div()
+                .flex_none()
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child("Endpoint"),
+        )
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
+                .text_sm()
+                .text_color(cx.theme().muted_foreground)
+                .child(provider.endpoint.clone()),
+        )
+        .children(provider.streaming.then(|| {
+            div()
+                .flex_none()
+                .text_size(px(11.0))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(cx.theme().primary)
+                .child("Streaming")
+        }))
+        .into_any_element()
 }
 
 fn provider_danger_zone(provider: &Provider, cx: &mut Context<OneChat>) -> AnyElement {
@@ -360,9 +423,6 @@ fn model_row(model: &Model, cx: &mut Context<OneChat>) -> AnyElement {
 pub(super) fn model_capability_summary(model: &Model) -> String {
     let capabilities = &model.capabilities;
     let mut labels = Vec::new();
-    if capabilities.streaming {
-        labels.push("Streaming");
-    }
     if capabilities.tools {
         labels.push("Tools");
     }

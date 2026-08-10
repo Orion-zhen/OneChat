@@ -419,6 +419,7 @@ impl OneChat {
                 mcp_connection_tests: BTreeMap::new(),
                 connection_tests: BTreeMap::new(),
                 provider_editor: None,
+                pending_provider_exit: None,
                 model_editor: None,
                 model_fetch_revision: 0,
                 form_error: None,
