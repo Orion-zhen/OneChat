@@ -68,7 +68,7 @@ impl SearchableListItem for ReasoningBooleanItem {
     }
 }
 
-const CHAT_TEMPLATE_PARAMETERS: [(&str, &str, ReasoningParameterType); 7] = [
+const CHAT_TEMPLATE_PARAMETERS: [(&str, &str, ReasoningParameterType); 8] = [
     (
         "enable_thinking",
         "Qwen, Gemma, and GLM thinking switch",
@@ -87,6 +87,11 @@ const CHAT_TEMPLATE_PARAMETERS: [(&str, &str, ReasoningParameterType); 7] = [
     (
         "reasoning_effort",
         "Reasoning effort exposed to the template",
+        ReasoningParameterType::String,
+    ),
+    (
+        "reasoning_strength",
+        "Reasoning strength exposed to the template",
         ReasoningParameterType::String,
     ),
     (
