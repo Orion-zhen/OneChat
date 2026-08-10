@@ -41,7 +41,15 @@ pub fn apply_event(
             assistant.updated_at = now_timestamp();
             EventOutcome::default()
         }
+        GenerationEvent::StepStarted {
+            estimated_input_tokens,
+        } => {
+            request.last_step_input_tokens = None;
+            request.last_step_estimated_input_tokens = Some(estimated_input_tokens);
+            EventOutcome::default()
+        }
         GenerationEvent::UsageUpdated(usage) => {
+            request.last_step_input_tokens = usage.input_tokens;
             if request.usage.estimated || usage.estimated {
                 request.usage = usage;
             } else {

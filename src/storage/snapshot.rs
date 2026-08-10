@@ -9,7 +9,7 @@ impl Storage {
         let mut settings = self.read_settings()?;
         let files = self.read_conversations()?;
         let prompt_presets = self.read_prompt_presets()?;
-        let mut settings_changed = settings.app.normalize_fonts();
+        let mut settings_changed = settings.app.normalize();
         if settings
             .app
             .current_conversation_id

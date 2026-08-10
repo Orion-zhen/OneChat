@@ -1,11 +1,13 @@
 mod attachment;
 mod composer;
+mod context_indicator;
 mod message;
 mod system_prompt;
 mod timeline;
 
 use attachment::attachment_detail;
 use composer::render_composer;
+use context_indicator::render_context_indicator;
 use message::{render_assistant_turn, render_user_turn};
 use system_prompt::render_system_prompt_card;
 use timeline::TimelineEntry;

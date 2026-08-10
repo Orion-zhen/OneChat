@@ -13,6 +13,7 @@ pub struct AvailableModel {
     pub tools: bool,
     pub vision: bool,
     pub audio: bool,
+    pub context_window_tokens: Option<u32>,
 }
 
 pub async fn list_models(provider: &Provider) -> Result<Vec<AvailableModel>, GenerationError> {
@@ -187,6 +188,7 @@ fn available_model(metadata: &Value, kind: ProviderKind) -> Option<AvailableMode
         tools: tools_from_metadata(metadata),
         vision: vision_from_metadata(metadata),
         audio: audio_from_metadata(metadata),
+        context_window_tokens: context_window_from_metadata(metadata),
     })
 }
 
@@ -348,6 +350,45 @@ fn audio_evidence(value: &Value) -> Option<bool> {
     evidence
 }
 
+fn context_window_from_metadata(value: &Value) -> Option<u32> {
+    match value {
+        Value::Object(object) => object
+            .iter()
+            .flat_map(|(key, value)| {
+                let direct = matches!(
+                    normalized_key(key).as_str(),
+                    "contextlength"
+                        | "contextwindow"
+                        | "contextwindowsize"
+                        | "maxcontextlength"
+                        | "inputtokenlimit"
+                        | "maxinputtokens"
+                )
+                .then(|| positive_u32(value))
+                .flatten();
+                direct
+                    .into_iter()
+                    .chain(context_window_from_metadata(value))
+            })
+            .max(),
+        Value::Array(values) => values.iter().filter_map(context_window_from_metadata).max(),
+        _ => None,
+    }
+}
+
+fn positive_u32(value: &Value) -> Option<u32> {
+    let value = match value {
+        Value::Number(value) => value.as_u64().and_then(|value| u32::try_from(value).ok()),
+        Value::String(value)
+            if !value.is_empty() && value.chars().all(|character| character.is_ascii_digit()) =>
+        {
+            value.parse().ok()
+        }
+        _ => None,
+    }?;
+    (value > 0).then_some(value)
+}
+
 fn merge_evidence(current: Option<bool>, next: Option<bool>) -> Option<bool> {
     match (current, next) {
         (Some(true), _) | (_, Some(true)) => Some(true),
@@ -394,22 +435,19 @@ fn sorted_unique(models: Vec<AvailableModel>) -> Vec<AvailableModel> {
         .into_iter()
         .fold(BTreeMap::new(), |mut models, model| {
             models
-                .entry(model.id)
-                .and_modify(|(tools, vision, audio)| {
-                    *tools |= model.tools;
-                    *vision |= model.vision;
-                    *audio |= model.audio;
+                .entry(model.id.clone())
+                .and_modify(|stored: &mut AvailableModel| {
+                    stored.tools |= model.tools;
+                    stored.vision |= model.vision;
+                    stored.audio |= model.audio;
+                    stored.context_window_tokens = stored
+                        .context_window_tokens
+                        .max(model.context_window_tokens);
                 })
-                .or_insert((model.tools, model.vision, model.audio));
+                .or_insert(model);
             models
         })
-        .into_iter()
-        .map(|(id, (tools, vision, audio))| AvailableModel {
-            id,
-            tools,
-            vision,
-            audio,
-        })
+        .into_values()
         .collect()
 }
 
@@ -456,19 +494,59 @@ mod tests {
     }
 
     #[test]
-    fn merges_capabilities_from_duplicate_models() {
+    fn parses_context_windows_from_known_metadata_aliases() {
+        let openrouter = available_model(
+            &json!({ "id": "openrouter-model", "context_length": 131072 }),
+            ProviderKind::OpenAiCompatible,
+        )
+        .unwrap();
+        let gemini = available_model(
+            &json!({ "name": "models/gemini-model", "inputTokenLimit": 1_000_000 }),
+            ProviderKind::Gemini,
+        )
+        .unwrap();
+        let nested = available_model(
+            &json!({ "id": "nested-model", "metadata": { "limits": { "maxInputTokens": "65536" } } }),
+            ProviderKind::OpenAiCompatible,
+        )
+        .unwrap();
+
+        assert_eq!(openrouter.context_window_tokens, Some(131_072));
+        assert_eq!(gemini.context_window_tokens, Some(1_000_000));
+        assert_eq!(nested.context_window_tokens, Some(65_536));
+    }
+
+    #[test]
+    fn rejects_ambiguous_or_invalid_context_window_metadata() {
+        for metadata in [
+            json!({ "max_tokens": 128_000 }),
+            json!({ "context_length": 0 }),
+            json!({ "context_window": -1 }),
+            json!({ "context_window_size": 128.0 }),
+            json!({ "max_context_length": " 128000 " }),
+            json!({ "inputTokenLimit": 4_294_967_296_u64 }),
+            json!({ "id": "no-limit" }),
+        ] {
+            assert_eq!(context_window_from_metadata(&metadata), None);
+        }
+    }
+
+    #[test]
+    fn merges_metadata_from_duplicate_models() {
         let models = sorted_unique(vec![
             AvailableModel {
                 id: "model".into(),
                 tools: true,
                 vision: false,
                 audio: false,
+                context_window_tokens: Some(32_000),
             },
             AvailableModel {
                 id: "model".into(),
                 tools: false,
                 vision: true,
                 audio: true,
+                context_window_tokens: Some(128_000),
             },
         ]);
 
@@ -479,6 +557,7 @@ mod tests {
                 tools: true,
                 vision: true,
                 audio: true,
+                context_window_tokens: Some(128_000),
             }]
         );
     }

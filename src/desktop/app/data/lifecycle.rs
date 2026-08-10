@@ -106,6 +106,8 @@ impl OneChat {
                 let conversation_changed =
                     previous_conversation_id != snapshot.settings.current_conversation_id;
                 self.data.snapshot = snapshot;
+                self.settings_ui.history_limit_save_pending = false;
+                self.chat.history_limit_preview = None;
                 self.data.error = None;
                 if conversation_changed {
                     self.reset_conversation_ui(cx);
@@ -267,6 +269,7 @@ impl OneChat {
         self.chat.thinking_scrolls.clear();
         self.chat.thinking_motions.clear();
         self.chat.generation_config_editor = None;
+        self.chat.history_limit_preview = None;
         self.chat.generation_config_save_revision =
             self.chat.generation_config_save_revision.wrapping_add(1);
         self.chat.parameter_error = None;

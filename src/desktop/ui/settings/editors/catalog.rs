@@ -356,6 +356,7 @@ pub struct ModelEditor {
     pub provider_id: String,
     pub remote_id: Entity<ComboboxState<ModelIdDelegate>>,
     pub display_name: Entity<InputState>,
+    pub context_window: Entity<InputState>,
     pub capabilities: ModelCapabilities,
     pub reasoning: ModelReasoningEditor,
     pub available_models: Vec<AvailableModel>,
@@ -376,6 +377,10 @@ impl ModelEditor {
             .clone()
             .unwrap_or_else(|| Model::new_for_provider(&provider_id, "", "", provider_kind));
         let remote_id = value.remote_id.clone();
+        let context_window = value
+            .context_window_tokens
+            .map(|tokens| tokens.to_string())
+            .unwrap_or_default();
         let selected = (!remote_id.is_empty()).then(|| IndexPath::new(0));
         let reasoning = ModelReasoningEditor::new(
             value.reasoning.clone(),
@@ -398,6 +403,7 @@ impl ModelEditor {
                 .searchable(true)
             }),
             display_name: single_line_input(value.display_name, "Display name", window, cx),
+            context_window: single_line_input(context_window, "Unknown or token count", window, cx),
             capabilities: value.capabilities,
             reasoning,
             available_models: Vec::new(),
@@ -433,6 +439,8 @@ impl ModelEditor {
             model.display_name = model.remote_id.clone();
         }
         model.capabilities = self.capabilities.clone();
+        model.context_window_tokens =
+            parse_context_window_tokens(self.context_window.read(cx).value().as_ref())?;
         model.reasoning = self.reasoning.build(cx)?;
         model.updated_at = now_timestamp();
         Ok(model)
@@ -474,27 +482,37 @@ impl ModelEditor {
         cx: &mut Context<OneChat>,
     ) {
         let previous_remote_id = std::mem::replace(&mut self.last_remote_id, remote_id.clone());
+        let remote_id_changed = previous_remote_id.trim() != remote_id.trim();
         let display_name = self.display_name.read(cx).value().trim().to_string();
-        let (display_name, vision, audio, tools) = synchronized_model_metadata(
+        let synchronized = synchronized_model_metadata(
             &display_name,
             &previous_remote_id,
             &remote_id,
             &self.available_models,
         );
-        if let Some(display_name) = display_name {
+        if let Some(display_name) = synchronized.display_name {
             self.display_name
                 .update(cx, |input, cx| input.set_value(display_name, window, cx));
         }
-        self.capabilities.vision = vision;
-        self.capabilities.audio = audio;
-        self.capabilities.tools = tools;
+        self.capabilities.vision = synchronized.metadata.vision;
+        self.capabilities.audio = synchronized.metadata.audio;
+        self.capabilities.tools = synchronized.metadata.tools;
+        if remote_id_changed {
+            let context_window = synchronized
+                .metadata
+                .context_window_tokens
+                .map(|tokens| tokens.to_string())
+                .unwrap_or_default();
+            self.context_window
+                .update(cx, |input, cx| input.set_value(context_window, window, cx));
+        }
     }
 
     fn update_capabilities_for_remote_id(&mut self, remote_id: &str) {
-        let (vision, audio, tools) = model_capabilities(&self.available_models, remote_id);
-        self.capabilities.vision = vision;
-        self.capabilities.audio = audio;
-        self.capabilities.tools = tools;
+        let metadata = discovered_model_metadata(&self.available_models, remote_id);
+        self.capabilities.vision = metadata.vision;
+        self.capabilities.audio = metadata.audio;
+        self.capabilities.tools = metadata.tools;
     }
 
     pub fn set_capability(&mut self, capability: Capability, enabled: bool) {
@@ -535,22 +553,102 @@ impl Capability {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct DiscoveredModelMetadata {
+    vision: bool,
+    audio: bool,
+    tools: bool,
+    context_window_tokens: Option<u32>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct SynchronizedModelMetadata {
+    display_name: Option<String>,
+    metadata: DiscoveredModelMetadata,
+}
+
 fn synchronized_model_metadata(
     display_name: &str,
     previous_remote_id: &str,
     remote_id: &str,
     models: &[AvailableModel],
-) -> (Option<String>, bool, bool, bool) {
-    let display_name = (display_name.is_empty() || display_name == previous_remote_id)
-        .then(|| remote_id.to_string());
-    let (vision, audio, tools) = model_capabilities(models, remote_id);
-    (display_name, vision, audio, tools)
+) -> SynchronizedModelMetadata {
+    SynchronizedModelMetadata {
+        display_name: (display_name.is_empty() || display_name == previous_remote_id)
+            .then(|| remote_id.to_string()),
+        metadata: discovered_model_metadata(models, remote_id),
+    }
 }
 
-fn model_capabilities(models: &[AvailableModel], remote_id: &str) -> (bool, bool, bool) {
+fn discovered_model_metadata(
+    models: &[AvailableModel],
+    remote_id: &str,
+) -> DiscoveredModelMetadata {
     models
         .iter()
         .find(|model| model.id == remote_id.trim())
-        .map(|model| (model.vision, model.audio, model.tools))
+        .map(|model| DiscoveredModelMetadata {
+            vision: model.vision,
+            audio: model.audio,
+            tools: model.tools,
+            context_window_tokens: model.context_window_tokens,
+        })
         .unwrap_or_default()
+}
+
+fn parse_context_window_tokens(value: &str) -> Result<Option<u32>, String> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    value
+        .parse::<u32>()
+        .ok()
+        .filter(|tokens| *tokens > 0)
+        .map(Some)
+        .ok_or_else(|| "Context Window must be a positive whole number up to 4,294,967,295.".into())
+}
+
+#[cfg(test)]
+mod model_tests {
+    use super::*;
+
+    fn available_model(id: &str, context_window_tokens: Option<u32>) -> AvailableModel {
+        AvailableModel {
+            id: id.into(),
+            tools: true,
+            vision: true,
+            audio: false,
+            context_window_tokens,
+        }
+    }
+
+    #[test]
+    fn validates_optional_context_window_tokens() {
+        assert_eq!(parse_context_window_tokens(""), Ok(None));
+        assert_eq!(parse_context_window_tokens(" 128000 "), Ok(Some(128_000)));
+        for invalid in ["0", "-1", "1.5", "4294967296", "many"] {
+            assert!(parse_context_window_tokens(invalid).is_err());
+        }
+    }
+
+    #[test]
+    fn synchronizes_named_discovered_metadata_and_clears_custom_ids() {
+        let models = [available_model("known", Some(128_000))];
+        let synchronized = synchronized_model_metadata("old", "old", "known", &models);
+        assert_eq!(synchronized.display_name.as_deref(), Some("known"));
+        assert_eq!(
+            synchronized.metadata,
+            DiscoveredModelMetadata {
+                vision: true,
+                audio: false,
+                tools: true,
+                context_window_tokens: Some(128_000),
+            }
+        );
+
+        let custom = synchronized_model_metadata("Known", "known", "custom", &models);
+        assert_eq!(custom.display_name, None);
+        assert_eq!(custom.metadata, DiscoveredModelMetadata::default());
+    }
 }

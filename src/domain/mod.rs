@@ -6,7 +6,9 @@ mod preferences;
 mod prompt;
 mod reasoning;
 
-pub use catalog::{GenerationConfig, Model, ModelCapabilities, Provider, ProviderKind};
+pub use catalog::{
+    GenerationConfig, Model, ModelCapabilities, Provider, ProviderKind, format_compact_token_count,
+};
 pub use conversation::{
     AssistantResponse, Attachment, AttachmentDraft, AttachmentDraftFile, AttachmentFile,
     AttachmentFileKind, AttachmentKind, AutoTitleState, Conversation, MessageStatus, ToolRef,
@@ -14,16 +16,17 @@ pub use conversation::{
 };
 pub use generation::{
     GenerationError, GenerationErrorKind, GenerationEvent, GenerationRequest, Message,
-    RequestError, RequestInfo, RequestStatus, TokenUsage, ToolDefinition, ToolExecution,
-    ToolExecutionStatus, message_tool_calls,
+    RequestContextInfo, RequestError, RequestInfo, RequestStatus, TokenUsage, ToolDefinition,
+    ToolExecution, ToolExecutionStatus, message_tool_calls,
 };
 pub use id::{Timestamp, new_id, now_timestamp};
 pub use preferences::{
     AppSettings, DEFAULT_BACKGROUND_OPACITY, DEFAULT_CODE_FONT_FAMILY, DEFAULT_MESSAGE_FONT_SIZE,
     DEFAULT_MESSAGE_WIDTH_RATIO, DEFAULT_THEME_COLOR, DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT,
-    DEFAULT_UI_FONT_FAMILY, MAX_BACKGROUND_OPACITY, MAX_MESSAGE_FONT_SIZE, MAX_MESSAGE_WIDTH_RATIO,
-    MIN_BACKGROUND_OPACITY, MIN_MESSAGE_FONT_SIZE, MIN_MESSAGE_WIDTH_RATIO, SendMessageShortcut,
-    Theme, normalize_font_families,
+    DEFAULT_UI_FONT_FAMILY, HISTORY_LIMIT_SLIDER_MAX, HISTORY_LIMIT_SLIDER_MIN,
+    HISTORY_LIMIT_SLIDER_STEP, HistoryLimit, MAX_BACKGROUND_OPACITY, MAX_LIMITED_HISTORY_TURNS,
+    MAX_MESSAGE_FONT_SIZE, MAX_MESSAGE_WIDTH_RATIO, MIN_BACKGROUND_OPACITY, MIN_MESSAGE_FONT_SIZE,
+    MIN_MESSAGE_WIDTH_RATIO, SendMessageShortcut, Theme, normalize_font_families,
 };
 pub use prompt::{
     DEFAULT_PROMPT_COMMAND_TIMEOUT_MS, PromptEvaluation, PromptSnapshot, PromptVariableSource,

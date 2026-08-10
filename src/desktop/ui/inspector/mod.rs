@@ -26,6 +26,7 @@ use gpui_component::{
     input::{Input, InputEvent, InputState, MaskPattern},
     searchable_list::SearchableListItem,
     select::{Select, SelectState},
+    slider::Slider,
     switch::Switch,
     tab::{Tab, TabBar},
 };
@@ -81,6 +82,14 @@ fn danger_icon_action(
 }
 
 pub(crate) fn sync_controls(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>) {
+    let history_limit = app.displayed_history_limit().slider_value();
+    if (app.chat.history_limit_slider.read(cx).value().start() - history_limit).abs() > f32::EPSILON
+    {
+        app.chat
+            .history_limit_slider
+            .update(cx, |slider, cx| slider.set_value(history_limit, window, cx));
+    }
+
     app.sync_generation_config_editor(window, cx);
     let model = app.current_model().cloned();
     if let (Some(editor), Some(model)) = (&mut app.chat.generation_config_editor, model) {

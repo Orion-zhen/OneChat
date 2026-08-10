@@ -1,12 +1,12 @@
 use std::fs;
 
 use onechat::{
-    application::generation::{GenerationStart, PreparedGeneration},
+    application::generation::{ContextPolicy, GenerationStart, PreparedGeneration},
     domain::{
         AppSettings, AttachmentDraft, AttachmentDraftFile, AttachmentFileKind, AttachmentKind,
-        AutoTitleState, Conversation, MessageStatus, Model, PromptVariableSource, Provider,
-        ProviderKind, RequestStatus, SystemPromptPreset, ToolExecution, ToolExecutionStatus, Turn,
-        UserMessage, active_turns,
+        AutoTitleState, Conversation, HistoryLimit, MessageStatus, Model, PromptVariableSource,
+        Provider, ProviderKind, RequestContextInfo, RequestInfo, RequestStatus, SystemPromptPreset,
+        ToolExecution, ToolExecutionStatus, Turn, UserMessage, active_turns,
     },
     storage::{Storage, WindowMode, WindowState},
 };
@@ -20,6 +20,204 @@ fn open_storage() -> (TempDir, Storage) {
     )
     .unwrap();
     (directory, storage)
+}
+
+#[test]
+fn context_policy_fields_are_backward_compatible_and_round_trip() {
+    let settings: AppSettings = serde_json::from_value(serde_json::json!({})).unwrap();
+    assert_eq!(settings.history_limit, HistoryLimit::Unlimited);
+
+    let model = Model::new("provider", "remote", "Model");
+    let mut old_model = serde_json::to_value(&model).unwrap();
+    old_model
+        .as_object_mut()
+        .unwrap()
+        .remove("context_window_tokens");
+    let old_model: Model = serde_json::from_value(old_model).unwrap();
+    assert_eq!(old_model.context_window_tokens, None);
+    assert_eq!(
+        serde_json::from_value::<Model>(serde_json::to_value(&old_model).unwrap()).unwrap(),
+        old_model
+    );
+
+    let conversation = Conversation::new("Chat", None, "");
+    let mut old_conversation = serde_json::to_value(&conversation).unwrap();
+    old_conversation
+        .as_object_mut()
+        .unwrap()
+        .remove("history_limit_override");
+    let old_conversation: Conversation = serde_json::from_value(old_conversation).unwrap();
+    assert_eq!(old_conversation.history_limit_override, None);
+    assert_eq!(
+        old_conversation.effective_history_limit(HistoryLimit::Last(8)),
+        HistoryLimit::Last(8)
+    );
+
+    let mut explicit_unlimited = old_conversation.clone();
+    explicit_unlimited.history_limit_override = Some(HistoryLimit::Unlimited);
+    let explicit_unlimited: Conversation =
+        serde_json::from_value(serde_json::to_value(&explicit_unlimited).unwrap()).unwrap();
+    assert_eq!(
+        explicit_unlimited.history_limit_override,
+        Some(HistoryLimit::Unlimited)
+    );
+    assert_eq!(
+        explicit_unlimited.effective_history_limit(HistoryLimit::Last(8)),
+        HistoryLimit::Unlimited
+    );
+
+    let request = RequestInfo::new("conversation", "turn", "response");
+    let mut old_request = serde_json::to_value(&request).unwrap();
+    let old_request_object = old_request.as_object_mut().unwrap();
+    old_request_object.remove("context");
+    old_request_object.remove("last_step_input_tokens");
+    old_request_object.remove("last_step_estimated_input_tokens");
+    let old_request: RequestInfo = serde_json::from_value(old_request).unwrap();
+    assert_eq!(old_request.context, None);
+    assert_eq!(old_request.last_step_input_tokens, None);
+    assert_eq!(old_request.last_step_estimated_input_tokens, None);
+
+    let context = RequestContextInfo {
+        history_limit: HistoryLimit::Last(8),
+        available_history_turns: 12,
+        included_history_turns: 8,
+        limited_by_context_window: false,
+    };
+    let mut request = old_request;
+    request.context = Some(context);
+    let request: RequestInfo =
+        serde_json::from_value(serde_json::to_value(&request).unwrap()).unwrap();
+    assert_eq!(request.context, Some(context));
+}
+
+#[test]
+fn model_context_window_persists_and_can_be_cleared() {
+    let (_directory, storage) = open_storage();
+    let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+    storage.insert_provider(&provider).unwrap();
+    let mut model = Model::new(&provider.id, "model", "Model");
+    model.context_window_tokens = Some(128_000);
+    storage.insert_model(&model).unwrap();
+
+    assert_eq!(
+        storage.load_snapshot().unwrap().models[0].context_window_tokens,
+        Some(128_000)
+    );
+
+    model.context_window_tokens = None;
+    storage.update_model(&model).unwrap();
+    assert_eq!(
+        storage.load_snapshot().unwrap().models[0].context_window_tokens,
+        None
+    );
+}
+
+#[test]
+fn storage_normalizes_out_of_range_history_limit() {
+    let (_directory, storage) = open_storage();
+    fs::write(
+        storage.settings_path(),
+        r#"{
+            providers: [],
+            models: [],
+            history_limit: { mode: "last", turns: 999 },
+        }"#,
+    )
+    .unwrap();
+
+    let snapshot = storage.load_snapshot().unwrap();
+    assert_eq!(snapshot.settings.history_limit, HistoryLimit::Last(50));
+    assert_eq!(
+        storage.load_snapshot().unwrap().settings.history_limit,
+        HistoryLimit::Last(50)
+    );
+}
+
+#[test]
+fn global_history_limit_values_round_trip() {
+    let (_directory, storage) = open_storage();
+    let mut settings = storage.load_snapshot().unwrap().settings;
+
+    for limit in [
+        HistoryLimit::Last(0),
+        HistoryLimit::Last(1),
+        HistoryLimit::Last(50),
+        HistoryLimit::Unlimited,
+    ] {
+        settings.history_limit = limit;
+        storage.save_settings(&settings).unwrap();
+        assert_eq!(
+            storage.load_snapshot().unwrap().settings.history_limit,
+            limit
+        );
+    }
+}
+
+#[test]
+fn conversation_history_override_is_explicit_until_reset() {
+    let (_directory, storage) = open_storage();
+    let mut settings = storage.load_snapshot().unwrap().settings;
+    settings.history_limit = HistoryLimit::Last(8);
+    storage.save_settings(&settings).unwrap();
+    let mut conversation = Conversation::new("Chat", None, "");
+    storage.insert_conversation(&conversation).unwrap();
+
+    assert_eq!(
+        conversation.effective_history_limit(settings.history_limit),
+        HistoryLimit::Last(8)
+    );
+    settings.history_limit = HistoryLimit::Last(3);
+    storage.save_settings(&settings).unwrap();
+    assert_eq!(
+        conversation.effective_history_limit(settings.history_limit),
+        HistoryLimit::Last(3)
+    );
+
+    conversation.history_limit_override = Some(HistoryLimit::Last(3));
+    storage.update_conversation(&conversation).unwrap();
+    settings.history_limit = HistoryLimit::Last(1);
+    storage.save_settings(&settings).unwrap();
+    let stored = storage
+        .load_snapshot()
+        .unwrap()
+        .conversations
+        .into_iter()
+        .find(|stored| stored.id == conversation.id)
+        .unwrap();
+    assert_eq!(stored.history_limit_override, Some(HistoryLimit::Last(3)));
+    assert_eq!(
+        stored.effective_history_limit(settings.history_limit),
+        HistoryLimit::Last(3)
+    );
+
+    conversation.history_limit_override = Some(HistoryLimit::Unlimited);
+    storage.update_conversation(&conversation).unwrap();
+    let stored = storage
+        .load_snapshot()
+        .unwrap()
+        .conversations
+        .into_iter()
+        .find(|stored| stored.id == conversation.id)
+        .unwrap();
+    assert_eq!(
+        stored.effective_history_limit(settings.history_limit),
+        HistoryLimit::Unlimited
+    );
+
+    conversation.history_limit_override = None;
+    storage.update_conversation(&conversation).unwrap();
+    let stored = storage
+        .load_snapshot()
+        .unwrap()
+        .conversations
+        .into_iter()
+        .find(|stored| stored.id == conversation.id)
+        .unwrap();
+    assert_eq!(stored.history_limit_override, None);
+    assert_eq!(
+        stored.effective_history_limit(settings.history_limit),
+        HistoryLimit::Last(1)
+    );
 }
 
 #[test]
@@ -99,11 +297,11 @@ fn prepare_turn(
         turns,
         parent_response_id,
         user,
-        &|user| {
+        ContextPolicy::new(HistoryLimit::Unlimited, &|user| {
             storage
                 .message_for_user(&conversation.id, user, model.capabilities.vision)
                 .map_err(|error| error.to_string())
-        },
+        }),
     )
     .unwrap()
 }
@@ -224,7 +422,8 @@ fn catalog_settings_and_prompt_presets_round_trip() {
 fn conversations_branch_fork_and_keep_attachment_content() {
     let (_directory, storage) = open_storage();
     let (provider, model) = catalog(&storage);
-    let conversation = Conversation::new("Source", Some(&model), "Be concise");
+    let mut conversation = Conversation::new("Source", Some(&model), "Be concise");
+    conversation.history_limit_override = Some(HistoryLimit::Last(7));
     storage.insert_conversation(&conversation).unwrap();
     let mut settings = AppSettings {
         current_conversation_id: Some(conversation.id.clone()),
@@ -333,13 +532,24 @@ fn conversations_branch_fork_and_keep_attachment_content() {
     let snapshot = storage.load_snapshot().unwrap();
     assert_eq!(active_turns(&snapshot.current_turns)[1].id, old_turn.id);
 
-    let fork = Conversation::new("Fork", Some(&model), "Be concise");
+    let mut fork = conversation.clone();
+    fork.id = "fork".into();
+    fork.title = "Fork".into();
     storage
         .fork_conversation(&conversation.id, &old_response_id, &fork)
         .unwrap();
     settings.current_conversation_id = Some(fork.id.clone());
     storage.save_settings(&settings).unwrap();
     let snapshot = storage.load_snapshot().unwrap();
+    assert_eq!(
+        snapshot
+            .conversations
+            .iter()
+            .find(|conversation| conversation.id == fork.id)
+            .unwrap()
+            .history_limit_override,
+        Some(HistoryLimit::Last(7))
+    );
     assert_eq!(snapshot.current_turns.len(), 2);
     assert_ne!(snapshot.current_turns[1].id, old_turn.id);
     assert_eq!(snapshot.current_turns[1].responses[0].content, "old answer");

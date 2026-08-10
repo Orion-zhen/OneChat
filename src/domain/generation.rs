@@ -2,7 +2,7 @@ pub use rig_core::completion::{Message, ToolDefinition};
 use rig_core::{completion::AssistantContent, message::ToolCall};
 use serde::{Deserialize, Serialize};
 
-use super::{GenerationConfig, Model, Provider, Timestamp, new_id, now_timestamp};
+use super::{GenerationConfig, HistoryLimit, Model, Provider, Timestamp, new_id, now_timestamp};
 
 #[derive(Clone, Debug)]
 pub struct GenerationRequest {
@@ -19,6 +19,7 @@ pub enum GenerationEvent {
     Started,
     TextDelta(String),
     ThinkingDelta(String),
+    StepStarted { estimated_input_tokens: u64 },
     UsageUpdated(TokenUsage),
     ProviderOutput,
     ToolExecutionUpdated(Box<ToolExecution>),
@@ -209,6 +210,14 @@ pub struct RequestError {
     pub detail: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct RequestContextInfo {
+    pub history_limit: HistoryLimit,
+    pub available_history_turns: u32,
+    pub included_history_turns: u32,
+    pub limited_by_context_window: bool,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RequestInfo {
     pub id: String,
@@ -219,6 +228,10 @@ pub struct RequestInfo {
     pub model_id: Option<String>,
     pub status: RequestStatus,
     pub usage: TokenUsage,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_step_input_tokens: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_step_estimated_input_tokens: Option<u64>,
     pub error: Option<RequestError>,
     pub started_at: Timestamp,
     pub first_token_at: Option<Timestamp>,
@@ -232,6 +245,8 @@ pub struct RequestInfo {
     pub duration_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system_prompt: Option<super::PromptSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<RequestContextInfo>,
 }
 
 impl RequestInfo {
@@ -249,6 +264,8 @@ impl RequestInfo {
             model_id: None,
             status: RequestStatus::Sending,
             usage: TokenUsage::default(),
+            last_step_input_tokens: None,
+            last_step_estimated_input_tokens: None,
             error: None,
             started_at: now_timestamp(),
             first_token_at: None,
@@ -259,6 +276,7 @@ impl RequestInfo {
             tool_duration_ms: None,
             duration_ms: None,
             system_prompt: None,
+            context: None,
         }
     }
 }

@@ -4,6 +4,54 @@ use serde::{Deserialize, Serialize};
 
 use super::PromptVariableSource;
 
+pub const MAX_LIMITED_HISTORY_TURNS: u32 = 50;
+pub const HISTORY_LIMIT_SLIDER_MIN: f32 = 0.0;
+pub const HISTORY_LIMIT_SLIDER_MAX: f32 = MAX_LIMITED_HISTORY_TURNS as f32 + 1.0;
+pub const HISTORY_LIMIT_SLIDER_STEP: f32 = 1.0;
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "mode", content = "turns", rename_all = "snake_case")]
+pub enum HistoryLimit {
+    #[default]
+    Unlimited,
+    Last(u32),
+}
+
+impl HistoryLimit {
+    pub fn normalized(self) -> Self {
+        match self {
+            Self::Unlimited => Self::Unlimited,
+            Self::Last(turns) => Self::Last(turns.min(MAX_LIMITED_HISTORY_TURNS)),
+        }
+    }
+
+    pub fn from_slider_value(value: f32) -> Self {
+        let position = value
+            .round()
+            .clamp(HISTORY_LIMIT_SLIDER_MIN, HISTORY_LIMIT_SLIDER_MAX)
+            as u32;
+        if position > MAX_LIMITED_HISTORY_TURNS {
+            Self::Unlimited
+        } else {
+            Self::Last(position)
+        }
+    }
+
+    pub fn slider_value(self) -> f32 {
+        match self.normalized() {
+            Self::Unlimited => HISTORY_LIMIT_SLIDER_MAX,
+            Self::Last(turns) => turns as f32,
+        }
+    }
+
+    pub fn label(self) -> String {
+        match self.normalized() {
+            Self::Unlimited => "Unlimited".into(),
+            Self::Last(turns) => format!("{turns} turns"),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Theme {
@@ -71,6 +119,7 @@ pub struct AppSettings {
     pub code_font_families: Vec<String>,
     pub code_block_wrap: bool,
     pub parse_document_images: bool,
+    pub history_limit: HistoryLimit,
     pub default_system_prompt_preset: Option<String>,
     pub title_generation_system_prompt: String,
     pub prompt_variables: BTreeMap<String, PromptVariableSource>,
@@ -80,6 +129,14 @@ pub struct AppSettings {
 }
 
 impl AppSettings {
+    pub fn normalize(&mut self) -> bool {
+        let fonts_changed = self.normalize_fonts();
+        let history_limit = self.history_limit.normalized();
+        let history_changed = self.history_limit != history_limit;
+        self.history_limit = history_limit;
+        fonts_changed || history_changed
+    }
+
     pub fn normalize_fonts(&mut self) -> bool {
         let ui = normalize_font_families(self.ui_font_families.clone(), DEFAULT_UI_FONT_FAMILY);
         let code =
@@ -122,6 +179,7 @@ impl Default for AppSettings {
             code_font_families: vec![DEFAULT_CODE_FONT_FAMILY.into()],
             code_block_wrap: false,
             parse_document_images: true,
+            history_limit: HistoryLimit::default(),
             default_system_prompt_preset: None,
             title_generation_system_prompt: DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT.into(),
             prompt_variables: BTreeMap::new(),
@@ -129,5 +187,51 @@ impl Default for AppSettings {
             message_width_ratio: DEFAULT_MESSAGE_WIDTH_RATIO,
             background_opacity: DEFAULT_BACKGROUND_OPACITY,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn history_limit_normalizes_and_maps_slider_values() {
+        assert_eq!(HistoryLimit::Last(51).normalized(), HistoryLimit::Last(50));
+        assert_eq!(HistoryLimit::from_slider_value(-1.0), HistoryLimit::Last(0));
+        assert_eq!(HistoryLimit::from_slider_value(1.49), HistoryLimit::Last(1));
+        assert_eq!(HistoryLimit::from_slider_value(1.5), HistoryLimit::Last(2));
+        assert_eq!(
+            HistoryLimit::from_slider_value(50.0),
+            HistoryLimit::Last(50)
+        );
+        assert_eq!(
+            HistoryLimit::from_slider_value(51.0),
+            HistoryLimit::Unlimited
+        );
+        assert_eq!(
+            HistoryLimit::from_slider_value(100.0),
+            HistoryLimit::Unlimited
+        );
+        assert_eq!(HistoryLimit::Last(0).slider_value(), 0.0);
+        assert_eq!(HistoryLimit::Last(1).slider_value(), 1.0);
+        assert_eq!(HistoryLimit::Last(30).slider_value(), 30.0);
+        assert_eq!(HistoryLimit::Last(50).slider_value(), 50.0);
+        assert_eq!(HistoryLimit::Unlimited.slider_value(), 51.0);
+        assert_eq!(HistoryLimit::Last(0).label(), "0 turns");
+        assert_eq!(HistoryLimit::Last(1).label(), "1 turns");
+        assert_eq!(HistoryLimit::Last(50).label(), "50 turns");
+        assert_eq!(HistoryLimit::Unlimited.label(), "Unlimited");
+    }
+
+    #[test]
+    fn app_settings_normalizes_history_limit() {
+        let mut settings = AppSettings {
+            history_limit: HistoryLimit::Last(100),
+            ..AppSettings::default()
+        };
+
+        assert!(settings.normalize());
+        assert_eq!(settings.history_limit, HistoryLimit::Last(50));
+        assert!(!settings.normalize());
     }
 }

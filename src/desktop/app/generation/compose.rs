@@ -2,18 +2,9 @@ use gpui::{Context, Window};
 
 use super::super::OneChat;
 use crate::{
-    application::generation::PreparedGeneration,
-    domain::{Conversation, MessageStatus, Model, Provider, Turn, active_turns},
+    application::generation::{ContextPolicy, PreparedGeneration},
+    domain::{Conversation, MessageStatus, Model, Provider},
 };
-
-fn context_has_visual_attachments(turns: &[Turn]) -> bool {
-    active_turns(turns).iter().any(|turn| {
-        turn.user
-            .attachments
-            .iter()
-            .any(|attachment| attachment.kind.requires_vision())
-    })
-}
 
 fn attempt_composer_submission(
     prompt: String,
@@ -32,12 +23,11 @@ impl OneChat {
     pub(crate) fn attachment_context_supported(&self) -> bool {
         self.current_model().is_none_or(|model| {
             model.capabilities.vision
-                || (!context_has_visual_attachments(&self.data.snapshot.current_turns)
-                    && self
-                        .chat
-                        .attachments
-                        .iter()
-                        .all(|attachment| !attachment.kind.requires_vision()))
+                || self
+                    .chat
+                    .attachments
+                    .iter()
+                    .all(|attachment| !attachment.kind.requires_vision())
         })
     }
 
@@ -93,21 +83,7 @@ impl OneChat {
             cx.notify();
             return false;
         }
-        if !model.capabilities.vision
-            && (context_has_visual_attachments(&self.data.snapshot.current_turns)
-                || self
-                    .chat
-                    .attachments
-                    .iter()
-                    .any(|attachment| attachment.kind.requires_vision()))
-        {
-            self.data.error = Some(
-                "The selected model only accepts text attachments, but this message or its conversation context contains an image or PDF."
-                    .into(),
-            );
-            cx.notify();
-            return false;
-        }
+        let history_limit = self.effective_history_limit(&conversation);
         let attachments = match self
             .services
             .storage
@@ -135,7 +111,7 @@ impl OneChat {
             &self.data.snapshot.current_turns,
             parent_response_id,
             crate::domain::UserMessage::new(prompt, attachments.clone()),
-            &user_message,
+            ContextPolicy::new(history_limit, &user_message),
         ) {
             Ok(prepared) => prepared.with_new_attachments(attachments.clone()),
             Err(error) => {
@@ -185,16 +161,7 @@ impl OneChat {
             cx.notify();
             return;
         }
-        if !model.capabilities.vision
-            && context_has_visual_attachments(&self.data.snapshot.current_turns)
-        {
-            self.data.error = Some(
-                "This conversation context contains an image or PDF that the selected model cannot read."
-                    .into(),
-            );
-            cx.notify();
-            return;
-        }
+        let history_limit = self.effective_history_limit(&conversation);
         let storage = self.services.storage.clone();
         let conversation_id = conversation.id.clone();
         let include_document_images = model.capabilities.vision;
@@ -209,7 +176,7 @@ impl OneChat {
             &model,
             &self.data.snapshot.current_turns,
             &turn,
-            &user_message,
+            ContextPolicy::new(history_limit, &user_message),
         ) {
             Ok(prepared) => self.begin_prepared_generation(prepared, cx),
             Err(error) => {
@@ -280,16 +247,7 @@ impl OneChat {
         if let Some(reasoning_preset) = current_reasoning_preset {
             conversation.generation_config.reasoning_preset = reasoning_preset;
         }
-        if !model.capabilities.vision
-            && context_has_visual_attachments(&self.data.snapshot.current_turns)
-        {
-            self.data.error = Some(
-                "This conversation context contains an image or PDF that the selected model cannot read."
-                    .into(),
-            );
-            cx.notify();
-            return;
-        }
+        let history_limit = self.effective_history_limit(&conversation);
         let storage = self.services.storage.clone();
         let conversation_id = conversation.id.clone();
         let include_document_images = model.capabilities.vision;
@@ -305,7 +263,7 @@ impl OneChat {
             &self.data.snapshot.current_turns,
             &turn,
             &response,
-            &user_message,
+            ContextPolicy::new(history_limit, &user_message),
         ) {
             Ok(prepared) => self.begin_prepared_generation(prepared, cx),
             Err(error) => {

@@ -5,7 +5,7 @@ use gpui_component::Colorize as _;
 
 use crate::{
     desktop::app::{FontRole, OneChat},
-    domain::SendMessageShortcut,
+    domain::{HistoryLimit, SendMessageShortcut},
 };
 
 impl OneChat {
@@ -138,6 +138,24 @@ impl OneChat {
         }
         self.data.snapshot.settings.message_font_size = size;
         cx.notify();
+    }
+
+    pub(crate) fn update_history_limit(&mut self, value: f32, cx: &mut Context<Self>) {
+        let limit = HistoryLimit::from_slider_value(value);
+        if self.data.snapshot.settings.history_limit == limit {
+            return;
+        }
+        self.data.snapshot.settings.history_limit = limit;
+        self.settings_ui.history_limit_save_pending = true;
+        cx.notify();
+    }
+
+    pub(crate) fn save_history_limit_if_changed(&mut self, cx: &mut Context<Self>) {
+        if !self.settings_ui.history_limit_save_pending {
+            return;
+        }
+        self.settings_ui.history_limit_save_pending = false;
+        self.save_settings(cx);
     }
 
     pub(crate) fn toggle_auto_title_enabled(&mut self, cx: &mut Context<Self>) {

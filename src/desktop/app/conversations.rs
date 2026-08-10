@@ -9,7 +9,7 @@ use gpui_component::{
 use super::{DestructiveAction, OneChat, Page, PendingFocus, RenameEditor};
 use crate::{
     desktop::ui::settings::SettingsSection,
-    domain::{AppSettings, Conversation, Theme, now_timestamp},
+    domain::{AppSettings, Conversation, HistoryLimit, Theme, now_timestamp},
 };
 
 fn resolve_destructive_action(
@@ -100,6 +100,97 @@ impl OneChat {
         self.reset_conversation_ui(cx);
         self.navigation.pending_focus = Some(PendingFocus::Composer);
         self.mutate_and_reload(move |storage| storage.save_settings(&settings), cx);
+    }
+
+    pub(crate) fn preview_conversation_history_limit(
+        &mut self,
+        value: f32,
+        cx: &mut Context<Self>,
+    ) {
+        if self.is_current_generating() {
+            return;
+        }
+        let Some(conversation) = self.current_conversation() else {
+            return;
+        };
+        let limit = HistoryLimit::from_slider_value(value);
+        let effective = self.effective_history_limit(conversation);
+        let preview = (limit != effective).then_some(limit);
+        if self.chat.history_limit_preview == preview {
+            return;
+        }
+        self.chat.history_limit_preview = preview;
+        cx.notify();
+    }
+
+    pub(crate) fn commit_conversation_history_limit(&mut self, value: f32, cx: &mut Context<Self>) {
+        if self.is_current_generating() {
+            self.chat.history_limit_preview = None;
+            cx.notify();
+            return;
+        }
+        self.chat.history_limit_preview = None;
+        let global = self.settings().history_limit;
+        let limit = HistoryLimit::from_slider_value(value);
+        let Some(mut conversation) = self.current_conversation().cloned() else {
+            return;
+        };
+        let original = conversation.history_limit_override;
+        let history_limit_override = if original.is_none() && limit == global {
+            None
+        } else {
+            Some(limit)
+        };
+        if history_limit_override == original {
+            cx.notify();
+            return;
+        }
+        conversation.history_limit_override = history_limit_override;
+        conversation.updated_at = now_timestamp();
+        if let Some(stored) = self
+            .data
+            .snapshot
+            .conversations
+            .iter_mut()
+            .find(|stored| stored.id == conversation.id)
+        {
+            *stored = conversation.clone();
+        }
+        cx.notify();
+        self.mutate_and_reload(
+            move |storage| storage.update_conversation(&conversation),
+            cx,
+        );
+    }
+
+    pub(crate) fn reset_conversation_history_limit(&mut self, cx: &mut Context<Self>) {
+        if self.is_current_generating() {
+            return;
+        }
+        self.chat.history_limit_preview = None;
+        let Some(mut conversation) = self
+            .current_conversation()
+            .filter(|conversation| conversation.history_limit_override.is_some())
+            .cloned()
+        else {
+            return;
+        };
+        conversation.history_limit_override = None;
+        conversation.updated_at = now_timestamp();
+        if let Some(stored) = self
+            .data
+            .snapshot
+            .conversations
+            .iter_mut()
+            .find(|stored| stored.id == conversation.id)
+        {
+            *stored = conversation.clone();
+        }
+        cx.notify();
+        self.mutate_and_reload(
+            move |storage| storage.update_conversation(&conversation),
+            cx,
+        );
     }
 
     pub(crate) fn start_rename(

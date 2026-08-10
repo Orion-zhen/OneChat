@@ -2,8 +2,8 @@ use gpui::Window;
 
 use super::super::OneChat;
 use crate::domain::{
-    AssistantResponse, Conversation, Message, Model, Provider, RequestInfo, SystemPromptPreset,
-    Turn, active_turns, user_branches,
+    AssistantResponse, Conversation, HistoryLimit, Message, Model, Provider, RequestInfo,
+    SystemPromptPreset, Turn, active_turns, user_branches,
 };
 
 impl OneChat {
@@ -233,7 +233,23 @@ impl OneChat {
             .is_some_and(|turn| turn.id == turn_id)
     }
 
+    pub(crate) fn effective_history_limit(&self, conversation: &Conversation) -> HistoryLimit {
+        conversation.effective_history_limit(self.data.snapshot.settings.history_limit)
+    }
+
+    pub(crate) fn displayed_history_limit(&self) -> HistoryLimit {
+        self.chat.history_limit_preview.unwrap_or_else(|| {
+            self.current_conversation()
+                .map(|conversation| self.effective_history_limit(conversation))
+                .unwrap_or_default()
+        })
+    }
+
     pub(crate) fn current_context_messages(&self) -> Vec<Message> {
-        crate::application::generation::history_for_new_turn(&self.data.snapshot.current_turns)
+        let limit = self.displayed_history_limit();
+        crate::application::generation::history_for_new_turn(
+            &self.data.snapshot.current_turns,
+            limit,
+        )
     }
 }

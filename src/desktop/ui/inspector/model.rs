@@ -103,22 +103,24 @@ pub(crate) fn capability_summary(model: &Model) -> String {
     let capabilities = &model.capabilities;
     let mut labels = Vec::new();
     if capabilities.vision {
-        labels.push("Vision");
+        labels.push("Vision".to_string());
     }
     if capabilities.audio {
-        labels.push("Audio");
+        labels.push("Audio".to_string());
     }
     if capabilities.tools {
-        labels.push("Tools");
+        labels.push("Tools".to_string());
     }
     if model.reasoning.is_some() {
-        labels.push("Reasoning");
+        labels.push("Reasoning".to_string());
     }
-    if labels.is_empty() {
-        "No declared capabilities".into()
-    } else {
-        labels.join(" · ")
+    if let Some(tokens) = model.context_window_tokens {
+        labels.push(format!(
+            "{} context",
+            crate::domain::format_compact_token_count(tokens)
+        ));
     }
+    labels.join(" · ")
 }
 
 fn parameter_field(
@@ -232,6 +234,12 @@ fn add_parameter_select(
 }
 
 fn model_summary(model: &Model, provider: &str, cx: &App) -> AnyElement {
+    let metadata = capability_summary(model);
+    let details = if metadata.is_empty() {
+        provider.to_string()
+    } else {
+        format!("{provider} · {metadata}")
+    };
     div()
         .rounded_lg()
         .bg(cx.theme().muted)
@@ -254,7 +262,7 @@ fn model_summary(model: &Model, provider: &str, cx: &App) -> AnyElement {
                 .pt_1()
                 .text_size(px(11.0))
                 .text_color(cx.theme().muted_foreground)
-                .child(format!("{} · {}", provider, capability_summary(model))),
+                .child(details),
         )
         .into_any_element()
 }

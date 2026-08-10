@@ -350,6 +350,12 @@ fn provider_models(app: &OneChat, provider: &Provider, cx: &mut Context<OneChat>
 fn model_row(model: &Model, cx: &mut Context<OneChat>) -> AnyElement {
     let edit_id = model.id.clone();
     let delete_id = model.id.clone();
+    let metadata = model_capability_summary(model);
+    let subtitle = if metadata.is_empty() {
+        model.remote_id.clone()
+    } else {
+        format!("{} · {metadata}", model.remote_id)
+    };
     div()
         .w_full()
         .min_h(px(64.0))
@@ -380,11 +386,7 @@ fn model_row(model: &Model, cx: &mut Context<OneChat>) -> AnyElement {
                         .text_ellipsis()
                         .text_size(px(12.0))
                         .text_color(cx.theme().muted_foreground)
-                        .child(format!(
-                            "{} · {}",
-                            model.remote_id,
-                            model_capability_summary(model)
-                        )),
+                        .child(subtitle),
                 ),
         )
         .child(
@@ -424,20 +426,22 @@ pub(super) fn model_capability_summary(model: &Model) -> String {
     let capabilities = &model.capabilities;
     let mut labels = Vec::new();
     if capabilities.vision {
-        labels.push("Vision");
+        labels.push("Vision".to_string());
     }
     if capabilities.audio {
-        labels.push("Audio");
+        labels.push("Audio".to_string());
     }
     if capabilities.tools {
-        labels.push("Tools");
+        labels.push("Tools".to_string());
     }
     if model.reasoning.is_some() {
-        labels.push("Reasoning");
+        labels.push("Reasoning".to_string());
     }
-    if labels.is_empty() {
-        "No core capabilities".into()
-    } else {
-        labels.join(", ")
+    if let Some(tokens) = model.context_window_tokens {
+        labels.push(format!(
+            "{} context",
+            crate::domain::format_compact_token_count(tokens)
+        ));
     }
+    labels.join(", ")
 }

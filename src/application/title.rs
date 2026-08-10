@@ -46,6 +46,7 @@ pub async fn generate_title(
             GenerationEvent::Started
             | GenerationEvent::ProviderOutput
             | GenerationEvent::ThinkingDelta(_)
+            | GenerationEvent::StepStarted { .. }
             | GenerationEvent::UsageUpdated(_)
             | GenerationEvent::ToolExecutionUpdated(_)
             | GenerationEvent::TranscriptAppended(_) => {}
@@ -151,7 +152,8 @@ mod tests {
     #[test]
     fn title_request_uses_selected_reasoning_preset() {
         let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-        let model = Model::new(&provider.id, "gpt-test", "GPT Test");
+        let mut model = Model::new(&provider.id, "gpt-test", "GPT Test");
+        model.context_window_tokens = Some(1);
 
         let request = title_request(
             provider,
@@ -163,5 +165,9 @@ mod tests {
         );
 
         assert_eq!(request.config.reasoning_preset.as_deref(), Some("low"));
+        assert_eq!(request.messages.len(), 1);
+        let transcript = serde_json::to_string(&request.messages[0]).unwrap();
+        assert!(transcript.contains("Question"));
+        assert!(transcript.contains("Answer"));
     }
 }

@@ -9,6 +9,14 @@ pub(super) fn render_composer(
     let generating = app.is_current_generating();
     let multiline = composer_is_multiline(app, message_max_width, cx);
     let expanded = multiline && app.chat.composer_expanded.get();
+    let show_context_indicator = app.current_model().is_some();
+    let context_indicator = show_context_indicator.then(|| {
+        div()
+            .absolute()
+            .right(px(if multiline { 91.0 } else { 49.0 }))
+            .bottom(px(7.0))
+            .child(render_context_indicator(app, cx))
+    });
     let invalid_for_model = !app.attachment_context_supported();
     let can_send = (!app.chat.composer.read(cx).value().trim().is_empty()
         || !app.chat.attachments.is_empty())
@@ -186,7 +194,7 @@ pub(super) fn render_composer(
             } else {
                 input
                     .pl(px(56.0))
-                    .pr(px(56.0))
+                    .pr(px(if show_context_indicator { 98.0 } else { 56.0 }))
                     .py(px(12.0))
                     .into_any_element()
             }
@@ -194,7 +202,8 @@ pub(super) fn render_composer(
         .children(multiline.then(|| div().h(px(48.0)).flex_none()))
         .child(add)
         .child(action)
-        .children(expand);
+        .children(expand)
+        .children(context_indicator);
 
     div()
         .flex_none()

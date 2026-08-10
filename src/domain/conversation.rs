@@ -4,7 +4,8 @@ use rig_core::completion::AssistantContent;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    GenerationConfig, Message, Model, Provider, Timestamp, ToolExecution, new_id, now_timestamp,
+    GenerationConfig, HistoryLimit, Message, Model, Provider, Timestamp, ToolExecution, new_id,
+    now_timestamp,
 };
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
@@ -58,6 +59,8 @@ pub struct Conversation {
     pub generation_config: GenerationConfig,
     #[serde(default)]
     pub tool_selection: ToolSelection,
+    #[serde(default)]
+    pub history_limit_override: Option<HistoryLimit>,
     pub auto_title_state: AutoTitleState,
     pub pinned: bool,
     pub created_at: Timestamp,
@@ -75,11 +78,16 @@ impl Conversation {
             system_prompt,
             generation_config: GenerationConfig::default(),
             tool_selection: ToolSelection::default(),
+            history_limit_override: None,
             auto_title_state: AutoTitleState::Pending,
             pinned: false,
             created_at: now,
             updated_at: now,
         }
+    }
+
+    pub fn effective_history_limit(&self, global: HistoryLimit) -> HistoryLimit {
+        self.history_limit_override.unwrap_or(global).normalized()
     }
 }
 

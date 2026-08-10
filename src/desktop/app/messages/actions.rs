@@ -3,7 +3,7 @@ use gpui_component::input::{InputEvent, InputState};
 
 use super::super::{MessageEditor, MessageEditorTarget, OneChat, PendingFocus, multiline_input};
 use crate::{
-    application::generation::PreparedGeneration,
+    application::generation::{ContextPolicy, PreparedGeneration},
     desktop::ui::inspector::InspectorTab,
     domain::{AssistantResponse, MessageStatus, Turn, new_id, now_timestamp},
 };
@@ -242,21 +242,7 @@ impl OneChat {
                 return;
             }
         };
-        if !model.capabilities.vision
-            && (retained_attachments
-                .iter()
-                .any(|attachment| attachment.kind.requires_vision())
-                || attachment_drafts
-                    .iter()
-                    .any(|attachment| attachment.kind.requires_vision()))
-        {
-            self.data.error = Some(
-                "The selected model cannot use the image or PDF attachments on this message."
-                    .into(),
-            );
-            cx.notify();
-            return;
-        }
+        let history_limit = self.effective_history_limit(&conversation);
         let new_attachments = match self
             .services
             .storage
@@ -286,7 +272,7 @@ impl OneChat {
             &self.data.snapshot.current_turns,
             turn.parent_response_id,
             crate::domain::UserMessage::new(content, attachments),
-            &user_message,
+            ContextPolicy::new(history_limit, &user_message),
         ) {
             Ok(prepared) => prepared,
             Err(error) => {

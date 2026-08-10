@@ -51,6 +51,7 @@ impl OneChat {
             return;
         }
 
+        self.chat.history_limit_preview = None;
         let turn_id = prepared.request_info.turn_id.clone();
         let response_id = prepared.response.id.clone();
         let scroll_to_bottom =

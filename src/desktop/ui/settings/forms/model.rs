@@ -91,7 +91,13 @@ pub(in crate::desktop::ui::settings) fn model_form(
                 )
                 .child(
                     Field::new()
+                        .label("Context Window")
+                        .child(form_input(&editor.context_window, "Unknown or token count")),
+                )
+                .child(
+                    Field::new()
                         .label("Core Capabilities")
+                        .col_span(2)
                         .child(capability_group(&Capability::CORE, editor, cx)),
                 ),
         )

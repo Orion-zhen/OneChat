@@ -107,6 +107,24 @@ Excel workbooks preserve the last formatted cell values saved in the file; OneCh
 
 The settings parser accepts JSONC comments and trailing commas. Files written by OneChat are formatted as plain JSON, which is also valid JSONC. Existing comments are not preserved when the app writes the settings file. Legacy SQLite files are neither imported nor deleted.
 
+## Models and conversation context
+
+A model can store an optional **Context Window** token limit. OneChat discovers it from common provider metadata when the API exposes an unambiguous input/context limit, and the model editor allows the value to be changed or cleared. When an API does not report a limit, the value remains unknown; OneChat does not guess from the model ID.
+
+**Conversation History** under **Settings → General → Behavior** controls how much prior context each conversation request carries. It defaults to **Unlimited**. The discrete values mean:
+
+- **0 turns**: send no prior conversation history.
+- **1–50 turns**: send at most the most recent N complete ancestor turns from the selected branch.
+- **Unlimited**: apply no turn-count limit.
+
+The current user message and system prompt do not count as history turns. The Context inspector shows the effective value directly. Changing it creates a conversation-specific override; **Reset** restores dynamic inheritance from the current global setting.
+
+History limiting is non-destructive: it does not delete or hide local messages, attachments, branches, response candidates, or tool traces. OneChat plans context independently for each new, additional, or regenerated response and removes only whole turns, keeping each user message, selected assistant response, attachment content, and tool transcript together.
+
+When a model has a Context Window, OneChat estimates input tokens from the resolved system prompt and serialized messages, then removes additional oldest complete turns if needed. **Unlimited** cannot bypass this window. If the system prompt and current message alone exceed it, the request fails locally with a context-length error. The estimate uses roughly one token per four characters and intentionally excludes tool schemas and later agent-loop results, so provider context-length errors remain the final fallback. Models with an unknown window use only the history-turn limit.
+
+The composer shows a compact context-capacity ring beside the send button. Its detail popover distinguishes an unknown model window from zero remaining capacity and reports whether replayed reasoning is present. After a completed request, the projection anchors itself to the provider-reported input usage from the final agent step—not cumulative tool-loop usage—and estimates only the conversation changes since that step. Reasoning counts toward the projection only when it is retained in the provider transcript for replay; display-only or hidden reasoning is not added separately.
+
 ## System prompt variables
 
 Conversation system prompts support runtime placeholders such as `{{owner}}`. Custom variables are managed under **Settings → System Prompts** and can read fixed text, an environment variable, or the stdout of a local shell command. Only referenced variables are evaluated; use `\{{owner}}` for a literal placeholder. Command variables have a working directory, a timeout, and a 64 KiB output limit. Unknown variables and failed commands stop the request before it reaches the model.

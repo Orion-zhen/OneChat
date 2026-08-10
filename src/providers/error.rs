@@ -107,3 +107,23 @@ pub(crate) fn classify_provider_error(
         detail: detail.or_else(|| (!body.is_empty()).then(|| body.to_string())),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provider_context_errors_remain_standard_context_length_failures() {
+        let error = classify_provider_error(
+            reqwest::StatusCode::BAD_REQUEST,
+            "maximum context length exceeded for this model",
+            None,
+        );
+
+        assert_eq!(error.kind, GenerationErrorKind::ContextLengthExceeded);
+        assert_eq!(
+            error.message,
+            "Conversation exceeds the model context limit"
+        );
+    }
+}

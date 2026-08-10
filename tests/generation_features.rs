@@ -1,16 +1,20 @@
-use std::time::Duration;
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
 use onechat::{
     application::generation::{
-        GenerationManager, GenerationStart, PreparedGeneration, apply_event, history_for_new_turn,
+        ContextPolicy, GenerationManager, GenerationStart, GenerationUpdate, PreparedGeneration,
+        apply_event, history_for_new_turn, history_for_turn, history_preview_for_new_turn,
+        run_generation,
     },
     domain::{
-        AssistantResponse, AttachmentDraft, AttachmentDraftFile, AttachmentFileKind,
+        AssistantResponse, Attachment, AttachmentDraft, AttachmentDraftFile, AttachmentFileKind,
         AttachmentKind, Conversation, CustomReasoningPreset, GenerationConfig, GenerationError,
-        GenerationEvent, KnownReasoningFormat, Message, MessageStatus, Model, ModelReasoningConfig,
-        Provider, ProviderKind, ReasoningParameter, ReasoningParameterValue, RequestInfo,
-        RequestStatus, Turn, UserMessage, merge_json_patch,
+        GenerationErrorKind, GenerationEvent, HistoryLimit, KnownReasoningFormat, Message,
+        MessageStatus, Model, ModelReasoningConfig, PromptVariableSource, Provider, ProviderKind,
+        ReasoningParameter, ReasoningParameterValue, RequestInfo, RequestStatus, TokenUsage, Turn,
+        UserMessage, merge_json_patch,
     },
+    mcp::McpManager,
     storage::Storage,
 };
 use serde_json::{Map, Value, json};
@@ -35,6 +39,15 @@ fn completed_turn(
     );
     turn.continuation_response_id = Some(turn.responses[0].id.clone());
     turn
+}
+
+fn image_attachment() -> Attachment {
+    Attachment {
+        id: "image".into(),
+        name: "image.png".into(),
+        kind: AttachmentKind::Image,
+        files: Vec::new(),
+    }
 }
 
 fn serialized_messages(messages: &[Message]) -> Vec<String> {
@@ -72,7 +85,9 @@ fn generation_preparation_uses_the_selected_history_and_model_capabilities() {
         &[root],
         Some(root_response_id.clone()),
         UserMessage::new("follow-up", Vec::new()),
-        &|user| Ok(Message::user(user.content.clone())),
+        ContextPolicy::new(HistoryLimit::Unlimited, &|user| {
+            Ok(Message::user(user.content.clone()))
+        }),
     )
     .unwrap();
 
@@ -122,7 +137,9 @@ fn regeneration_uses_the_current_reasoning_preset() {
         std::slice::from_ref(&turn),
         &turn,
         &previous_response,
-        &|user| Ok(Message::user(user.content.clone())),
+        ContextPolicy::new(HistoryLimit::Unlimited, &|user| {
+            Ok(Message::user(user.content.clone()))
+        }),
     )
     .unwrap();
 
@@ -166,7 +183,10 @@ fn new_turn_history_follows_the_selected_branch() {
         &provider,
     );
 
-    let history = history_for_new_turn(&[root, old_branch, selected_branch]);
+    let history = history_for_new_turn(
+        &[root, old_branch, selected_branch],
+        HistoryLimit::Unlimited,
+    );
     let messages = serialized_messages(&history);
     assert_eq!(messages.len(), 4);
     assert!(messages[0].contains("root question"));
@@ -178,6 +198,542 @@ fn new_turn_history_follows_the_selected_branch() {
             .iter()
             .all(|message| !message.contains("old branch"))
     );
+}
+
+#[test]
+fn history_limits_keep_recent_complete_turns_and_do_not_count_current_message() {
+    let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let conversation = Conversation::new("Chat", Some(&model), "");
+    let root = completed_turn(
+        &conversation,
+        None,
+        "root question",
+        "root answer",
+        &model,
+        &provider,
+    );
+    let middle = completed_turn(
+        &conversation,
+        Some(root.responses[0].id.clone()),
+        "middle question",
+        "middle answer",
+        &model,
+        &provider,
+    );
+    let turns = [root, middle.clone()];
+    let loader = |user: &UserMessage| {
+        if user.content == "root question" {
+            Err("excluded root was expanded".into())
+        } else {
+            Ok(Message::user(user.content.clone()))
+        }
+    };
+
+    let prepared = PreparedGeneration::new(
+        &conversation,
+        &provider,
+        &model,
+        &turns,
+        Some(middle.responses[0].id.clone()),
+        UserMessage::new("current question", Vec::new()),
+        ContextPolicy::new(HistoryLimit::Last(1), &loader),
+    )
+    .unwrap();
+    let messages = serialized_messages(&prepared.provider_request.messages);
+    assert_eq!(messages.len(), 3);
+    assert!(messages[0].contains("middle question"));
+    assert!(messages[1].contains("middle answer"));
+    assert!(messages[2].contains("current question"));
+    assert!(messages.iter().all(|message| !message.contains("root")));
+    let context = prepared.request_info.context.unwrap();
+    assert_eq!(context.history_limit, HistoryLimit::Last(1));
+    assert_eq!(context.available_history_turns, 2);
+    assert_eq!(context.included_history_turns, 1);
+
+    let stateless = PreparedGeneration::new(
+        &conversation,
+        &provider,
+        &model,
+        &turns,
+        Some(middle.responses[0].id.clone()),
+        UserMessage::new("current question", Vec::new()),
+        ContextPolicy::new(HistoryLimit::Last(0), &|user| {
+            Ok(Message::user(user.content.clone()))
+        }),
+    )
+    .unwrap();
+    let messages = serialized_messages(&stateless.provider_request.messages);
+    assert_eq!(messages.len(), 1);
+    assert!(messages[0].contains("current question"));
+
+    let oversized_limit = history_for_new_turn(&turns, HistoryLimit::Last(50));
+    assert_eq!(oversized_limit.len(), 4);
+    let preview = history_preview_for_new_turn(&turns, HistoryLimit::Last(1));
+    assert_eq!(preview.available_turns, 2);
+    assert_eq!(preview.included_turns, 1);
+}
+
+#[test]
+fn history_turns_keep_complete_transcripts_as_the_truncation_unit() {
+    let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let conversation = Conversation::new("Chat", Some(&model), "");
+    let mut root = completed_turn(
+        &conversation,
+        None,
+        "tool question",
+        "fallback answer",
+        &model,
+        &provider,
+    );
+    root.responses[0].transcript = vec![
+        Message::assistant("tool call marker"),
+        Message::user("tool result marker"),
+    ];
+
+    let included = PreparedGeneration::new(
+        &conversation,
+        &provider,
+        &model,
+        std::slice::from_ref(&root),
+        Some(root.responses[0].id.clone()),
+        UserMessage::new("current", Vec::new()),
+        ContextPolicy::new(HistoryLimit::Last(1), &|user| {
+            Ok(Message::user(user.content.clone()))
+        }),
+    )
+    .unwrap();
+    let included = serialized_messages(&included.provider_request.messages).join("\n");
+    assert!(included.contains("tool question"));
+    assert!(included.contains("tool call marker"));
+    assert!(included.contains("tool result marker"));
+    assert!(!included.contains("fallback answer"));
+
+    let excluded = PreparedGeneration::new(
+        &conversation,
+        &provider,
+        &model,
+        std::slice::from_ref(&root),
+        Some(root.responses[0].id.clone()),
+        UserMessage::new("current", Vec::new()),
+        ContextPolicy::new(HistoryLimit::Last(0), &|user| {
+            Ok(Message::user(user.content.clone()))
+        }),
+    )
+    .unwrap();
+    let excluded = serialized_messages(&excluded.provider_request.messages).join("\n");
+    assert!(!excluded.contains("tool question"));
+    assert!(!excluded.contains("tool call marker"));
+    assert!(!excluded.contains("tool result marker"));
+}
+
+#[test]
+fn model_context_window_trims_only_complete_oldest_turns_and_updates_request_info() {
+    let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let conversation = Conversation::new("Chat", Some(&model), "system");
+    let mut root = completed_turn(
+        &conversation,
+        None,
+        "old tool question",
+        "fallback answer",
+        &model,
+        &provider,
+    );
+    root.responses[0].transcript = vec![
+        Message::assistant("old tool call"),
+        Message::user("old tool result"),
+    ];
+    let recent = completed_turn(
+        &conversation,
+        Some(root.responses[0].id.clone()),
+        "recent question",
+        "recent answer",
+        &model,
+        &provider,
+    );
+    let turns = [root, recent.clone()];
+    let loader = |user: &UserMessage| Ok(Message::user(user.content.clone()));
+    let prepare = |limit| {
+        PreparedGeneration::new(
+            &conversation,
+            &provider,
+            &model,
+            &turns,
+            Some(recent.responses[0].id.clone()),
+            UserMessage::new("current question", Vec::new()),
+            ContextPolicy::new(limit, &loader),
+        )
+        .unwrap()
+    };
+
+    let full = prepare(HistoryLimit::Unlimited);
+    let full_tokens = full.request_info.usage.input_tokens.unwrap();
+    let one_turn_tokens = prepare(HistoryLimit::Last(1))
+        .request_info
+        .usage
+        .input_tokens
+        .unwrap();
+    let current_tokens = prepare(HistoryLimit::Last(0))
+        .request_info
+        .usage
+        .input_tokens
+        .unwrap();
+
+    let mut unknown_window = full.clone();
+    unknown_window.finalize_context().unwrap();
+    assert_eq!(unknown_window.provider_request.messages.len(), 6);
+
+    let mut exact_window = full.clone();
+    exact_window.provider_request.model.context_window_tokens = Some(full_tokens as u32);
+    exact_window.finalize_context().unwrap();
+    assert_eq!(exact_window.provider_request.messages.len(), 6);
+    assert!(
+        !exact_window
+            .request_info
+            .context
+            .unwrap()
+            .limited_by_context_window
+    );
+
+    let mut one_removed = full.clone();
+    one_removed.provider_request.model.context_window_tokens = Some(one_turn_tokens as u32);
+    one_removed.finalize_context().unwrap();
+    let messages = serialized_messages(&one_removed.provider_request.messages).join("\n");
+    assert!(!messages.contains("old tool question"));
+    assert!(!messages.contains("old tool call"));
+    assert!(!messages.contains("old tool result"));
+    assert!(messages.contains("recent question"));
+    let context = one_removed.request_info.context.unwrap();
+    assert_eq!(context.available_history_turns, 2);
+    assert_eq!(context.included_history_turns, 1);
+    assert!(context.limited_by_context_window);
+    assert_eq!(
+        one_removed.request_info.usage.input_tokens,
+        Some(one_turn_tokens)
+    );
+
+    let mut all_removed = full;
+    all_removed.provider_request.model.context_window_tokens = Some(current_tokens as u32);
+    all_removed.finalize_context().unwrap();
+    let messages = serialized_messages(&all_removed.provider_request.messages).join("\n");
+    assert_eq!(all_removed.provider_request.messages.len(), 1);
+    assert!(messages.contains("current question"));
+    assert!(!messages.contains("recent question"));
+    assert_eq!(
+        all_removed
+            .request_info
+            .context
+            .unwrap()
+            .included_history_turns,
+        0
+    );
+    assert_eq!(
+        all_removed.request_info.usage.input_tokens,
+        Some(current_tokens)
+    );
+}
+
+#[tokio::test]
+async fn resolved_system_prompt_is_used_for_context_window_preflight() {
+    let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let conversation = Conversation::new("Chat", Some(&model), "{{large}}");
+    let mut prepared = PreparedGeneration::new(
+        &conversation,
+        &provider,
+        &model,
+        &[],
+        None,
+        UserMessage::new("current", Vec::new()),
+        ContextPolicy::new(HistoryLimit::Unlimited, &|user| {
+            Ok(Message::user(user.content.clone()))
+        }),
+    )
+    .unwrap();
+    let unresolved_tokens = prepared.request_info.usage.input_tokens.unwrap();
+    prepared.provider_request.model.context_window_tokens = Some(unresolved_tokens as u32);
+    prepared.configure_prompt(
+        BTreeMap::from([(
+            "large".into(),
+            PromptVariableSource::Text {
+                value: "expanded ".repeat(500),
+            },
+        )]),
+        Default::default(),
+    );
+
+    prepared
+        .render_system_prompt(CancellationToken::new())
+        .await
+        .unwrap();
+    assert!(prepared.request_info.usage.input_tokens.unwrap() > unresolved_tokens);
+    let error = prepared.finalize_context().unwrap_err();
+    assert_eq!(error.kind, GenerationErrorKind::ContextLengthExceeded);
+    assert!(error.message.contains("current message"));
+}
+
+#[tokio::test]
+async fn pre_provider_context_failure_is_persisted_without_removing_attachments() {
+    let directory = tempdir().unwrap();
+    let storage = Arc::new(
+        Storage::open(
+            directory.path().join("config/settings.jsonc"),
+            directory.path().join("state"),
+        )
+        .unwrap(),
+    );
+    let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+    storage.insert_provider(&provider).unwrap();
+    let mut model = Model::new(&provider.id, "tiny-model", "Tiny Model");
+    model.context_window_tokens = Some(1);
+    storage.insert_model(&model).unwrap();
+    let conversation = Conversation::new("Chat", Some(&model), "system");
+    storage.insert_conversation(&conversation).unwrap();
+    let mut settings = storage.load_snapshot().unwrap().settings;
+    settings.current_conversation_id = Some(conversation.id.clone());
+    storage.save_settings(&settings).unwrap();
+    let attachments = storage
+        .store_attachments(
+            &conversation.id,
+            &[AttachmentDraft {
+                id: "document".into(),
+                name: "notes.txt".into(),
+                kind: AttachmentKind::Document,
+                files: vec![AttachmentDraftFile {
+                    name: "content.md".into(),
+                    kind: AttachmentFileKind::Text,
+                    media_type: "text/markdown".into(),
+                    bytes: b"retained attachment".to_vec(),
+                }],
+            }],
+        )
+        .unwrap();
+    let user = UserMessage::new("current message", attachments.clone());
+    let prepared = PreparedGeneration::new(
+        &conversation,
+        &provider,
+        &model,
+        &[],
+        None,
+        user,
+        ContextPolicy::new(HistoryLimit::Unlimited, &|user| {
+            storage
+                .message_for_user(&conversation.id, user, false)
+                .map_err(|error| error.to_string())
+        }),
+    )
+    .unwrap()
+    .with_new_attachments(attachments.clone());
+    let GenerationStart::NewTurn(turn) = &prepared.start else {
+        panic!("expected a new turn");
+    };
+    storage.begin_turn(turn, &prepared.request_info).unwrap();
+
+    let (sender, receiver) = async_channel::bounded(1);
+    run_generation(
+        prepared,
+        storage.clone(),
+        Arc::new(McpManager::new(directory.path().join("mcp.json"))),
+        CancellationToken::new(),
+        sender,
+    )
+    .await;
+    let GenerationUpdate::Snapshot(snapshot) = receiver.recv().await.unwrap() else {
+        panic!("expected a generation snapshot");
+    };
+    assert!(snapshot.terminal);
+    assert_eq!(snapshot.request.status, RequestStatus::Failed);
+    assert_eq!(
+        snapshot
+            .request
+            .error
+            .as_ref()
+            .map(|error| error.kind.as_str()),
+        Some("context_length_exceeded")
+    );
+
+    let snapshot = storage.load_snapshot().unwrap();
+    let turn = snapshot
+        .current_turns
+        .iter()
+        .find(|turn| turn.id == snapshot.current_requests[0].turn_id)
+        .unwrap();
+    assert_eq!(turn.user.attachments, attachments);
+    storage
+        .message_for_user(&conversation.id, &turn.user, false)
+        .unwrap();
+}
+
+#[test]
+fn additional_and_regenerated_responses_only_use_target_ancestors_and_user_message() {
+    let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let conversation = Conversation::new("Chat", Some(&model), "");
+    let root = completed_turn(
+        &conversation,
+        None,
+        "root question",
+        "root answer",
+        &model,
+        &provider,
+    );
+    let target = completed_turn(
+        &conversation,
+        Some(root.responses[0].id.clone()),
+        "target question",
+        "old target answer",
+        &model,
+        &provider,
+    );
+    let descendant = completed_turn(
+        &conversation,
+        Some(target.responses[0].id.clone()),
+        "descendant question",
+        "descendant answer",
+        &model,
+        &provider,
+    );
+    let turns = [root, target.clone(), descendant];
+    let loader = |user: &UserMessage| Ok(Message::user(user.content.clone()));
+
+    let preview = history_for_turn(&turns, &target, HistoryLimit::Last(0));
+    let preview = serialized_messages(&preview).join("\n");
+    assert!(preview.contains("target question"));
+    assert!(!preview.contains("root question"));
+
+    let additional = PreparedGeneration::additional(
+        &conversation,
+        &provider,
+        &model,
+        &turns,
+        &target,
+        ContextPolicy::new(HistoryLimit::Unlimited, &loader),
+    )
+    .unwrap();
+    let regenerated = PreparedGeneration::regenerate(
+        &conversation,
+        &provider,
+        &model,
+        &turns,
+        &target,
+        &target.responses[0],
+        ContextPolicy::new(HistoryLimit::Unlimited, &loader),
+    )
+    .unwrap();
+    for messages in [
+        &additional.provider_request.messages,
+        &regenerated.provider_request.messages,
+    ] {
+        let messages = serialized_messages(messages).join("\n");
+        assert!(messages.contains("root question"));
+        assert!(messages.contains("root answer"));
+        assert!(messages.contains("target question"));
+        assert!(!messages.contains("old target answer"));
+        assert!(!messages.contains("descendant"));
+    }
+}
+
+#[test]
+fn visual_attachments_only_require_vision_when_their_turn_is_retained() {
+    let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+    let model = Model::new(&provider.id, "text-model", "Text Model");
+    let conversation = Conversation::new("Chat", Some(&model), "");
+    let mut root = completed_turn(
+        &conversation,
+        None,
+        "visual root",
+        "root answer",
+        &model,
+        &provider,
+    );
+    root.user.attachments.push(image_attachment());
+    let mut recent = completed_turn(
+        &conversation,
+        Some(root.responses[0].id.clone()),
+        "recent text",
+        "recent answer",
+        &model,
+        &provider,
+    );
+    let turns = [root, recent.clone()];
+    let loader = |user: &UserMessage| Ok(Message::user(user.content.clone()));
+
+    let mut excluded = PreparedGeneration::new(
+        &conversation,
+        &provider,
+        &model,
+        &turns,
+        Some(recent.responses[0].id.clone()),
+        UserMessage::new("current", Vec::new()),
+        ContextPolicy::new(HistoryLimit::Last(1), &loader),
+    )
+    .unwrap();
+    let recent_only_tokens = excluded.request_info.usage.input_tokens.unwrap();
+    excluded.finalize_context().unwrap();
+
+    let mut window_trimmed = PreparedGeneration::new(
+        &conversation,
+        &provider,
+        &model,
+        &turns,
+        Some(recent.responses[0].id.clone()),
+        UserMessage::new("current", Vec::new()),
+        ContextPolicy::new(HistoryLimit::Unlimited, &loader),
+    )
+    .unwrap();
+    window_trimmed.provider_request.model.context_window_tokens = Some(recent_only_tokens as u32);
+    window_trimmed.finalize_context().unwrap();
+    assert_eq!(
+        window_trimmed
+            .request_info
+            .context
+            .unwrap()
+            .included_history_turns,
+        1
+    );
+
+    let mut retained = PreparedGeneration::new(
+        &conversation,
+        &provider,
+        &model,
+        &turns,
+        Some(recent.responses[0].id.clone()),
+        UserMessage::new("current", Vec::new()),
+        ContextPolicy::new(HistoryLimit::Unlimited, &loader),
+    )
+    .unwrap();
+    assert_eq!(
+        retained.finalize_context().unwrap_err().kind,
+        GenerationErrorKind::UnsupportedParameter
+    );
+
+    recent.user.attachments.push(image_attachment());
+    let turns = [turns[0].clone(), recent.clone()];
+    let mut retained = PreparedGeneration::new(
+        &conversation,
+        &provider,
+        &model,
+        &turns,
+        Some(recent.responses[0].id.clone()),
+        UserMessage::new("current", Vec::new()),
+        ContextPolicy::new(HistoryLimit::Last(1), &loader),
+    )
+    .unwrap();
+    assert!(retained.finalize_context().is_err());
+
+    let mut current = PreparedGeneration::new(
+        &conversation,
+        &provider,
+        &model,
+        &turns,
+        Some(recent.responses[0].id.clone()),
+        UserMessage::new("current", vec![image_attachment()]),
+        ContextPolicy::new(HistoryLimit::Last(0), &loader),
+    )
+    .unwrap();
+    assert!(current.finalize_context().is_err());
 }
 
 #[test]
@@ -234,6 +790,58 @@ fn streaming_events_produce_completed_and_cancelled_states() {
     assert_eq!(response.status, MessageStatus::Stopped);
     assert_eq!(request.status, RequestStatus::Stopped);
     assert!(request.error.is_none());
+}
+
+#[test]
+fn provider_usage_keeps_the_last_step_separate_from_cumulative_usage() {
+    let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let mut response = AssistantResponse::new(&model, &provider);
+    let mut request = RequestInfo::new("conversation", "turn", &response.id);
+    request.usage.input_tokens = Some(90);
+    request.usage.estimated = true;
+
+    apply_event(
+        GenerationEvent::StepStarted {
+            estimated_input_tokens: 100,
+        },
+        &mut response,
+        &mut request,
+        Duration::ZERO,
+    );
+    apply_event(
+        GenerationEvent::UsageUpdated(TokenUsage {
+            input_tokens: Some(120),
+            output_tokens: Some(10),
+            estimated: false,
+        }),
+        &mut response,
+        &mut request,
+        Duration::ZERO,
+    );
+    apply_event(
+        GenerationEvent::StepStarted {
+            estimated_input_tokens: 150,
+        },
+        &mut response,
+        &mut request,
+        Duration::ZERO,
+    );
+    apply_event(
+        GenerationEvent::UsageUpdated(TokenUsage {
+            input_tokens: Some(180),
+            output_tokens: Some(20),
+            estimated: false,
+        }),
+        &mut response,
+        &mut request,
+        Duration::ZERO,
+    );
+
+    assert_eq!(request.usage.input_tokens, Some(300));
+    assert_eq!(request.usage.output_tokens, Some(30));
+    assert_eq!(request.last_step_input_tokens, Some(180));
+    assert_eq!(request.last_step_estimated_input_tokens, Some(150));
 }
 
 #[test]
@@ -355,7 +963,7 @@ fn document_images_follow_each_generation_target_model() {
         &[],
         None,
         user.clone(),
-        &text_message,
+        ContextPolicy::new(HistoryLimit::Unlimited, &text_message),
     )
     .unwrap();
     let visual_new = PreparedGeneration::new(
@@ -365,7 +973,7 @@ fn document_images_follow_each_generation_target_model() {
         &[],
         None,
         user,
-        &visual_message,
+        ContextPolicy::new(HistoryLimit::Unlimited, &visual_message),
     )
     .unwrap();
     assert_document_images(&text_new, false);
@@ -380,7 +988,7 @@ fn document_images_follow_each_generation_target_model() {
         &text_model,
         std::slice::from_ref(&turn),
         &turn,
-        &text_message,
+        ContextPolicy::new(HistoryLimit::Unlimited, &text_message),
     )
     .unwrap();
     let visual_additional = PreparedGeneration::additional(
@@ -389,7 +997,7 @@ fn document_images_follow_each_generation_target_model() {
         &vision_model,
         std::slice::from_ref(&turn),
         &turn,
-        &visual_message,
+        ContextPolicy::new(HistoryLimit::Unlimited, &visual_message),
     )
     .unwrap();
     assert_document_images(&text_additional, false);
@@ -403,7 +1011,7 @@ fn document_images_follow_each_generation_target_model() {
         std::slice::from_ref(&turn),
         &turn,
         &previous_response,
-        &text_message,
+        ContextPolicy::new(HistoryLimit::Unlimited, &text_message),
     )
     .unwrap();
     let visual_regenerated = PreparedGeneration::regenerate(
@@ -413,7 +1021,7 @@ fn document_images_follow_each_generation_target_model() {
         std::slice::from_ref(&turn),
         &turn,
         &previous_response,
-        &visual_message,
+        ContextPolicy::new(HistoryLimit::Unlimited, &visual_message),
     )
     .unwrap();
     assert_document_images(&text_regenerated, false);

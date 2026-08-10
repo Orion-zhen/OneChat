@@ -54,6 +54,22 @@ pub(crate) fn sync_controls(app: &mut OneChat, window: &mut Window, cx: &mut Con
             .update(cx, |slider, cx| slider.set_value(ratio, window, cx));
     }
 
+    let history_limit = app.settings().history_limit.slider_value();
+    if (app
+        .settings_ui
+        .history_limit_slider
+        .read(cx)
+        .value()
+        .start()
+        - history_limit)
+        .abs()
+        > f32::EPSILON
+    {
+        app.settings_ui
+            .history_limit_slider
+            .update(cx, |slider, cx| slider.set_value(history_limit, window, cx));
+    }
+
     let primary_items = default_model_items(app, DefaultModelRole::Primary);
     let primary_changed = primary_items != app.settings_ui.synced_primary_models;
     if primary_changed {

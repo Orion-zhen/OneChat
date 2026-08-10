@@ -75,6 +75,13 @@ pub(in crate::desktop::ui::settings) fn general_page(
         ))
         .child(setting_divider(cx))
         .child(setting_row(
+            "Conversation History",
+            "Choose how many previous turns are sent with each request.",
+            conversation_history_slider(app, cx),
+            cx,
+        ))
+        .child(setting_divider(cx))
+        .child(setting_row(
             "Automatic Titles",
             "Generate a title after the first completed response.",
             auto_title_toggle(app, cx),
@@ -321,6 +328,39 @@ fn font_preview(role: FontRole, cx: &App) -> AnyElement {
         .text_sm()
         .text_color(cx.theme().muted_foreground)
         .child(text)
+        .into_any_element()
+}
+
+fn conversation_history_slider(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
+    div()
+        .w(px(300.0))
+        .flex_none()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(
+            div()
+                .w_full()
+                .text_right()
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(app.settings().history_limit.label()),
+        )
+        .child(
+            Slider::new(&app.settings_ui.history_limit_slider)
+                .w_full()
+                .bg(cx.theme().primary),
+        )
+        .child(
+            div()
+                .w_full()
+                .flex()
+                .justify_between()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child("No History")
+                .child("Unlimited"),
+        )
         .into_any_element()
 }
 

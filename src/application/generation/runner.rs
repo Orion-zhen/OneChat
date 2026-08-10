@@ -26,7 +26,7 @@ use crate::{
 };
 
 use super::{PreparedGeneration, apply_event, interrupted_event};
-use crate::application::prompt::PromptRenderError;
+use crate::application::{context_usage::estimate_input_tokens, prompt::PromptRenderError};
 
 pub const UI_FLUSH_INTERVAL: Duration = Duration::from_millis(40);
 pub const STORAGE_FLUSH_INTERVAL: Duration = Duration::from_millis(320);
@@ -94,6 +94,15 @@ async fn agent_loop(
         if cancellation.is_cancelled() {
             return Err(GenerationError::cancelled());
         }
+        events
+            .send(GenerationEvent::StepStarted {
+                estimated_input_tokens: estimate_input_tokens(
+                    &request.system_prompt,
+                    &request.messages,
+                ),
+            })
+            .await
+            .map_err(|_| GenerationError::cancelled())?;
         let assistant =
             providers::stream_step(request.clone(), events, cancellation.clone()).await?;
         let calls = message_tool_calls(&assistant);
@@ -289,24 +298,27 @@ fn truncate_tool_result(output: &mut String) {
     output.push_str(NOTICE);
 }
 
-async fn fail_prompt_evaluation(
-    prepared: PreparedGeneration,
-    storage: Arc<Storage>,
-    error: PromptRenderError,
-    updates: Sender<GenerationUpdate>,
-) {
-    let mut response = prepared.response;
-    let mut request = prepared.request_info;
-    let generation_error = match error {
+fn prompt_render_error(error: PromptRenderError) -> GenerationError {
+    match error {
         PromptRenderError::Cancelled => GenerationError::cancelled(),
         error => GenerationError::new(
             GenerationErrorKind::Unknown,
             "System prompt evaluation failed",
         )
         .with_detail(error.to_string()),
-    };
+    }
+}
+
+async fn fail_before_provider(
+    prepared: PreparedGeneration,
+    storage: Arc<Storage>,
+    error: GenerationError,
+    updates: Sender<GenerationUpdate>,
+) {
+    let mut response = prepared.response;
+    let mut request = prepared.request_info;
     let outcome = apply_event(
-        GenerationEvent::Failed(generation_error),
+        GenerationEvent::Failed(error),
         &mut response,
         &mut request,
         Duration::ZERO,
@@ -346,7 +358,11 @@ pub async fn run_generation(
     updates: Sender<GenerationUpdate>,
 ) {
     if let Err(error) = prepared.render_system_prompt(cancellation.clone()).await {
-        fail_prompt_evaluation(prepared, storage, error, updates).await;
+        fail_before_provider(prepared, storage, prompt_render_error(error), updates).await;
+        return;
+    }
+    if let Err(error) = prepared.finalize_context() {
+        fail_before_provider(prepared, storage, error, updates).await;
         return;
     }
 

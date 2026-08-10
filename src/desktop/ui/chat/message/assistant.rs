@@ -451,15 +451,15 @@ pub(super) fn format_message_stats(request: &RequestInfo) -> String {
             format_tokens(request.usage.output_tokens)
         ));
     }
-    if let Some(tokens) = request.usage.output_tokens {
-        if let (Some(duration_ms), Some(ttft_ms)) = (request.duration_ms, request.ttft_ms) {
-            let generation_ms = duration_ms.saturating_sub(ttft_ms);
-            if generation_ms > 0 {
-                stats.push(format!(
-                    "{:.1} tok/s",
-                    tokens as f64 * 1000.0 / generation_ms as f64
-                ));
-            }
+    if let Some(tokens) = request.usage.output_tokens
+        && let (Some(duration_ms), Some(ttft_ms)) = (request.duration_ms, request.ttft_ms)
+    {
+        let generation_ms = duration_ms.saturating_sub(ttft_ms);
+        if generation_ms > 0 {
+            stats.push(format!(
+                "{:.1} tok/s",
+                tokens as f64 * 1000.0 / generation_ms as f64
+            ));
         }
     }
     if let Some(ttft_ms) = request.ttft_ms {

@@ -209,6 +209,47 @@ impl OneChat {
         )
         .detach();
 
+        let history_limit_slider = cx.new(|_| {
+            SliderState::new()
+                .min(crate::domain::HISTORY_LIMIT_SLIDER_MIN)
+                .max(crate::domain::HISTORY_LIMIT_SLIDER_MAX)
+                .step(crate::domain::HISTORY_LIMIT_SLIDER_STEP)
+                .default_value(AppSettings::default().history_limit.slider_value())
+        });
+        cx.subscribe(
+            &history_limit_slider,
+            |this, _, event: &SliderEvent, cx| match event {
+                SliderEvent::Change(value) => {
+                    this.update_history_limit(value.start(), cx);
+                }
+                SliderEvent::Release(value) => {
+                    this.update_history_limit(value.start(), cx);
+                    this.save_history_limit_if_changed(cx);
+                }
+            },
+        )
+        .detach();
+
+        let conversation_history_limit_slider = cx.new(|_| {
+            SliderState::new()
+                .min(crate::domain::HISTORY_LIMIT_SLIDER_MIN)
+                .max(crate::domain::HISTORY_LIMIT_SLIDER_MAX)
+                .step(crate::domain::HISTORY_LIMIT_SLIDER_STEP)
+                .default_value(AppSettings::default().history_limit.slider_value())
+        });
+        cx.subscribe(
+            &conversation_history_limit_slider,
+            |this, _, event: &SliderEvent, cx| match event {
+                SliderEvent::Change(value) => {
+                    this.preview_conversation_history_limit(value.start(), cx);
+                }
+                SliderEvent::Release(value) => {
+                    this.commit_conversation_history_limit(value.start(), cx);
+                }
+            },
+        )
+        .detach();
+
         let primary_model_select =
             cx.new(|cx| SelectState::new(Vec::<DefaultModelItem>::new(), None, window, cx));
         cx.subscribe(
@@ -375,6 +416,8 @@ impl OneChat {
                 system_prompt_mode: SystemPromptMode::default(),
                 system_prompt_editor: None,
                 generation_config_editor: None,
+                history_limit_slider: conversation_history_limit_slider,
+                history_limit_preview: None,
                 generation_config_save_revision: 0,
                 parameter_error: None,
                 composer,
@@ -398,6 +441,8 @@ impl OneChat {
                 message_font_size_slider,
                 background_opacity_slider,
                 message_width_slider,
+                history_limit_slider,
+                history_limit_save_pending: false,
                 primary_model_select,
                 title_model_select,
                 title_reasoning_select,
