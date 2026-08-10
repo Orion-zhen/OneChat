@@ -39,6 +39,7 @@ use crate::{
 const CHAT_SIDEBAR_MIN_WIDTH: f32 = 220.0;
 const CHAT_SIDEBAR_MAX_WIDTH: f32 = 380.0;
 const SIDEBAR_RESIZE_HANDLE_WIDTH: f32 = 6.0;
+const ATTACHMENT_DROP_GROUP: &str = "attachment-drop-zone";
 
 #[derive(Default)]
 struct SidebarResizeDrag {
@@ -458,12 +459,12 @@ fn render_chat_page(
             cx,
         )
     } else if app.data.snapshot.conversations.is_empty() {
-        return empty_state(
+        empty_state(
             "What would you like to explore?",
             "Conversations and credentials stay on this Mac.",
             Some(("New Conversation", Page::Chat)),
             cx,
-        );
+        )
     } else if app.current_conversation().is_none() {
         empty_state(
             "Choose a conversation",
@@ -483,11 +484,90 @@ fn render_chat_page(
         )
     };
 
+    let drop_enabled = !app.is_current_generating()
+        && !app.chat.attachments_loading
+        && app.current_model().is_some()
+        && app.current_conversation().is_some()
+        && app.chat.attachments.len() < crate::application::attachments::MAX_ATTACHMENTS;
+    let palette = *crate::desktop::ui::theme::palette(cx);
+    let drop_overlay = div()
+        .absolute()
+        .top_2()
+        .right_2()
+        .bottom_2()
+        .left_2()
+        .invisible()
+        .can_drop(move |value, _, _| {
+            drop_enabled && value.downcast_ref::<gpui::ExternalPaths>().is_some()
+        })
+        .group_drag_over::<gpui::ExternalPaths>(ATTACHMENT_DROP_GROUP, |style| style.visible())
+        .rounded(px(18.0))
+        .border_2()
+        .border_dashed()
+        .border_color(palette.accent_border)
+        .bg(palette.accent_soft.opacity(0.82))
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(
+            div()
+                .rounded(px(24.0))
+                .border_1()
+                .border_color(palette.floating_border)
+                .bg(palette.floating_glass)
+                .shadow_lg()
+                .px_4()
+                .py_3()
+                .flex()
+                .items_center()
+                .gap_3()
+                .child(
+                    div()
+                        .size(px(40.0))
+                        .rounded(px(20.0))
+                        .bg(palette.accent)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(render_icon(AppIcon::FileUp, IconTone::OnAccent, 20.0, cx)),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap_0p5()
+                        .child(
+                            div()
+                                .text_size(px(14.0))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child("Add to this message"),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(12.0))
+                                .text_color(cx.theme().muted_foreground)
+                                .child("Drop files to attach"),
+                        ),
+                ),
+        )
+        .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, _, cx| {
+            this.add_dropped_attachments(paths.paths().to_vec(), cx)
+        }));
+
     div()
+        .relative()
+        .group(ATTACHMENT_DROP_GROUP)
         .min_w_0()
         .flex_1()
         .h_full()
+        .can_drop(move |value, _, _| {
+            drop_enabled && value.downcast_ref::<gpui::ExternalPaths>().is_some()
+        })
+        .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, _, cx| {
+            this.add_dropped_attachments(paths.paths().to_vec(), cx)
+        }))
         .child(content)
+        .child(drop_overlay)
         .into_any_element()
 }
 

@@ -3,7 +3,7 @@ use gpui::{Context, Window};
 use super::super::OneChat;
 use crate::{
     application::generation::PreparedGeneration,
-    domain::{AttachmentKind, Conversation, MessageStatus, Model, Provider, Turn, active_turns},
+    domain::{Conversation, MessageStatus, Model, Provider, Turn, active_turns},
 };
 
 fn context_has_visual_attachments(turns: &[Turn]) -> bool {
@@ -11,7 +11,7 @@ fn context_has_visual_attachments(turns: &[Turn]) -> bool {
         turn.user
             .attachments
             .iter()
-            .any(|attachment| attachment.kind != AttachmentKind::Text)
+            .any(|attachment| attachment.kind.requires_vision())
     })
 }
 
@@ -37,7 +37,7 @@ impl OneChat {
                         .chat
                         .attachments
                         .iter()
-                        .all(|attachment| attachment.kind == AttachmentKind::Text))
+                        .all(|attachment| !attachment.kind.requires_vision()))
         })
     }
 
@@ -99,7 +99,7 @@ impl OneChat {
                     .chat
                     .attachments
                     .iter()
-                    .any(|attachment| attachment.kind != AttachmentKind::Text))
+                    .any(|attachment| attachment.kind.requires_vision()))
         {
             self.data.error = Some(
                 "The selected model only accepts text attachments, but this message or its conversation context contains an image or PDF."
@@ -122,9 +122,10 @@ impl OneChat {
         };
         let storage = self.services.storage.clone();
         let conversation_id = conversation.id.clone();
+        let include_document_images = model.capabilities.vision;
         let user_message = |user: &crate::domain::UserMessage| {
             storage
-                .message_for_user(&conversation_id, user)
+                .message_for_user(&conversation_id, user, include_document_images)
                 .map_err(|error| error.to_string())
         };
         let prepared = match PreparedGeneration::new(
@@ -196,9 +197,10 @@ impl OneChat {
         }
         let storage = self.services.storage.clone();
         let conversation_id = conversation.id.clone();
+        let include_document_images = model.capabilities.vision;
         let user_message = |user: &crate::domain::UserMessage| {
             storage
-                .message_for_user(&conversation_id, user)
+                .message_for_user(&conversation_id, user, include_document_images)
                 .map_err(|error| error.to_string())
         };
         match PreparedGeneration::additional(
@@ -290,9 +292,10 @@ impl OneChat {
         }
         let storage = self.services.storage.clone();
         let conversation_id = conversation.id.clone();
+        let include_document_images = model.capabilities.vision;
         let user_message = |user: &crate::domain::UserMessage| {
             storage
-                .message_for_user(&conversation_id, user)
+                .message_for_user(&conversation_id, user, include_document_images)
                 .map_err(|error| error.to_string())
         };
         match PreparedGeneration::regenerate(

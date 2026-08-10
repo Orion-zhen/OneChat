@@ -23,7 +23,9 @@ pub(super) fn render_sent_attachment(
 ) -> AnyElement {
     match attachment.kind {
         crate::domain::AttachmentKind::Image => render_sent_image(app, attachment, max_width, cx),
-        crate::domain::AttachmentKind::Text | crate::domain::AttachmentKind::Pdf => {
+        crate::domain::AttachmentKind::Text
+        | crate::domain::AttachmentKind::Pdf
+        | crate::domain::AttachmentKind::Document => {
             render_sent_file(app, attachment, max_width, cx)
         }
     }
@@ -168,15 +170,11 @@ fn render_sent_file(
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let is_pdf = attachment.kind == crate::domain::AttachmentKind::Pdf;
-    let detail = if is_pdf {
-        format!(
-            "PDF · {} page{}",
-            attachment.files.len(),
-            if attachment.files.len() == 1 { "" } else { "s" }
-        )
-    } else {
-        "Text document".to_string()
-    };
+    let detail = attachment_detail(
+        &attachment.name,
+        attachment.kind,
+        attachment.files.iter().map(|file| file.kind),
+    );
     let visual = if is_pdf {
         attachment
             .files

@@ -97,7 +97,13 @@ Each conversation has its own directory containing `<conversation-id>.json`, inc
 
 Attachment metadata and relative paths are stored in that JSON file. Attachment contents are stored under `attachments/` in the same conversation directory, so images and rendered PDF pages do not inflate the conversation log. Deleting or clearing a conversation removes its attachment files, and forking copies the attachments used by the forked history.
 
+### Attachments
+
 Text attachments must be UTF-8 and are limited to 1 MiB. Vision models additionally accept JPEG, PNG, GIF, WebP, and PDF files, and can paste raster images directly from the clipboard into the composer. Images are limited to 10 MiB; PDFs are limited to 20 MiB and 20 pages and are rendered to one PNG image per page before being sent.
+
+Modern Office attachments (`.docx`, `.xlsx`, and `.pptx`) are parsed locally into Markdown instead of being uploaded through a provider-specific file API. They are available with every model: the extracted Markdown is always sent, while successfully extracted embedded images are added only when the selected model supports Vision. Embedded image parsing can be disabled with **Parse Document Images** under General settings; image references are then omitted from the extracted Markdown. Office source files are limited to 20 MiB, extracted Markdown to 1 MiB, and embedded images to 20 files, 10 MiB each, and 50 MiB total.
+
+Excel workbooks preserve the last formatted cell values saved in the file; OneChat does not recalculate formulas or expose their expressions. PowerPoint presentations provide extracted text, tables, chart cache data, notes, and individual embedded images, but slides are not rendered as full-page images, so layout, themes, SmartArt, and other visual relationships may not be preserved.
 
 The settings parser accepts JSONC comments and trailing commas. Files written by OneChat are formatted as plain JSON, which is also valid JSONC. Existing comments are not preserved when the app writes the settings file. Legacy SQLite files are neither imported nor deleted.
 

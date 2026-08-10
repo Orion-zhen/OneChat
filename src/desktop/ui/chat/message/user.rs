@@ -364,7 +364,9 @@ fn render_edit_stored_attachment(
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let visual = match attachment.kind {
-        crate::domain::AttachmentKind::Text => edit_attachment_icon(cx),
+        crate::domain::AttachmentKind::Text | crate::domain::AttachmentKind::Document => {
+            edit_attachment_icon(cx)
+        }
         crate::domain::AttachmentKind::Image | crate::domain::AttachmentKind::Pdf => attachment
             .files
             .first()
@@ -381,7 +383,11 @@ fn render_edit_stored_attachment(
         turn_id,
         &attachment.id,
         &attachment.name,
-        edit_attachment_detail(attachment.kind, attachment.files.len()),
+        attachment_detail(
+            &attachment.name,
+            attachment.kind,
+            attachment.files.iter().map(|file| file.kind),
+        ),
         visual,
         cx,
     )
@@ -405,21 +411,14 @@ fn render_edit_draft_attachment(
         turn_id,
         &attachment.id,
         &attachment.name,
-        edit_attachment_detail(attachment.kind, attachment.files.len()),
+        attachment_detail(
+            &attachment.name,
+            attachment.kind,
+            attachment.files.iter().map(|file| file.kind),
+        ),
         visual,
         cx,
     )
-}
-
-fn edit_attachment_detail(kind: crate::domain::AttachmentKind, file_count: usize) -> String {
-    match kind {
-        crate::domain::AttachmentKind::Text => "Text document".into(),
-        crate::domain::AttachmentKind::Image => "Image".into(),
-        crate::domain::AttachmentKind::Pdf => format!(
-            "PDF · {file_count} page{}",
-            if file_count == 1 { "" } else { "s" }
-        ),
-    }
 }
 
 fn edit_attachment_icon(cx: &App) -> AnyElement {

@@ -249,7 +249,9 @@ fn render_attachment(
         crate::domain::AttachmentKind::Image | crate::domain::AttachmentKind::Pdf => {
             render_visual_attachment(app, attachment, cx)
         }
-        crate::domain::AttachmentKind::Text => render_file_attachment(attachment, cx),
+        crate::domain::AttachmentKind::Text | crate::domain::AttachmentKind::Document => {
+            render_file_attachment(attachment, cx)
+        }
     };
 
     if cx.reduce_motion() {
@@ -281,15 +283,11 @@ fn render_visual_attachment(
     } else {
         ObjectFit::Cover
     };
-    let detail = if attachment.kind == crate::domain::AttachmentKind::Pdf {
-        format!(
-            "{} page{}",
-            attachment.files.len(),
-            if attachment.files.len() == 1 { "" } else { "s" }
-        )
-    } else {
-        "Image".to_string()
-    };
+    let detail = attachment_detail(
+        &attachment.name,
+        attachment.kind,
+        attachment.files.iter().map(|file| file.kind),
+    );
 
     div()
         .relative()
@@ -345,6 +343,11 @@ fn render_file_attachment(
     attachment: &crate::domain::AttachmentDraft,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
+    let detail = attachment_detail(
+        &attachment.name,
+        attachment.kind,
+        attachment.files.iter().map(|file| file.kind),
+    );
     div()
         .relative()
         .w(px(196.0))
@@ -391,7 +394,7 @@ fn render_file_attachment(
                         .text_size(px(10.0))
                         .line_height(px(12.0))
                         .text_color(cx.theme().muted_foreground)
-                        .child("Text document"),
+                        .child(detail),
                 ),
         )
         .child(remove_attachment_button(attachment, cx))

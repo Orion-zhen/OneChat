@@ -5,7 +5,7 @@ use super::super::{MessageEditor, MessageEditorTarget, OneChat, PendingFocus, mu
 use crate::{
     application::generation::PreparedGeneration,
     desktop::ui::inspector::InspectorTab,
-    domain::{AssistantResponse, AttachmentKind, MessageStatus, Turn, new_id, now_timestamp},
+    domain::{AssistantResponse, MessageStatus, Turn, new_id, now_timestamp},
 };
 
 const ASSISTANT_EDITOR_MAX_ROWS: usize = 24;
@@ -245,10 +245,10 @@ impl OneChat {
         if !model.capabilities.vision
             && (retained_attachments
                 .iter()
-                .any(|attachment| attachment.kind != AttachmentKind::Text)
+                .any(|attachment| attachment.kind.requires_vision())
                 || attachment_drafts
                     .iter()
-                    .any(|attachment| attachment.kind != AttachmentKind::Text))
+                    .any(|attachment| attachment.kind.requires_vision()))
         {
             self.data.error = Some(
                 "The selected model cannot use the image or PDF attachments on this message."
@@ -273,9 +273,10 @@ impl OneChat {
         attachments.extend(new_attachments.clone());
         let storage = self.services.storage.clone();
         let conversation_id = conversation.id.clone();
+        let include_document_images = model.capabilities.vision;
         let user_message = |user: &crate::domain::UserMessage| {
             storage
-                .message_for_user(&conversation_id, user)
+                .message_for_user(&conversation_id, user, include_document_images)
                 .map_err(|error| error.to_string())
         };
         let prepared = match PreparedGeneration::new(

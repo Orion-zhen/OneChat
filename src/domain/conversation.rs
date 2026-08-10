@@ -114,10 +114,26 @@ pub enum AttachmentKind {
     Text,
     Image,
     Pdf,
+    Document,
+}
+
+impl AttachmentKind {
+    pub fn requires_vision(self) -> bool {
+        matches!(self, Self::Image | Self::Pdf)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttachmentFileKind {
+    Text,
+    Image,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct AttachmentFile {
+    pub name: String,
+    pub kind: AttachmentFileKind,
     pub path: String,
     pub media_type: String,
 }
@@ -130,10 +146,22 @@ pub struct Attachment {
     pub files: Vec<AttachmentFile>,
 }
 
+impl Attachment {
+    pub fn validate_files(&self) -> Result<(), &'static str> {
+        validate_attachment_files(
+            self.kind,
+            self.files
+                .iter()
+                .map(|file| (file.name.as_str(), file.kind, file.media_type.as_str())),
+        )
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct AttachmentDraftFile {
-    pub extension: &'static str,
-    pub media_type: &'static str,
+    pub name: String,
+    pub kind: AttachmentFileKind,
+    pub media_type: String,
     pub bytes: Vec<u8>,
 }
 
@@ -143,6 +171,60 @@ pub struct AttachmentDraft {
     pub name: String,
     pub kind: AttachmentKind,
     pub files: Vec<AttachmentDraftFile>,
+}
+
+impl AttachmentDraft {
+    pub fn validate_files(&self) -> Result<(), &'static str> {
+        validate_attachment_files(
+            self.kind,
+            self.files
+                .iter()
+                .map(|file| (file.name.as_str(), file.kind, file.media_type.as_str())),
+        )
+    }
+}
+
+fn validate_attachment_files<'a>(
+    kind: AttachmentKind,
+    files: impl Iterator<Item = (&'a str, AttachmentFileKind, &'a str)>,
+) -> Result<(), &'static str> {
+    let files = files.collect::<Vec<_>>();
+    match kind {
+        AttachmentKind::Text if matches!(files.as_slice(), [(_, AttachmentFileKind::Text, _)]) => {
+            Ok(())
+        }
+        AttachmentKind::Image
+            if matches!(files.as_slice(), [(_, AttachmentFileKind::Image, _)]) =>
+        {
+            Ok(())
+        }
+        AttachmentKind::Pdf
+            if !files.is_empty()
+                && files
+                    .iter()
+                    .all(|(_, kind, _)| *kind == AttachmentFileKind::Image) =>
+        {
+            Ok(())
+        }
+        AttachmentKind::Document => {
+            let mut text = files
+                .iter()
+                .filter(|(_, kind, _)| *kind == AttachmentFileKind::Text);
+            let Some((name, _, media_type)) = text.next() else {
+                return Err("document attachment must contain content.md");
+            };
+            if text.next().is_some() {
+                return Err("document attachment must contain exactly one text file");
+            }
+            if *name != "content.md" || *media_type != "text/markdown" {
+                return Err("document text file must be content.md with text/markdown media type");
+            }
+            Ok(())
+        }
+        AttachmentKind::Text => Err("text attachment must contain exactly one text file"),
+        AttachmentKind::Image => Err("image attachment must contain exactly one image file"),
+        AttachmentKind::Pdf => Err("PDF attachment must contain one or more image files"),
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

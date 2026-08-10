@@ -153,6 +153,13 @@ impl OneChat {
         cx.notify();
     }
 
+    pub(crate) fn toggle_parse_document_images(&mut self, cx: &mut Context<Self>) {
+        self.data.snapshot.settings.parse_document_images =
+            !self.data.snapshot.settings.parse_document_images;
+        self.save_settings(cx);
+        cx.notify();
+    }
+
     pub(crate) fn set_send_message_shortcut(
         &mut self,
         shortcut: SendMessageShortcut,

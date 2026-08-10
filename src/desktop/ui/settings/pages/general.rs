@@ -79,6 +79,13 @@ pub(in crate::desktop::ui::settings) fn general_page(
             "Generate a title after the first completed response.",
             auto_title_toggle(app, cx),
             cx,
+        ))
+        .child(setting_divider(cx))
+        .child(setting_row(
+            "Parse Document Images",
+            "Extract embedded images from DOCX, XLSX, and PPTX files.",
+            parse_document_images_toggle(app, cx),
+            cx,
         ));
 
     detail_page(
@@ -111,6 +118,15 @@ fn auto_title_toggle(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
         .checked(app.settings().auto_title_enabled)
         .color(cx.theme().primary)
         .on_click(cx.listener(|this, _: &bool, _, cx| this.toggle_auto_title_enabled(cx)))
+        .into_any_element()
+}
+
+fn parse_document_images_toggle(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
+    Switch::new("parse-document-images-toggle")
+        .small()
+        .checked(app.settings().parse_document_images)
+        .color(cx.theme().primary)
+        .on_click(cx.listener(|this, _: &bool, _, cx| this.toggle_parse_document_images(cx)))
         .into_any_element()
 }
 

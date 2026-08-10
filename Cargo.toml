@@ -34,7 +34,7 @@ chrono = "*"
 comrak = { version = "*", default-features = false }
 futures-util = "*"
 hayro = "*"
-image = { version = "*", default-features = false, features = ["bmp", "ico", "pnm", "tiff", "png"] }
+image = { version = "*", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "pnm", "tiff", "webp"] }
 gpui = { git = "https://github.com/zed-industries/zed" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit", "runtime_shaders", "wayland", "x11"] }
 gpui-component = { git = "https://github.com/longbridge/gpui-component" }
@@ -56,6 +56,8 @@ tokio-util = { version = "*", features = ["rt"] }
 two-face = "*"
 unicode-segmentation = "*"
 unicode-linebreak = "*"
+undoc = "*"
+zip = { version = "*", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tempfile = "*"

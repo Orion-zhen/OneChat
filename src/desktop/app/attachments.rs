@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use gpui::{Context, prelude::*};
 
@@ -7,7 +7,7 @@ use crate::{
     application::attachments::{
         MAX_ATTACHMENTS, MAX_IMAGE_BYTES, load as load_attachment, validate_image,
     },
-    domain::{AttachmentDraft, AttachmentDraftFile, AttachmentKind, new_id},
+    domain::{AttachmentDraft, AttachmentDraftFile, AttachmentFileKind, AttachmentKind, new_id},
 };
 
 impl OneChat {
@@ -23,90 +23,167 @@ impl OneChat {
     }
 
     pub(crate) fn add_attachments(&mut self, cx: &mut Context<Self>) {
-        if self.is_current_generating() || self.chat.attachments_loading {
-            return;
-        }
-        let Some(model) = self.current_model() else {
-            self.data.error = Some("Choose a model before adding attachments.".into());
-            cx.notify();
-            return;
-        };
-        let Some(conversation_id) = self.current_conversation().map(|value| value.id.clone())
+        let Some((conversation_id, vision, parse_document_images, remaining, revision)) =
+            self.begin_composer_attachment_load(cx)
         else {
-            self.data.error = Some("Create or select a conversation first.".into());
-            cx.notify();
             return;
         };
-        if self.chat.attachments.len() >= MAX_ATTACHMENTS {
-            self.data.error = Some(format!(
-                "A message can contain at most {MAX_ATTACHMENTS} attachments."
-            ));
-            cx.notify();
-            return;
-        }
-
-        let vision = model.capabilities.vision;
-        let remaining = MAX_ATTACHMENTS - self.chat.attachments.len();
         let paths = cx.prompt_for_paths(gpui::PathPromptOptions {
             files: true,
             directories: false,
             multiple: true,
             prompt: Some("Select Attachments".into()),
         });
-        self.chat.attachments_loading = true;
-        self.chat.attachments_revision = self.chat.attachments_revision.wrapping_add(1);
-        let revision = self.chat.attachments_revision;
-        cx.notify();
 
         cx.spawn(async move |this, cx| {
             let selected = match paths.await {
                 Ok(Ok(Some(paths))) => paths,
                 Ok(Ok(None)) => {
                     let _ = this.update(cx, |this, cx| {
-                        if this.chat.attachments_revision != revision {
-                            return;
-                        }
-                        this.chat.attachments_loading = false;
-                        cx.notify();
+                        this.cancel_composer_attachment_load(revision, None, cx)
                     });
                     return;
                 }
                 Ok(Err(error)) => {
                     let _ = this.update(cx, |this, cx| {
-                        if this.chat.attachments_revision != revision {
-                            return;
-                        }
-                        this.chat.attachments_loading = false;
-                        this.data.error = Some(format!("Could not open attachments: {error}"));
-                        cx.notify();
+                        this.cancel_composer_attachment_load(
+                            revision,
+                            Some(format!("Could not open attachments: {error}")),
+                            cx,
+                        )
                     });
                     return;
                 }
                 Err(error) => {
                     let _ = this.update(cx, |this, cx| {
-                        if this.chat.attachments_revision != revision {
-                            return;
-                        }
-                        this.chat.attachments_loading = false;
-                        this.data.error =
-                            Some(format!("Attachment picker closed unexpectedly: {error}"));
-                        cx.notify();
+                        this.cancel_composer_attachment_load(
+                            revision,
+                            Some(format!("Attachment picker closed unexpectedly: {error}")),
+                            cx,
+                        )
                     });
                     return;
                 }
             };
 
+            let _ = this.update(cx, |this, cx| {
+                this.load_composer_attachment_paths(
+                    selected,
+                    conversation_id,
+                    vision,
+                    parse_document_images,
+                    remaining,
+                    revision,
+                    cx,
+                )
+            });
+        })
+        .detach();
+    }
+
+    pub(crate) fn add_dropped_attachments(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+        let Some((conversation_id, vision, parse_document_images, remaining, revision)) =
+            self.begin_composer_attachment_load(cx)
+        else {
+            return;
+        };
+        self.load_composer_attachment_paths(
+            paths,
+            conversation_id,
+            vision,
+            parse_document_images,
+            remaining,
+            revision,
+            cx,
+        );
+    }
+
+    fn begin_composer_attachment_load(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Option<(String, bool, bool, usize, u64)> {
+        if self.is_current_generating() || self.chat.attachments_loading {
+            return None;
+        }
+        let Some(model) = self.current_model() else {
+            self.data.error = Some("Choose a model before adding attachments.".into());
+            cx.notify();
+            return None;
+        };
+        let Some(conversation_id) = self.current_conversation().map(|value| value.id.clone())
+        else {
+            self.data.error = Some("Create or select a conversation first.".into());
+            cx.notify();
+            return None;
+        };
+        if self.chat.attachments.len() >= MAX_ATTACHMENTS {
+            self.data.error = Some(format!(
+                "A message can contain at most {MAX_ATTACHMENTS} attachments."
+            ));
+            cx.notify();
+            return None;
+        }
+
+        let result = (
+            conversation_id,
+            model.capabilities.vision,
+            self.settings().parse_document_images,
+            MAX_ATTACHMENTS - self.chat.attachments.len(),
+            self.chat.attachments_revision.wrapping_add(1),
+        );
+        self.chat.attachments_loading = true;
+        self.chat.attachments_revision = result.4;
+        cx.notify();
+        Some(result)
+    }
+
+    fn cancel_composer_attachment_load(
+        &mut self,
+        revision: u64,
+        error: Option<String>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.chat.attachments_revision != revision {
+            return;
+        }
+        self.chat.attachments_loading = false;
+        if let Some(error) = error {
+            self.data.error = Some(error);
+        }
+        cx.notify();
+    }
+
+    fn load_composer_attachment_paths(
+        &mut self,
+        paths: Vec<PathBuf>,
+        conversation_id: String,
+        vision: bool,
+        parse_document_images: bool,
+        remaining: usize,
+        revision: u64,
+        cx: &mut Context<Self>,
+    ) {
+        cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {
-                    if selected.len() > remaining {
+                    if paths.len() > remaining {
                         return Err(format!(
                             "Select at most {remaining} more attachment{}.",
                             if remaining == 1 { "" } else { "s" }
                         ));
                     }
-                    selected
+                    paths
                         .into_iter()
-                        .map(|path| load_attachment(&path, vision))
+                        .map(|path| {
+                            if path.is_dir() {
+                                Err(format!(
+                                    "Folders cannot be added as attachments: {}",
+                                    path.display()
+                                ))
+                            } else {
+                                load_attachment(&path, vision, parse_document_images)
+                            }
+                        })
                         .collect::<Result<Vec<_>, _>>()
                 })
                 .await;
@@ -123,7 +200,7 @@ impl OneChat {
                             !model.capabilities.vision
                                 && attachments
                                     .iter()
-                                    .any(|attachment| attachment.kind != AttachmentKind::Text)
+                                    .any(|attachment| attachment.kind.requires_vision())
                         }) =>
                     {
                         this.data.error =
@@ -178,6 +255,7 @@ impl OneChat {
         }
 
         let vision = model.capabilities.vision;
+        let parse_document_images = self.settings().parse_document_images;
         let remaining = MAX_ATTACHMENTS - attachment_count;
         let paths = cx.prompt_for_paths(gpui::PathPromptOptions {
             files: true,
@@ -248,7 +326,7 @@ impl OneChat {
                     }
                     selected
                         .into_iter()
-                        .map(|path| load_attachment(&path, vision))
+                        .map(|path| load_attachment(&path, vision, parse_document_images))
                         .collect::<Result<Vec<_>, _>>()
                 })
                 .await;
@@ -271,7 +349,7 @@ impl OneChat {
                         if !supports_vision
                             && attachments
                                 .iter()
-                                .any(|attachment| attachment.kind != AttachmentKind::Text) =>
+                                .any(|attachment| attachment.kind.requires_vision()) =>
                     {
                         this.data.error =
                             Some("The selected model only accepts text attachments.".into());
@@ -400,8 +478,14 @@ impl OneChat {
 }
 
 fn attachment_preview(attachment: &AttachmentDraft) -> Option<Arc<gpui::Image>> {
-    let file = attachment.files.first()?;
-    let format = gpui::ImageFormat::from_mime_type(file.media_type)?;
+    if !attachment.kind.requires_vision() {
+        return None;
+    }
+    let file = attachment
+        .files
+        .iter()
+        .find(|file| file.kind == AttachmentFileKind::Image)?;
+    let format = gpui::ImageFormat::from_mime_type(&file.media_type)?;
     Some(Arc::new(gpui::Image::from_bytes(
         format,
         file.bytes.clone(),
@@ -449,8 +533,9 @@ fn clipboard_image_attachment(
         name: format!("Pasted image {number}.{extension}"),
         kind: AttachmentKind::Image,
         files: vec![AttachmentDraftFile {
-            extension,
-            media_type,
+            name: format!("content.{extension}"),
+            kind: AttachmentFileKind::Image,
+            media_type: media_type.into(),
             bytes,
         }],
     })
