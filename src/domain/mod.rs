@@ -25,7 +25,10 @@ pub use preferences::{
     MIN_BACKGROUND_OPACITY, MIN_MESSAGE_FONT_SIZE, MIN_MESSAGE_WIDTH_RATIO, SendMessageShortcut,
     Theme, normalize_font_families,
 };
-pub use prompt::SystemPromptPreset;
+pub use prompt::{
+    DEFAULT_PROMPT_COMMAND_TIMEOUT_MS, PromptEvaluation, PromptSnapshot, PromptVariableSource,
+    SystemPromptPreset, prompt_variable_name_is_valid,
+};
 pub use reasoning::{
     CustomReasoningPreset, KnownReasoningFormat, KnownReasoningPreset, ModelReasoningConfig,
     PROVIDER_DEFAULT_REASONING_PRESET, ReasoningLevel, ReasoningParameter, ReasoningParameterValue,

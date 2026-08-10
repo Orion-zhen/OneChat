@@ -10,6 +10,14 @@ use crate::{
     domain::{AttachmentDraft, AttachmentDraftFile, AttachmentFileKind, AttachmentKind, new_id},
 };
 
+struct ComposerAttachmentLoad {
+    conversation_id: String,
+    vision: bool,
+    parse_document_images: bool,
+    remaining: usize,
+    revision: u64,
+}
+
 impl OneChat {
     pub(crate) fn attachment_file_path(
         &self,
@@ -23,11 +31,10 @@ impl OneChat {
     }
 
     pub(crate) fn add_attachments(&mut self, cx: &mut Context<Self>) {
-        let Some((conversation_id, vision, parse_document_images, remaining, revision)) =
-            self.begin_composer_attachment_load(cx)
-        else {
+        let Some(load) = self.begin_composer_attachment_load(cx) else {
             return;
         };
+        let revision = load.revision;
         let paths = cx.prompt_for_paths(gpui::PathPromptOptions {
             files: true,
             directories: false,
@@ -67,41 +74,23 @@ impl OneChat {
             };
 
             let _ = this.update(cx, |this, cx| {
-                this.load_composer_attachment_paths(
-                    selected,
-                    conversation_id,
-                    vision,
-                    parse_document_images,
-                    remaining,
-                    revision,
-                    cx,
-                )
+                this.load_composer_attachment_paths(selected, load, cx)
             });
         })
         .detach();
     }
 
     pub(crate) fn add_dropped_attachments(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
-        let Some((conversation_id, vision, parse_document_images, remaining, revision)) =
-            self.begin_composer_attachment_load(cx)
-        else {
+        let Some(load) = self.begin_composer_attachment_load(cx) else {
             return;
         };
-        self.load_composer_attachment_paths(
-            paths,
-            conversation_id,
-            vision,
-            parse_document_images,
-            remaining,
-            revision,
-            cx,
-        );
+        self.load_composer_attachment_paths(paths, load, cx);
     }
 
     fn begin_composer_attachment_load(
         &mut self,
         cx: &mut Context<Self>,
-    ) -> Option<(String, bool, bool, usize, u64)> {
+    ) -> Option<ComposerAttachmentLoad> {
         if self.is_current_generating() || self.chat.attachments_loading {
             return None;
         }
@@ -124,17 +113,17 @@ impl OneChat {
             return None;
         }
 
-        let result = (
+        let load = ComposerAttachmentLoad {
             conversation_id,
-            model.capabilities.vision,
-            self.settings().parse_document_images,
-            MAX_ATTACHMENTS - self.chat.attachments.len(),
-            self.chat.attachments_revision.wrapping_add(1),
-        );
+            vision: model.capabilities.vision,
+            parse_document_images: self.settings().parse_document_images,
+            remaining: MAX_ATTACHMENTS - self.chat.attachments.len(),
+            revision: self.chat.attachments_revision.wrapping_add(1),
+        };
         self.chat.attachments_loading = true;
-        self.chat.attachments_revision = result.4;
+        self.chat.attachments_revision = load.revision;
         cx.notify();
-        Some(result)
+        Some(load)
     }
 
     fn cancel_composer_attachment_load(
@@ -156,13 +145,16 @@ impl OneChat {
     fn load_composer_attachment_paths(
         &mut self,
         paths: Vec<PathBuf>,
-        conversation_id: String,
-        vision: bool,
-        parse_document_images: bool,
-        remaining: usize,
-        revision: u64,
+        load: ComposerAttachmentLoad,
         cx: &mut Context<Self>,
     ) {
+        let ComposerAttachmentLoad {
+            conversation_id,
+            vision,
+            parse_document_images,
+            remaining,
+            revision,
+        } = load;
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_spawn(async move {

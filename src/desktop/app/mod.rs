@@ -45,6 +45,7 @@ pub(crate) enum DestructiveAction {
     DeleteProvider { id: String },
     DeleteModel { id: String },
     DeletePromptPreset { name: String },
+    DeletePromptVariable { name: String },
     DeleteMcpServer { id: String },
     ClearContext { conversation_id: String },
 }
@@ -56,6 +57,7 @@ impl DestructiveAction {
             Self::DeleteProvider { .. } => "Delete Provider?",
             Self::DeleteModel { .. } => "Delete Model?",
             Self::DeletePromptPreset { .. } => "Delete Prompt Preset?",
+            Self::DeletePromptVariable { .. } => "Delete Prompt Variable?",
             Self::DeleteMcpServer { .. } => "Delete MCP Server?",
             Self::ClearContext { .. } => "Clear Conversation?",
         }
@@ -65,6 +67,9 @@ impl DestructiveAction {
         match self {
             Self::ClearContext { .. } => {
                 "This removes the conversation context used for future responses."
+            }
+            Self::DeletePromptVariable { .. } => {
+                "Prompts that reference this variable will stop working. This cannot be undone."
             }
             _ => "This action cannot be undone.",
         }

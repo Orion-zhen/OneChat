@@ -194,6 +194,8 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
             PendingFocus::SettingsPrompt => {
                 if let Some(editor) = &app.settings_ui.prompt_preset_editor {
                     Some(editor.focus_input().read(cx).focus_handle(cx))
+                } else if let Some(editor) = &app.settings_ui.prompt_variable_editor {
+                    Some(editor.focus_input().read(cx).focus_handle(cx))
                 } else {
                     app.settings_ui
                         .title_prompt_editor

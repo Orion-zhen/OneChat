@@ -16,8 +16,9 @@ use tokio_util::sync::CancellationToken;
 
 use crate::{
     domain::{
-        AssistantResponse, GenerationError, GenerationEvent, GenerationRequest, RequestInfo,
-        ToolExecution, ToolExecutionStatus, ToolSelection, message_tool_calls, now_timestamp,
+        AssistantResponse, GenerationError, GenerationErrorKind, GenerationEvent,
+        GenerationRequest, RequestInfo, ToolExecution, ToolExecutionStatus, ToolSelection,
+        message_tool_calls, now_timestamp,
     },
     mcp::{McpManager, McpToolDefinition},
     providers,
@@ -25,6 +26,7 @@ use crate::{
 };
 
 use super::{PreparedGeneration, apply_event, interrupted_event};
+use crate::application::prompt::PromptRenderError;
 
 pub const UI_FLUSH_INTERVAL: Duration = Duration::from_millis(40);
 pub const STORAGE_FLUSH_INTERVAL: Duration = Duration::from_millis(320);
@@ -287,13 +289,67 @@ fn truncate_tool_result(output: &mut String) {
     output.push_str(NOTICE);
 }
 
-pub async fn run_generation(
+async fn fail_prompt_evaluation(
     prepared: PreparedGeneration,
+    storage: Arc<Storage>,
+    error: PromptRenderError,
+    updates: Sender<GenerationUpdate>,
+) {
+    let mut response = prepared.response;
+    let mut request = prepared.request_info;
+    let generation_error = match error {
+        PromptRenderError::Cancelled => GenerationError::cancelled(),
+        error => GenerationError::new(
+            GenerationErrorKind::Unknown,
+            "System prompt evaluation failed",
+        )
+        .with_detail(error.to_string()),
+    };
+    let outcome = apply_event(
+        GenerationEvent::Failed(generation_error),
+        &mut response,
+        &mut request,
+        Duration::ZERO,
+    );
+    let saved_response = response.clone();
+    let saved_request = request.clone();
+    let persistence = tokio::task::spawn_blocking(move || {
+        storage.persist_generation(&saved_response, &saved_request)
+    })
+    .await;
+    if let Ok(Err(error)) = persistence {
+        let _ = updates
+            .send(GenerationUpdate::PersistenceFailed(error))
+            .await;
+    } else if let Err(error) = persistence {
+        let _ = updates
+            .send(GenerationUpdate::PersistenceFailed(
+                StorageError::InvalidData(format!("generation persistence task failed: {error}")),
+            ))
+            .await;
+    }
+    let _ = updates
+        .send(GenerationUpdate::Snapshot(Box::new(GenerationSnapshot {
+            response,
+            request,
+            terminal: outcome.terminal,
+            thinking_finished: outcome.thinking_finished,
+        })))
+        .await;
+}
+
+pub async fn run_generation(
+    mut prepared: PreparedGeneration,
     storage: Arc<Storage>,
     mcp: Arc<McpManager>,
     cancellation: CancellationToken,
     updates: Sender<GenerationUpdate>,
 ) {
+    if let Err(error) = prepared.render_system_prompt(cancellation.clone()).await {
+        fail_prompt_evaluation(prepared, storage, error, updates).await;
+        return;
+    }
+
     let (event_sender, event_receiver) = async_channel::bounded(256);
     tokio::spawn(run_agent(
         prepared.provider_request,

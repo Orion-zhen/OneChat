@@ -1,4 +1,8 @@
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
+
+use super::PromptVariableSource;
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -69,6 +73,7 @@ pub struct AppSettings {
     pub parse_document_images: bool,
     pub default_system_prompt_preset: Option<String>,
     pub title_generation_system_prompt: String,
+    pub prompt_variables: BTreeMap<String, PromptVariableSource>,
     pub message_font_size: f32,
     pub message_width_ratio: f32,
     pub background_opacity: f32,
@@ -119,6 +124,7 @@ impl Default for AppSettings {
             parse_document_images: true,
             default_system_prompt_preset: None,
             title_generation_system_prompt: DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT.into(),
+            prompt_variables: BTreeMap::new(),
             message_font_size: DEFAULT_MESSAGE_FONT_SIZE,
             message_width_ratio: DEFAULT_MESSAGE_WIDTH_RATIO,
             background_opacity: DEFAULT_BACKGROUND_OPACITY,

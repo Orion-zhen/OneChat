@@ -1,11 +1,16 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
+
+use tokio_util::sync::CancellationToken;
 
 use super::reducer::estimate_tokens;
 
-use crate::domain::{
-    AssistantResponse, Attachment, Conversation, GenerationConfig, GenerationRequest, Message,
-    MessageStatus, Model, Provider, RequestInfo, ToolSelection, Turn, UserMessage, active_turns,
-    now_timestamp,
+use crate::{
+    application::prompt::{PromptContext, PromptRenderError, render_prompt},
+    domain::{
+        AssistantResponse, Attachment, Conversation, GenerationConfig, GenerationRequest, Message,
+        MessageStatus, Model, PromptVariableSource, Provider, RequestInfo, ToolSelection, Turn,
+        UserMessage, active_turns, now_timestamp,
+    },
 };
 
 #[derive(Clone)]
@@ -23,6 +28,8 @@ pub struct PreparedGeneration {
     pub provider_request: GenerationRequest,
     pub tool_selection: ToolSelection,
     pub new_attachments: Vec<Attachment>,
+    prompt_variables: BTreeMap<String, PromptVariableSource>,
+    prompt_context: PromptContext,
 }
 
 impl PreparedGeneration {
@@ -68,12 +75,51 @@ impl PreparedGeneration {
             provider_request,
             tool_selection: conversation.tool_selection.clone(),
             new_attachments: Vec::new(),
+            prompt_variables: BTreeMap::new(),
+            prompt_context: PromptContext::default(),
         })
     }
 
     pub fn with_new_attachments(mut self, attachments: Vec<Attachment>) -> Self {
         self.new_attachments = attachments;
         self
+    }
+
+    pub fn configure_prompt(
+        &mut self,
+        variables: BTreeMap<String, PromptVariableSource>,
+        context: PromptContext,
+    ) {
+        self.prompt_variables = variables;
+        self.prompt_context = context;
+    }
+
+    pub async fn render_system_prompt(
+        &mut self,
+        cancellation: CancellationToken,
+    ) -> Result<(), PromptRenderError> {
+        let template = self.provider_request.system_prompt.clone();
+        let snapshot = render_prompt(
+            template.clone(),
+            std::mem::take(&mut self.prompt_variables),
+            std::mem::take(&mut self.prompt_context),
+            cancellation,
+        )
+        .await;
+        let snapshot = match snapshot {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                self.request_info.system_prompt = Some(crate::domain::PromptSnapshot {
+                    template,
+                    ..Default::default()
+                });
+                return Err(error);
+            }
+        };
+        self.provider_request.system_prompt = snapshot.resolved.clone();
+        self.request_info.system_prompt = Some(snapshot);
+        update_input_token_estimate(&mut self.request_info, &self.provider_request);
+        Ok(())
     }
 
     pub fn additional(
@@ -111,6 +157,8 @@ impl PreparedGeneration {
             provider_request,
             tool_selection: conversation.tool_selection.clone(),
             new_attachments: Vec::new(),
+            prompt_variables: BTreeMap::new(),
+            prompt_context: PromptContext::default(),
         })
     }
 
@@ -154,6 +202,8 @@ impl PreparedGeneration {
             provider_request,
             tool_selection: conversation.tool_selection.clone(),
             new_attachments: Vec::new(),
+            prompt_variables: BTreeMap::new(),
+            prompt_context: PromptContext::default(),
         })
     }
 }
@@ -266,6 +316,17 @@ fn prepare_response(
     request.usage.estimated = true;
 
     request
+}
+
+fn update_input_token_estimate(request: &mut RequestInfo, provider_request: &GenerationRequest) {
+    let input_text_len = provider_request.system_prompt.chars().count()
+        + provider_request
+            .messages
+            .iter()
+            .map(|message| serde_json::to_string(message).map_or(0, |value| value.chars().count()))
+            .sum::<usize>();
+    request.usage.input_tokens = Some(estimate_tokens(input_text_len));
+    request.usage.estimated = true;
 }
 
 fn provider_request(

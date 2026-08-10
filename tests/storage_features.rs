@@ -4,8 +4,9 @@ use onechat::{
     application::generation::{GenerationStart, PreparedGeneration},
     domain::{
         AppSettings, AttachmentDraft, AttachmentDraftFile, AttachmentFileKind, AttachmentKind,
-        AutoTitleState, Conversation, MessageStatus, Model, Provider, ProviderKind, RequestStatus,
-        SystemPromptPreset, ToolExecution, ToolExecutionStatus, Turn, UserMessage, active_turns,
+        AutoTitleState, Conversation, MessageStatus, Model, PromptVariableSource, Provider,
+        ProviderKind, RequestStatus, SystemPromptPreset, ToolExecution, ToolExecutionStatus, Turn,
+        UserMessage, active_turns,
     },
     storage::{Storage, WindowMode, WindowState},
 };
@@ -120,6 +121,20 @@ fn catalog_settings_and_prompt_presets_round_trip() {
         parse_document_images: false,
         ..AppSettings::default()
     };
+    settings.prompt_variables.insert(
+        "owner".into(),
+        PromptVariableSource::Text {
+            value: "Orion".into(),
+        },
+    );
+    settings.prompt_variables.insert(
+        "repo".into(),
+        PromptVariableSource::Command {
+            script: "git status --short".into(),
+            cwd: Some("/tmp/repo".into()),
+            timeout_ms: 1_500,
+        },
+    );
     storage.save_settings(&settings).unwrap();
 
     storage
@@ -144,6 +159,10 @@ fn catalog_settings_and_prompt_presets_round_trip() {
     assert!(snapshot.settings.code_block_wrap);
     assert!(!snapshot.settings.parse_document_images);
     assert_eq!(snapshot.settings.theme_color, "#AF52DE");
+    assert_eq!(
+        snapshot.settings.prompt_variables,
+        settings.prompt_variables
+    );
     assert_eq!(
         snapshot
             .settings

@@ -5,8 +5,9 @@ use tokio_util::sync::CancellationToken;
 
 use super::super::{CachedMarkdown, OneChat};
 use crate::{
-    application::generation::{
-        GenerationStart, GenerationUpdate, PreparedGeneration, run_generation,
+    application::{
+        generation::{GenerationStart, GenerationUpdate, PreparedGeneration, run_generation},
+        prompt::PromptContext,
     },
     domain::{AssistantResponse, MessageStatus, RequestInfo},
     markdown::MarkdownDocument,
@@ -15,10 +16,26 @@ use crate::{
 impl OneChat {
     pub(in crate::desktop::app) fn begin_prepared_generation(
         &mut self,
-        prepared: PreparedGeneration,
+        mut prepared: PreparedGeneration,
         cx: &mut Context<Self>,
     ) {
         let conversation_id = prepared.request_info.conversation_id.clone();
+        let prompt_context = PromptContext {
+            conversation_id: conversation_id.clone(),
+            conversation_title: self
+                .data
+                .snapshot
+                .conversations
+                .iter()
+                .find(|conversation| conversation.id == conversation_id)
+                .map_or_else(String::new, |conversation| conversation.title.clone()),
+            model_name: prepared.provider_request.model.display_name.clone(),
+            provider_name: prepared.provider_request.provider.name.clone(),
+        };
+        prepared.configure_prompt(
+            self.data.snapshot.settings.prompt_variables.clone(),
+            prompt_context,
+        );
         if self.chat.generations.is_active(&conversation_id) {
             self.data.error = Some("This conversation already has an active generation.".into());
             cx.notify();

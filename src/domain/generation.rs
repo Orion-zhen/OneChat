@@ -230,6 +230,8 @@ pub struct RequestInfo {
     #[serde(default)]
     pub tool_duration_ms: Option<u64>,
     pub duration_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<super::PromptSnapshot>,
 }
 
 impl RequestInfo {
@@ -256,6 +258,7 @@ impl RequestInfo {
             tool_call_count: 0,
             tool_duration_ms: None,
             duration_ms: None,
+            system_prompt: None,
         }
     }
 }

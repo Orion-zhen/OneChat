@@ -107,6 +107,12 @@ Excel workbooks preserve the last formatted cell values saved in the file; OneCh
 
 The settings parser accepts JSONC comments and trailing commas. Files written by OneChat are formatted as plain JSON, which is also valid JSONC. Existing comments are not preserved when the app writes the settings file. Legacy SQLite files are neither imported nor deleted.
 
+## System prompt variables
+
+Conversation system prompts support runtime placeholders such as `{{owner}}`. Custom variables are managed under **Settings → System Prompts** and can read fixed text, an environment variable, or the stdout of a local shell command. Only referenced variables are evaluated; use `\{{owner}}` for a literal placeholder. Command variables have a working directory, a timeout, and a 64 KiB output limit. Unknown variables and failed commands stop the request before it reaches the model.
+
+Built-in variables include `{{onechat.date}}`, `{{onechat.datetime}}`, `{{onechat.os}}`, `{{onechat.conversation.id}}`, `{{onechat.conversation.title}}`, `{{onechat.model.name}}`, and `{{onechat.provider.name}}`. The resolved prompt and variable timings are stored with each request and shown in the Info inspector.
+
 ## Reasoning presets
 
 Each model can expose named reasoning presets from its model editor. Known API formats are available for OpenAI Responses and Chat Completions, Anthropic adaptive effort and manual budgets, Gemini thinking levels and budgets, DeepSeek effort, and Qwen effort or budgets. The model configuration controls which presets are available and which one is used by default; a conversation can override the preset from the Model inspector, and that override is copied into each turn for regeneration.

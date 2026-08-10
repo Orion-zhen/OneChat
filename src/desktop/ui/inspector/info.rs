@@ -92,6 +92,34 @@ pub(super) fn render_info(app: &OneChat, cx: &App) -> AnyElement {
                 .map_or_else(|| "—".into(), |value| format!("{value} ms")),
             cx,
         ));
+    if let Some(prompt) = &request.system_prompt {
+        if prompt.template != prompt.resolved && !prompt.template.is_empty() {
+            content = content.child(prompt_block("System prompt template", &prompt.template, cx));
+        }
+        content = content.child(prompt_block(
+            "Resolved system prompt",
+            if prompt.resolved.is_empty() {
+                "—"
+            } else {
+                &prompt.resolved
+            },
+            cx,
+        ));
+        if !prompt.variables.is_empty() {
+            let evaluations = prompt
+                .variables
+                .iter()
+                .map(|variable| {
+                    format!(
+                        "{} · {} · {} ms",
+                        variable.name, variable.source, variable.duration_ms
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            content = content.child(prompt_block("Prompt variables", &evaluations, cx));
+        }
+    }
     if let Some(error) = &request.error {
         content = content
             .child(inspector_field("Error category", &error.kind, cx))
@@ -113,6 +141,28 @@ pub(super) fn render_info(app: &OneChat, cx: &App) -> AnyElement {
             );
     }
     content.into_any_element()
+}
+
+fn prompt_block(label: &str, value: &str, cx: &App) -> AnyElement {
+    div()
+        .rounded_lg()
+        .bg(cx.theme().muted)
+        .p_3()
+        .child(
+            div()
+                .text_size(px(11.0))
+                .text_color(cx.theme().muted_foreground)
+                .child(label.to_string()),
+        )
+        .child(
+            div()
+                .pt_2()
+                .whitespace_normal()
+                .text_size(px(12.0))
+                .line_height(px(18.0))
+                .child(value.to_string()),
+        )
+        .into_any_element()
 }
 
 fn format_duration(duration_ms: u64) -> String {

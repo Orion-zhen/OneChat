@@ -2,6 +2,7 @@ mod catalog;
 mod items;
 mod mcp;
 mod prompt;
+mod prompt_variable;
 
 use super::*;
 
@@ -12,6 +13,9 @@ pub(crate) use items::{
 };
 pub(crate) use mcp::{McpServerEditor, McpServerEditorMode, McpServerTransportEditor};
 pub(crate) use prompt::PromptPresetEditor;
+pub(crate) use prompt_variable::{
+    PromptVariableEditor, PromptVariableKind, PromptVariableTestStatus,
+};
 
 pub(crate) struct KeyValueEditor {
     pub name: Entity<InputState>,

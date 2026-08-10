@@ -25,8 +25,8 @@ use crate::{
         selectable_text::TextSelection,
         settings::{
             DefaultModelItem, FontFamilyItem, McpServerEditor, ModelEditor, PromptPresetEditor,
-            PromptSelectItem, ProviderEditor, ReasoningPresetSelectItem, SearchableItems,
-            SettingsSection,
+            PromptSelectItem, PromptVariableEditor, ProviderEditor, ReasoningPresetSelectItem,
+            SearchableItems, SettingsSection,
         },
         shell::{
             CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate,
@@ -154,6 +154,9 @@ pub(crate) struct SettingsState {
     pub(crate) synced_prompts: Vec<PromptSelectItem>,
     pub(crate) viewed_prompt_preset: Option<String>,
     pub(crate) prompt_preset_editor: Option<PromptPresetEditor>,
+    pub(crate) prompt_variable_editor: Option<PromptVariableEditor>,
+    pub(crate) prompt_variable_test_revision: u64,
+    pub(crate) prompt_builtins_expanded: bool,
     pub(crate) title_prompt_editor: Option<Entity<InputState>>,
     pub(crate) mcp_json_import: Entity<InputState>,
     pub(crate) mcp_server_editor: Option<McpServerEditor>,
