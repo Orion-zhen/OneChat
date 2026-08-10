@@ -423,11 +423,14 @@ fn model_row(model: &Model, cx: &mut Context<OneChat>) -> AnyElement {
 pub(super) fn model_capability_summary(model: &Model) -> String {
     let capabilities = &model.capabilities;
     let mut labels = Vec::new();
-    if capabilities.tools {
-        labels.push("Tools");
-    }
     if capabilities.vision {
         labels.push("Vision");
+    }
+    if capabilities.audio {
+        labels.push("Audio");
+    }
+    if capabilities.tools {
+        labels.push("Tools");
     }
     if model.reasoning.is_some() {
         labels.push("Reasoning");

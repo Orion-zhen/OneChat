@@ -475,7 +475,7 @@ impl ModelEditor {
     ) {
         let previous_remote_id = std::mem::replace(&mut self.last_remote_id, remote_id.clone());
         let display_name = self.display_name.read(cx).value().trim().to_string();
-        let (display_name, tools, vision) = synchronized_model_metadata(
+        let (display_name, vision, audio, tools) = synchronized_model_metadata(
             &display_name,
             &previous_remote_id,
             &remote_id,
@@ -485,45 +485,52 @@ impl ModelEditor {
             self.display_name
                 .update(cx, |input, cx| input.set_value(display_name, window, cx));
         }
-        self.capabilities.tools = tools;
         self.capabilities.vision = vision;
+        self.capabilities.audio = audio;
+        self.capabilities.tools = tools;
     }
 
     fn update_capabilities_for_remote_id(&mut self, remote_id: &str) {
-        let (tools, vision) = model_capabilities(&self.available_models, remote_id);
-        self.capabilities.tools = tools;
+        let (vision, audio, tools) = model_capabilities(&self.available_models, remote_id);
         self.capabilities.vision = vision;
+        self.capabilities.audio = audio;
+        self.capabilities.tools = tools;
     }
 
     pub fn set_capability(&mut self, capability: Capability, enabled: bool) {
         let value = match capability {
-            Capability::Tools => &mut self.capabilities.tools,
             Capability::Vision => &mut self.capabilities.vision,
+            Capability::Audio => &mut self.capabilities.audio,
+            Capability::Tools => &mut self.capabilities.tools,
         };
         *value = enabled;
     }
 
     pub fn capability(&self, capability: Capability) -> bool {
         match capability {
-            Capability::Tools => self.capabilities.tools,
             Capability::Vision => self.capabilities.vision,
+            Capability::Audio => self.capabilities.audio,
+            Capability::Tools => self.capabilities.tools,
         }
     }
 }
 
 #[derive(Clone, Copy, Debug)]
 pub enum Capability {
-    Tools,
     Vision,
+    Audio,
+    Tools,
 }
 
 impl Capability {
-    pub(in crate::desktop::ui::settings) const CORE: [Self; 2] = [Self::Tools, Self::Vision];
+    pub(in crate::desktop::ui::settings) const CORE: [Self; 3] =
+        [Self::Vision, Self::Audio, Self::Tools];
 
     pub(in crate::desktop::ui::settings) fn label(self) -> &'static str {
         match self {
-            Self::Tools => "Tools",
             Self::Vision => "Vision",
+            Self::Audio => "Audio",
+            Self::Tools => "Tools",
         }
     }
 }
@@ -533,17 +540,17 @@ fn synchronized_model_metadata(
     previous_remote_id: &str,
     remote_id: &str,
     models: &[AvailableModel],
-) -> (Option<String>, bool, bool) {
+) -> (Option<String>, bool, bool, bool) {
     let display_name = (display_name.is_empty() || display_name == previous_remote_id)
         .then(|| remote_id.to_string());
-    let (tools, vision) = model_capabilities(models, remote_id);
-    (display_name, tools, vision)
+    let (vision, audio, tools) = model_capabilities(models, remote_id);
+    (display_name, vision, audio, tools)
 }
 
-fn model_capabilities(models: &[AvailableModel], remote_id: &str) -> (bool, bool) {
+fn model_capabilities(models: &[AvailableModel], remote_id: &str) -> (bool, bool, bool) {
     models
         .iter()
         .find(|model| model.id == remote_id.trim())
-        .map(|model| (model.tools, model.vision))
+        .map(|model| (model.vision, model.audio, model.tools))
         .unwrap_or_default()
 }

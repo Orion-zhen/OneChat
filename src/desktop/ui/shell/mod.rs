@@ -32,7 +32,7 @@ use super::{
 use crate::{
     desktop::app::{ConnectionTestStatus, OneChat, Page, PendingFocus},
     desktop::ui::{chat, inspector, settings},
-    domain::{AutoTitleState, Conversation},
+    domain::{AutoTitleState, Conversation, ModelCapabilities},
     mcp::McpServerStatus,
 };
 

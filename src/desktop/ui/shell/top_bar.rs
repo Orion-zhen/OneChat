@@ -55,13 +55,7 @@ pub(super) fn render_top_bar(
     let model_label = selected_model
         .map(|model| model.display_name.clone())
         .unwrap_or_else(|| "Choose Model".into());
-    let model_icon = selected_model.map_or(AppIcon::Bot, |model| {
-        if model.capabilities.vision {
-            AppIcon::Eye
-        } else {
-            AppIcon::MessageText
-        }
-    });
+    let model_capabilities = selected_model.map(|model| &model.capabilities);
     let prompt_label = current_conversation
         .map(|conversation| app.system_prompt_label(&conversation.system_prompt))
         .unwrap_or_else(|| "None".into());
@@ -176,7 +170,7 @@ pub(super) fn render_top_bar(
                         .flex()
                         .items_center()
                         .gap_2()
-                        .child(render_icon(model_icon, IconTone::Muted, 14.0, cx))
+                        .child(render_model_capability_icon(model_capabilities, cx))
                         .child(div().whitespace_nowrap().child(model_label))
                         .child(render_icon(AppIcon::ChevronDown, IconTone::Muted, 14.0, cx))
                         .on_click(
@@ -278,4 +272,17 @@ pub(super) fn render_top_bar(
                 ),
         )
         .into_any_element()
+}
+
+fn render_model_capability_icon(capabilities: Option<&ModelCapabilities>, cx: &App) -> AnyElement {
+    let Some(capabilities) = capabilities else {
+        return render_icon(AppIcon::Bot, IconTone::Muted, 14.0, cx);
+    };
+
+    match (capabilities.vision, capabilities.audio) {
+        (false, false) => render_icon(AppIcon::MessageText, IconTone::Muted, 14.0, cx),
+        (true, false) => render_icon(AppIcon::Eye, IconTone::Muted, 14.0, cx),
+        (false, true) => render_icon(AppIcon::AudioLines, IconTone::Muted, 14.0, cx),
+        (true, true) => render_icon(AppIcon::Shapes, IconTone::Muted, 14.0, cx),
+    }
 }

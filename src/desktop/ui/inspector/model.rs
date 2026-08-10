@@ -102,11 +102,14 @@ pub(super) fn render_model(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEleme
 pub(crate) fn capability_summary(model: &Model) -> String {
     let capabilities = &model.capabilities;
     let mut labels = Vec::new();
-    if capabilities.tools {
-        labels.push("Tools");
-    }
     if capabilities.vision {
         labels.push("Vision");
+    }
+    if capabilities.audio {
+        labels.push("Audio");
+    }
+    if capabilities.tools {
+        labels.push("Tools");
     }
     if model.reasoning.is_some() {
         labels.push("Reasoning");

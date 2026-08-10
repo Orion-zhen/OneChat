@@ -12,6 +12,7 @@ pub struct AvailableModel {
     pub id: String,
     pub tools: bool,
     pub vision: bool,
+    pub audio: bool,
 }
 
 pub async fn list_models(provider: &Provider) -> Result<Vec<AvailableModel>, GenerationError> {
@@ -185,6 +186,7 @@ fn available_model(metadata: &Value, kind: ProviderKind) -> Option<AvailableMode
         id: id.to_string(),
         tools: tools_from_metadata(metadata),
         vision: vision_from_metadata(metadata),
+        audio: audio_from_metadata(metadata),
     })
 }
 
@@ -307,6 +309,45 @@ fn vision_evidence(value: &Value) -> Option<bool> {
     evidence
 }
 
+fn audio_from_metadata(metadata: &Value) -> bool {
+    audio_evidence(metadata).unwrap_or(false)
+}
+
+fn audio_evidence(value: &Value) -> Option<bool> {
+    let Value::Object(object) = value else {
+        return None;
+    };
+    let mut evidence = None;
+    for (key, value) in object {
+        let key = normalized_key(key);
+        let direct = if matches!(
+            key.as_str(),
+            "audio" | "supportsaudio" | "audioinput" | "inputaudio" | "supportsaudioinput"
+        ) {
+            value.as_bool()
+        } else if matches!(
+            key.as_str(),
+            "modality"
+                | "modalities"
+                | "inputmodality"
+                | "inputmodalities"
+                | "supportedmodalities"
+                | "supportedinputmodalities"
+        ) || (matches!(
+            key.as_str(),
+            "capabilities" | "features" | "supportedfeatures"
+        ) && value.is_array())
+        {
+            Some(contains_audio_label(value))
+        } else {
+            None
+        };
+        evidence = merge_evidence(evidence, direct);
+        evidence = merge_evidence(evidence, audio_evidence(value));
+    }
+    evidence
+}
+
 fn merge_evidence(current: Option<bool>, next: Option<bool>) -> Option<bool> {
     match (current, next) {
         (Some(true), _) | (_, Some(true)) => Some(true),
@@ -330,6 +371,17 @@ fn contains_image_label(value: &Value) -> bool {
     }
 }
 
+fn contains_audio_label(value: &Value) -> bool {
+    match value {
+        Value::String(value) => value.to_ascii_lowercase().contains("audio"),
+        Value::Array(values) => values.iter().any(contains_audio_label),
+        Value::Object(values) => values.iter().any(|(key, value)| {
+            normalized_key(key).contains("audio") && value.as_bool().unwrap_or(true)
+        }),
+        _ => false,
+    }
+}
+
 fn normalized_key(key: &str) -> String {
     key.chars()
         .filter(|character| character.is_ascii_alphanumeric())
@@ -343,15 +395,21 @@ fn sorted_unique(models: Vec<AvailableModel>) -> Vec<AvailableModel> {
         .fold(BTreeMap::new(), |mut models, model| {
             models
                 .entry(model.id)
-                .and_modify(|(tools, vision)| {
+                .and_modify(|(tools, vision, audio)| {
                     *tools |= model.tools;
                     *vision |= model.vision;
+                    *audio |= model.audio;
                 })
-                .or_insert((model.tools, model.vision));
+                .or_insert((model.tools, model.vision, model.audio));
             models
         })
         .into_iter()
-        .map(|(id, (tools, vision))| AvailableModel { id, tools, vision })
+        .map(|(id, (tools, vision, audio))| AvailableModel {
+            id,
+            tools,
+            vision,
+            audio,
+        })
         .collect()
 }
 
@@ -360,4 +418,68 @@ fn invalid_model_list() -> GenerationError {
         GenerationErrorKind::Unknown,
         "Provider returned an invalid model list",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn parses_core_capabilities_from_model_metadata() {
+        let model = available_model(
+            &json!({
+                "id": "multimodal-model",
+                "architecture": {
+                    "input_modalities": ["text", "image", "audio"]
+                },
+                "supported_parameters": ["tools"]
+            }),
+            ProviderKind::OpenAiCompatible,
+        )
+        .unwrap();
+
+        assert!(model.vision);
+        assert!(model.audio);
+        assert!(model.tools);
+    }
+
+    #[test]
+    fn parses_nested_audio_flags() {
+        assert!(audio_from_metadata(&json!({
+            "capabilities": { "supportsAudioInput": true }
+        })));
+        assert!(!audio_from_metadata(&json!({
+            "capabilities": { "audioInput": false }
+        })));
+    }
+
+    #[test]
+    fn merges_capabilities_from_duplicate_models() {
+        let models = sorted_unique(vec![
+            AvailableModel {
+                id: "model".into(),
+                tools: true,
+                vision: false,
+                audio: false,
+            },
+            AvailableModel {
+                id: "model".into(),
+                tools: false,
+                vision: true,
+                audio: true,
+            },
+        ]);
+
+        assert_eq!(
+            models,
+            vec![AvailableModel {
+                id: "model".into(),
+                tools: true,
+                vision: true,
+                audio: true,
+            }]
+        );
+    }
 }
