@@ -15,11 +15,13 @@ pub(super) fn render_message_content(
     if let Some(editor) = editor {
         let save_id = turn.id.clone();
         let save_on_mouse_down_id = save_id.clone();
+        let enter_id = save_id.clone();
         let add_id = turn.id.clone();
         let editor_input = editor.input.clone();
         let attachment_count = editor.attachments.len() + editor.attachment_drafts.len();
         let attachments_loading = editor.attachment_load_id.is_some();
         let has_attachments = attachment_count > 0 || attachments_loading;
+        let can_save = app.can_save_user_edit(&turn.id, cx);
         let width = if has_attachments {
             user_message_max_width
         } else {
@@ -29,13 +31,41 @@ pub(super) fn render_message_content(
                 typography.body_size,
             )
         };
-        div()
+        let palette = crate::desktop::ui::theme::palette(cx).user_message;
+        let card = div()
             .w(px(width))
-            .rounded(px(18.0))
+            .rounded(px(20.0))
             .border_1()
-            .border_color(cx.theme().border)
-            .bg(cx.theme().popover)
+            .border_color(crate::desktop::ui::theme::palette(cx).accent_border)
+            .bg(palette.background)
+            .shadow_xs()
             .p_3()
+            .capture_action(cx.listener(move |this, action: &Enter, _, cx| {
+                if message_edit_submits(this, action) {
+                    cx.stop_propagation();
+                    this.save_user_edit(enter_id.clone(), cx);
+                }
+            }))
+            .capture_action(cx.listener(|this, _: &InputEscape, _, cx| {
+                cx.stop_propagation();
+                this.cancel_message_edit(cx);
+            }))
+            .child(
+                div()
+                    .pb_2()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .text_color(palette.muted_foreground)
+                    .child(render_icon(AppIcon::Pencil, IconTone::Accent, 14.0, cx))
+                    .child(
+                        div()
+                            .text_size(px(typography.metadata_size))
+                            .line_height(px(typography.metadata_line_height))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("Editing message"),
+                    ),
+            )
             .children(has_attachments.then(|| {
                 div()
                     .id(SharedString::from(format!(
@@ -73,13 +103,13 @@ pub(super) fn render_message_content(
                     .on_mouse_move(|_, _, cx| cx.stop_propagation())
                     .on_mouse_up(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_mouse_up_out(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_action(
-                        cx.listener(|this, _: &InputEscape, _, cx| this.cancel_message_edit(cx)),
-                    )
                     .child(
                         Input::new(&editor_input)
                             .aria_label("Edit user message")
-                            .bg(cx.theme().muted)
+                            .appearance(false)
+                            .w_full()
+                            .px(px(2.0))
+                            .py(px(4.0))
                             .text_size(px(typography.body_size))
                             .line_height(px(typography.body_line_height)),
                     ),
@@ -97,37 +127,46 @@ pub(super) fn render_message_content(
                             turn.id
                         )))
                         .ghost()
-                        .rounded(px(18.0))
+                        .rounded(px(17.0))
                         .tooltip("Add attachment")
-                        .size(px(36.0))
+                        .size(px(34.0))
                         .p_0()
                         .disabled(
                             attachments_loading
                                 || attachment_count
                                     >= crate::application::attachments::MAX_ATTACHMENTS,
                         )
-                        .child(render_icon(AppIcon::Plus, IconTone::Muted, 20.0, cx))
+                        .child(render_icon(AppIcon::Plus, IconTone::Muted, 18.0, cx))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.add_message_edit_attachments(add_id.clone(), cx)
                         })),
                     )
                     .child(
                         div()
+                            .min_w_0()
                             .flex()
                             .items_center()
+                            .justify_end()
                             .gap_2()
                             .child(
-                                large_icon_button(
+                                div()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_size(px(typography.micro_size))
+                                    .line_height(px(typography.micro_line_height))
+                                    .text_color(palette.muted_foreground)
+                                    .child(message_edit_shortcut_hint(app)),
+                            )
+                            .child(
+                                editor_cancel_button(
                                     SharedString::from(format!("cancel-edit-user-{}", turn.id)),
-                                    AppIcon::Close,
-                                    IconTone::Muted,
                                     cx,
                                 )
                                 .on_mouse_down(
                                     MouseButton::Left,
                                     cx.listener(|this, _, _, cx| {
-                                        this.cancel_message_edit(cx);
                                         cx.stop_propagation();
+                                        this.cancel_message_edit(cx);
                                     }),
                                 )
                                 .on_click(
@@ -135,17 +174,17 @@ pub(super) fn render_message_content(
                                 ),
                             )
                             .child(
-                                primary_icon_button(
+                                editor_save_button(
                                     SharedString::from(format!("save-edit-user-{}", turn.id)),
-                                    AppIcon::Save,
+                                    "Save edit and regenerate response",
+                                    !can_save,
                                     cx,
                                 )
-                                .disabled(attachments_loading)
                                 .on_mouse_down(
                                     MouseButton::Left,
                                     cx.listener(move |this, _, _, cx| {
-                                        this.save_user_edit(save_on_mouse_down_id.clone(), cx);
                                         cx.stop_propagation();
+                                        this.save_user_edit(save_on_mouse_down_id.clone(), cx);
                                     }),
                                 )
                                 .on_click(cx.listener(
@@ -153,8 +192,12 @@ pub(super) fn render_message_content(
                                 )),
                             ),
                     ),
-            )
-            .into_any_element()
+            );
+        animated_editor(
+            card.into_any_element(),
+            SharedString::from(format!("user-editor-{}", turn.id)),
+            cx,
+        )
     } else {
         let palette = crate::desktop::ui::theme::palette(cx).user_message;
         div()

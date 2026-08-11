@@ -14,7 +14,7 @@ pub(super) fn render_message_actions(
     let has_info = app.request_for_response(message).is_some();
     let has_content = !message.content.is_empty();
     let can_copy = has_content;
-    let can_edit = latest && !generating && (!editing_any || editing);
+    let can_edit = !generating && (!editing_any || editing);
     let can_regenerate = latest
         && !generating
         && !editing

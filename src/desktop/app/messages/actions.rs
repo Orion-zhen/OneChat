@@ -1,4 +1,4 @@
-use gpui::{Context, Entity, Window, prelude::*};
+use gpui::{App, Context, Entity, Window, prelude::*};
 use gpui_component::input::{InputEvent, InputState};
 
 use super::super::{MessageEditor, MessageEditorTarget, OneChat, PendingFocus, multiline_input};
@@ -123,6 +123,41 @@ impl OneChat {
             .map(|editor| editor.input.clone())
     }
 
+    pub(crate) fn can_save_user_edit(&self, turn_id: &str, cx: &App) -> bool {
+        let Some(editor) = self.chat.message_editor.as_ref().filter(
+            |editor| matches!(&editor.target, MessageEditorTarget::User(id) if id == turn_id),
+        ) else {
+            return false;
+        };
+        let Some(turn) = self
+            .data
+            .snapshot
+            .current_turns
+            .iter()
+            .find(|turn| turn.id == turn_id)
+        else {
+            return false;
+        };
+        let content = editor.input.read(cx).value().trim().to_string();
+        let valid = !content.is_empty()
+            || !editor.attachments.is_empty()
+            || !editor.attachment_drafts.is_empty();
+        let changed = content != turn.user.content
+            || editor.attachments != turn.user.attachments
+            || !editor.attachment_drafts.is_empty();
+        editor.attachment_load_id.is_none() && valid && changed
+    }
+
+    pub(crate) fn can_save_assistant_edit(&self, response_id: &str, cx: &App) -> bool {
+        let Some(editor) = self.chat.message_editor.as_ref().filter(|editor| {
+            matches!(&editor.target, MessageEditorTarget::Assistant(id) if id == response_id)
+        }) else {
+            return false;
+        };
+        self.response(response_id)
+            .is_some_and(|(_, response)| editor.input.read(cx).value() != response.content)
+    }
+
     pub(crate) fn begin_edit_user(
         &mut self,
         turn_id: String,
@@ -161,6 +196,7 @@ impl OneChat {
             attachment_load_id: None,
         });
         self.navigation.pending_focus = Some(PendingFocus::MessageEditor);
+        self.jump_to_message_editor(cx);
         cx.notify();
     }
 
@@ -176,19 +212,20 @@ impl OneChat {
         {
             return;
         }
-        let Some((turn, response)) = self.response(&response_id) else {
+        let Some((_, response)) = self.response(&response_id) else {
             return;
         };
-        if !self.is_latest_turn(&turn.id) {
-            self.data.error = Some("Only responses in the latest turn can be edited.".into());
-            cx.notify();
-            return;
-        }
         let content = response.content.clone();
         let input = cx.new(|cx| {
             multiline_input(content, "Edit assistant response", window, cx)
                 .auto_grow(1, ASSISTANT_EDITOR_MAX_ROWS)
         });
+        cx.subscribe_in(&input, window, |_, _, event: &InputEvent, _, cx| {
+            if matches!(event, InputEvent::Change) {
+                cx.notify();
+            }
+        })
+        .detach();
         self.chat.message_editor = Some(MessageEditor {
             target: MessageEditorTarget::Assistant(response_id),
             input,
@@ -198,6 +235,7 @@ impl OneChat {
             attachment_load_id: None,
         });
         self.navigation.pending_focus = Some(PendingFocus::MessageEditor);
+        self.jump_to_message_editor(cx);
         cx.notify();
     }
 
@@ -209,14 +247,14 @@ impl OneChat {
     }
 
     pub(crate) fn save_user_edit(&mut self, turn_id: String, cx: &mut Context<Self>) {
+        if !self.can_save_user_edit(&turn_id, cx) {
+            return;
+        }
         let Some(editor) = self.chat.message_editor.as_ref().filter(
             |editor| matches!(&editor.target, MessageEditorTarget::User(id) if id == &turn_id),
         ) else {
             return;
         };
-        if editor.attachment_load_id.is_some() {
-            return;
-        }
         let content = editor.input.read(cx).value().trim().to_string();
         let retained_attachments = editor.attachments.clone();
         let attachment_drafts = editor.attachment_drafts.clone();
@@ -230,18 +268,6 @@ impl OneChat {
         else {
             return;
         };
-        if content.is_empty() && retained_attachments.is_empty() && attachment_drafts.is_empty() {
-            self.data.error = Some("User messages cannot be empty.".into());
-            cx.notify();
-            return;
-        }
-        if content == turn.user.content
-            && retained_attachments == turn.user.attachments
-            && attachment_drafts.is_empty()
-        {
-            self.cancel_message_edit(cx);
-            return;
-        }
         let (conversation, provider, model) = match self.generation_target(None) {
             Ok(target) => target,
             Err(error) => {
@@ -333,6 +359,9 @@ impl OneChat {
     }
 
     pub(crate) fn save_assistant_edit(&mut self, response_id: String, cx: &mut Context<Self>) {
+        if !self.can_save_assistant_edit(&response_id, cx) {
+            return;
+        }
         let Some(editor) = self.chat.message_editor.as_ref().filter(|editor| {
             matches!(&editor.target, MessageEditorTarget::Assistant(id) if id == &response_id)
         }) else {

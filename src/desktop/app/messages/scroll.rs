@@ -1,9 +1,39 @@
 use gpui::{Context, ScrollWheelEvent, Window, px};
 
-use super::super::OneChat;
+use super::super::{MessageEditorTarget, OneChat, SystemPromptMode};
 use crate::desktop::ui::stream::follow_after_scroll;
 
 impl OneChat {
+    fn message_editor_item(&self) -> Option<usize> {
+        let target = &self.chat.message_editor.as_ref()?.target;
+        let has_system_prompt = self
+            .current_conversation()
+            .is_some_and(|conversation| !conversation.system_prompt.trim().is_empty())
+            || self.chat.system_prompt_mode == SystemPromptMode::Editing;
+        let mut item = usize::from(has_system_prompt);
+
+        for turn in self.current_turns() {
+            if matches!(target, MessageEditorTarget::User(id) if id == &turn.id) {
+                return Some(item);
+            }
+            item += 1;
+
+            if let Some(response) = self.visible_response(turn) {
+                if matches!(target, MessageEditorTarget::Assistant(id) if id == &response.id) {
+                    return Some(item);
+                }
+                item += 1;
+            }
+        }
+        None
+    }
+
+    pub(crate) fn jump_to_message_editor(&mut self, cx: &mut Context<Self>) {
+        if let Some(item) = self.message_editor_item() {
+            self.jump_to_timeline_item(item, cx);
+        }
+    }
+
     pub(crate) fn on_message_scroll(
         &mut self,
         event: &ScrollWheelEvent,
