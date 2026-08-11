@@ -7,8 +7,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::domain::{
-    AutoTitleState, Conversation, MessageStatus, RequestInfo, Turn, active_turns, new_id,
-    now_timestamp,
+    AutoTitleState, Conversation, RequestInfo, Turn, active_turns, new_id, now_timestamp,
 };
 
 use super::{
@@ -44,16 +43,16 @@ impl Storage {
     }
 
     pub fn update_conversation(&self, conversation: &Conversation) -> Result<()> {
-        let _guard = self.lock()?;
-        let mut file = self.read_conversation(&conversation.id)?;
-        let title = file.conversation.title.clone();
-        let auto_title_state = file.conversation.auto_title_state;
-        let updated_at = file.conversation.updated_at.max(conversation.updated_at);
-        file.conversation = conversation.clone();
-        file.conversation.title = title;
-        file.conversation.auto_title_state = auto_title_state;
-        file.conversation.updated_at = updated_at;
-        self.write_conversation(&file)
+        self.edit_conversation(&conversation.id, |file| {
+            let title = file.conversation.title.clone();
+            let auto_title_state = file.conversation.auto_title_state;
+            let updated_at = file.conversation.updated_at.max(conversation.updated_at);
+            file.conversation = conversation.clone();
+            file.conversation.title = title;
+            file.conversation.auto_title_state = auto_title_state;
+            file.conversation.updated_at = updated_at;
+            Ok(())
+        })
     }
 
     pub fn rename_conversation(&self, conversation_id: &str, title: &str) -> Result<()> {
@@ -63,12 +62,12 @@ impl Storage {
                 "conversation title cannot be empty".into(),
             ));
         }
-        let _guard = self.lock()?;
-        let mut file = self.read_conversation(conversation_id)?;
-        file.conversation.title = title.to_string();
-        file.conversation.auto_title_state = AutoTitleState::Finished;
-        file.conversation.updated_at = now_timestamp();
-        self.write_conversation(&file)
+        self.edit_conversation(conversation_id, |file| {
+            file.conversation.title = title.to_string();
+            file.conversation.auto_title_state = AutoTitleState::Finished;
+            file.conversation.updated_at = now_timestamp();
+            Ok(())
+        })
     }
 
     pub fn claim_auto_title(&self, conversation_id: &str) -> Result<bool> {
@@ -96,13 +95,8 @@ impl Storage {
         }
         let Some((user_message, assistant_response)) =
             active_turns(&file.turns).first().and_then(|turn| {
-                turn.continuation_response_id
-                    .as_deref()
-                    .and_then(|id| turn.response(id))
-                    .filter(|response| {
-                        response.status == MessageStatus::Completed
-                            && !response.content.trim().is_empty()
-                    })
+                turn.continuation_response()
+                    .filter(|response| !response.content.trim().is_empty())
                     .map(|response| (turn.user.content.clone(), response.content.clone()))
             })
         else {
@@ -189,49 +183,49 @@ impl Storage {
         turn_id: &str,
         response_id: &str,
     ) -> Result<()> {
-        let _guard = self.lock()?;
-        let mut file = self.read_conversation(conversation_id)?;
-        if !active_turns(&file.turns)
-            .iter()
-            .any(|turn| turn.id == turn_id)
-        {
-            return Err(StorageError::InvalidData(
-                "only an active turn can change context".into(),
-            ));
-        }
-        let turn = file
-            .turns
-            .iter_mut()
-            .find(|turn| turn.id == turn_id)
-            .ok_or_else(|| missing("turn", turn_id))?;
-        let response = turn
-            .response(response_id)
-            .ok_or_else(|| missing("response", response_id))?;
-        if response.status != MessageStatus::Completed || response.content.is_empty() {
-            return Err(StorageError::InvalidData(
-                "only a completed response can be used as context".into(),
-            ));
-        }
-        turn.continuation_response_id = Some(response_id.to_string());
-        self.write_conversation(&file)
+        self.edit_conversation(conversation_id, |file| {
+            if !active_turns(&file.turns)
+                .iter()
+                .any(|turn| turn.id == turn_id)
+            {
+                return Err(StorageError::InvalidData(
+                    "only an active turn can change context".into(),
+                ));
+            }
+            let turn = file
+                .turns
+                .iter_mut()
+                .find(|turn| turn.id == turn_id)
+                .ok_or_else(|| missing("turn", turn_id))?;
+            let response = turn
+                .response(response_id)
+                .ok_or_else(|| missing("response", response_id))?;
+            if !response.is_usable_as_context() {
+                return Err(StorageError::InvalidData(
+                    "only a completed response can be used as context".into(),
+                ));
+            }
+            turn.continuation_response_id = Some(response_id.to_string());
+            Ok(())
+        })
     }
 
     pub fn select_user_branch(&self, conversation_id: &str, turn_id: &str) -> Result<()> {
-        let _guard = self.lock()?;
-        let mut file = self.read_conversation(conversation_id)?;
-        let parent_response_id = file
-            .turns
-            .iter()
-            .find(|turn| turn.id == turn_id)
-            .ok_or_else(|| missing("turn", turn_id))?
-            .parent_response_id
-            .clone();
-        for turn in &mut file.turns {
-            if turn.parent_response_id == parent_response_id {
-                turn.selected = turn.id == turn_id;
+        self.edit_conversation(conversation_id, |file| {
+            let parent_response_id = file
+                .turns
+                .iter()
+                .find(|turn| turn.id == turn_id)
+                .ok_or_else(|| missing("turn", turn_id))?
+                .parent_response_id
+                .clone();
+            for turn in &mut file.turns {
+                if turn.parent_response_id == parent_response_id {
+                    turn.selected = turn.id == turn_id;
+                }
             }
-        }
-        self.write_conversation(&file)
+            Ok(())
+        })
     }
 
     pub(super) fn clear_conversation_models(&self, removed_models: &[String]) -> Result<()> {
@@ -250,6 +244,17 @@ impl Storage {
             }
         }
         Ok(())
+    }
+
+    fn edit_conversation(
+        &self,
+        conversation_id: &str,
+        edit: impl FnOnce(&mut ConversationFile) -> Result<()>,
+    ) -> Result<()> {
+        let _guard = self.lock()?;
+        let mut file = self.read_conversation(conversation_id)?;
+        edit(&mut file)?;
+        self.write_conversation(&file)
     }
 
     pub(super) fn read_conversations(&self) -> Result<Vec<ConversationFile>> {
@@ -367,8 +372,7 @@ fn fork_path(
     let Some((_, terminal_response)) = source_path.first() else {
         return Err(missing("response", response_id));
     };
-    if terminal_response.status != MessageStatus::Completed || terminal_response.content.is_empty()
-    {
+    if !terminal_response.is_usable_as_context() {
         return Err(StorageError::InvalidData(
             "only a completed response can be forked".into(),
         ));

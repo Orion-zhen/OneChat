@@ -145,13 +145,10 @@ impl OneChat {
         cx.notify();
 
         let manager = self.services.mcp.clone();
-        let (sender, receiver) = async_channel::bounded(1);
-        self.services.runtime.spawn(async move {
-            let _ = sender.send(manager.upsert_server(id, server).await).await;
-        });
-        cx.spawn(async move |this, cx| {
-            let result = receiver.recv().await;
-            let _ = this.update(cx, |this, cx| {
+        self.spawn_tokio(
+            async move { manager.upsert_server(id, server).await },
+            cx,
+            |this, result, cx| {
                 this.mcp.loading = false;
                 match result {
                     Ok(Ok(snapshot)) => {
@@ -165,9 +162,8 @@ impl OneChat {
                     }
                 }
                 cx.notify();
-            });
-        })
-        .detach();
+            },
+        );
     }
 
     pub(crate) fn import_mcp_servers(&mut self, cx: &mut Context<Self>) {
@@ -190,13 +186,10 @@ impl OneChat {
         cx.notify();
 
         let manager = self.services.mcp.clone();
-        let (sender, receiver) = async_channel::bounded(1);
-        self.services.runtime.spawn(async move {
-            let _ = sender.send(manager.import_servers(source).await).await;
-        });
-        cx.spawn(async move |this, cx| {
-            let result = receiver.recv().await;
-            let _ = this.update(cx, |this, cx| {
+        self.spawn_tokio(
+            async move { manager.import_servers(source).await },
+            cx,
+            |this, result, cx| {
                 this.mcp.loading = false;
                 match result {
                     Ok(Ok((_, snapshot))) => {
@@ -210,9 +203,8 @@ impl OneChat {
                     }
                 }
                 cx.notify();
-            });
-        })
-        .detach();
+            },
+        );
     }
 
     pub(crate) fn request_delete_mcp_server(
@@ -233,14 +225,11 @@ impl OneChat {
         cx.notify();
 
         let manager = self.services.mcp.clone();
-        let (sender, receiver) = async_channel::bounded(1);
         let delete_id = id.clone();
-        self.services.runtime.spawn(async move {
-            let _ = sender.send(manager.delete_server(delete_id).await).await;
-        });
-        cx.spawn(async move |this, cx| {
-            let result = receiver.recv().await;
-            let _ = this.update(cx, |this, cx| {
+        self.spawn_tokio(
+            async move { manager.delete_server(delete_id).await },
+            cx,
+            move |this, result, cx| {
                 this.mcp.loading = false;
                 match result {
                     Ok(Ok(snapshot)) => {
@@ -256,8 +245,7 @@ impl OneChat {
                     }
                 }
                 cx.notify();
-            });
-        })
-        .detach();
+            },
+        );
     }
 }

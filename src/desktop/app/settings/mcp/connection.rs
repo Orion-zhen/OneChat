@@ -10,22 +10,20 @@ impl OneChat {
         cx.notify();
 
         let manager = self.services.mcp.clone();
-        let (sender, receiver) = async_channel::bounded(1);
-        self.services.runtime.spawn(async move {
-            let snapshot = manager.reload().await;
-            let _ = sender.send(snapshot).await;
-        });
-        cx.spawn(async move |this, cx| {
-            let Ok(snapshot) = receiver.recv().await else {
-                return;
-            };
-            let _ = this.update(cx, |this, cx| {
-                this.mcp.snapshot = snapshot;
+        self.spawn_tokio(
+            async move { manager.reload().await },
+            cx,
+            |this, result, cx| {
                 this.mcp.loading = false;
+                match result {
+                    Ok(snapshot) => this.mcp.snapshot = snapshot,
+                    Err(_) => {
+                        this.settings_ui.mcp_error = Some("MCP reload task stopped".into());
+                    }
+                }
                 cx.notify();
-            });
-        })
-        .detach();
+            },
+        );
     }
 
     pub(crate) fn open_mcp_config(&mut self, cx: &mut Context<Self>) {
@@ -59,22 +57,18 @@ impl OneChat {
         cx.notify();
 
         let manager = self.services.mcp.clone();
-        let (url_sender, url_receiver) = async_channel::bounded(1);
-        let (result_sender, result_receiver) = async_channel::bounded(1);
+        let (url_sender, url_receiver) = async_channel::bounded::<String>(1);
         let auth_id = id.clone();
-        self.services.runtime.spawn(async move {
-            let result = manager.authorize_server(auth_id, url_sender).await;
-            let _ = result_sender.send(result).await;
-        });
         cx.spawn(async move |_, cx| {
             if let Ok(url) = url_receiver.recv().await {
                 cx.update(|cx| cx.open_url(&url));
             }
         })
         .detach();
-        cx.spawn(async move |this, cx| {
-            let result = result_receiver.recv().await;
-            let _ = this.update(cx, |this, cx| {
+        self.spawn_tokio(
+            async move { manager.authorize_server(auth_id, url_sender).await },
+            cx,
+            move |this, result, cx| {
                 let status = match result {
                     Ok(Ok(snapshot)) => {
                         this.mcp.snapshot = snapshot;
@@ -85,9 +79,8 @@ impl OneChat {
                 };
                 this.settings_ui.mcp_connection_tests.insert(id, status);
                 cx.notify();
-            });
-        })
-        .detach();
+            },
+        );
     }
 
     pub(crate) fn test_mcp_server(&mut self, id: String, cx: &mut Context<Self>) {
@@ -103,14 +96,11 @@ impl OneChat {
         cx.notify();
 
         let manager = self.services.mcp.clone();
-        let (sender, receiver) = async_channel::bounded(1);
         let test_id = id.clone();
-        self.services.runtime.spawn(async move {
-            let _ = sender.send(manager.test_server(test_id).await).await;
-        });
-        cx.spawn(async move |this, cx| {
-            let result = receiver.recv().await;
-            let _ = this.update(cx, |this, cx| {
+        self.spawn_tokio(
+            async move { manager.test_server(test_id).await },
+            cx,
+            move |this, result, cx| {
                 let status = match result {
                     Ok(Ok(())) => ConnectionTestStatus::Connected,
                     Ok(Err(error)) => ConnectionTestStatus::Failed(error.to_string()),
@@ -118,9 +108,8 @@ impl OneChat {
                 };
                 this.settings_ui.mcp_connection_tests.insert(id, status);
                 cx.notify();
-            });
-        })
-        .detach();
+            },
+        );
     }
 
     pub(crate) fn set_mcp_server_enabled(
@@ -137,16 +126,11 @@ impl OneChat {
         cx.notify();
 
         let manager = self.services.mcp.clone();
-        let (sender, receiver) = async_channel::bounded(1);
         let toggle_id = id.clone();
-        self.services.runtime.spawn(async move {
-            let _ = sender
-                .send(manager.set_server_enabled(toggle_id, enabled).await)
-                .await;
-        });
-        cx.spawn(async move |this, cx| {
-            let result = receiver.recv().await;
-            let _ = this.update(cx, |this, cx| {
+        self.spawn_tokio(
+            async move { manager.set_server_enabled(toggle_id, enabled).await },
+            cx,
+            move |this, result, cx| {
                 this.mcp.loading = false;
                 match result {
                     Ok(Ok(snapshot)) => {
@@ -159,9 +143,8 @@ impl OneChat {
                     }
                 }
                 cx.notify();
-            });
-        })
-        .detach();
+            },
+        );
     }
 
     pub(crate) fn set_mcp_tool_enabled(
@@ -179,19 +162,14 @@ impl OneChat {
         cx.notify();
 
         let manager = self.services.mcp.clone();
-        let (sender, receiver) = async_channel::bounded(1);
-        self.services.runtime.spawn(async move {
-            let _ = sender
-                .send(
-                    manager
-                        .set_tool_enabled(server_id, tool_name, enabled)
-                        .await,
-                )
-                .await;
-        });
-        cx.spawn(async move |this, cx| {
-            let result = receiver.recv().await;
-            let _ = this.update(cx, |this, cx| {
+        self.spawn_tokio(
+            async move {
+                manager
+                    .set_tool_enabled(server_id, tool_name, enabled)
+                    .await
+            },
+            cx,
+            |this, result, cx| {
                 this.mcp.loading = false;
                 match result {
                     Ok(Ok(snapshot)) => this.mcp.snapshot = snapshot,
@@ -201,8 +179,7 @@ impl OneChat {
                     }
                 }
                 cx.notify();
-            });
-        })
-        .detach();
+            },
+        );
     }
 }

@@ -106,55 +106,43 @@ pub(in crate::desktop::ui::settings) fn provider_form(
             .children(editor.headers.iter().enumerate().map(|(index, header)| {
                 let is_draft = index + 1 == editor.headers.len();
                 let add_disabled = header.name.read(cx).value().trim().is_empty();
-                let action = if is_draft {
-                    icon_action(
-                        "add-provider-header",
-                        AppIcon::Plus,
-                        IconTone::Accent,
-                        "Add custom header",
-                        cx,
-                    )
-                    .disabled(add_disabled)
-                    .on_click(
-                        cx.listener(|this, _, window, cx| this.add_provider_header(window, cx)),
-                    )
-                } else {
-                    icon_action(
-                        SharedString::from(format!("remove-provider-header-{index}")),
-                        AppIcon::Trash,
-                        IconTone::Danger,
-                        "Remove custom header",
-                        cx,
-                    )
-                    .on_click(
-                        cx.listener(move |this, _, _, cx| this.remove_provider_header(index, cx)),
-                    )
-                };
+                let action =
+                    if is_draft {
+                        Compact
+                            .icon_action(
+                                "add-provider-header",
+                                AppIcon::Plus,
+                                IconTone::Accent,
+                                "Add custom header",
+                                cx,
+                            )
+                            .disabled(add_disabled)
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.add_provider_header(window, cx)
+                            }))
+                    } else {
+                        Compact
+                            .icon_action(
+                                SharedString::from(format!("remove-provider-header-{index}")),
+                                AppIcon::Trash,
+                                IconTone::Danger,
+                                "Remove custom header",
+                                cx,
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.remove_provider_header(index, cx)
+                            }))
+                    };
                 div()
                     .w_full()
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(
-                        div()
-                            .w_full()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .min_w_0()
-                                    .flex_1()
-                                    .child(form_input(&header.name, "Custom header name")),
-                            )
-                            .child(
-                                div()
-                                    .min_w_0()
-                                    .flex_1()
-                                    .child(form_input(&header.value, "Custom header value")),
-                            )
-                            .child(action),
-                    )
+                    .child(key_value_input_row(
+                        form_input(&header.name, "Custom header name"),
+                        form_input(&header.value, "Custom header value"),
+                        action,
+                    ))
                     .children(
                         editor
                             .errors
@@ -219,40 +207,45 @@ pub(in crate::desktop::ui::settings) fn provider_form_actions(
         .items_center()
         .gap_2()
         .child(
-            icon_action(
-                "cancel-provider",
-                AppIcon::Close,
-                IconTone::Muted,
-                "Cancel editing (Esc)",
-                cx,
-            )
-            .disabled(editor.saving)
-            .on_click(cx.listener(|this, _, window, cx| this.cancel_provider_editor(window, cx))),
+            Compact
+                .icon_action(
+                    "cancel-provider",
+                    AppIcon::Close,
+                    IconTone::Muted,
+                    "Cancel editing (Esc)",
+                    cx,
+                )
+                .disabled(editor.saving)
+                .on_click(
+                    cx.listener(|this, _, window, cx| this.cancel_provider_editor(window, cx)),
+                ),
         )
         .child(
-            icon_action(
-                "test-provider-editor",
-                AppIcon::Plug,
-                IconTone::Accent,
-                "Test connection",
-                cx,
-            )
-            .loading(testing)
-            .disabled(busy)
-            .on_click(
-                cx.listener(|this, _, window, cx| this.test_provider_editor_connection(window, cx)),
-            ),
+            Compact
+                .icon_action(
+                    "test-provider-editor",
+                    AppIcon::Plug,
+                    IconTone::Accent,
+                    "Test connection",
+                    cx,
+                )
+                .loading(testing)
+                .disabled(busy)
+                .on_click(cx.listener(|this, _, window, cx| {
+                    this.test_provider_editor_connection(window, cx)
+                })),
         )
         .child(
-            primary_icon_action(
-                "save-provider",
-                AppIcon::Save,
-                provider_save_tooltip(editor.is_new()),
-                cx,
-            )
-            .loading(editor.saving)
-            .disabled(busy || !editor.is_dirty(cx))
-            .on_click(cx.listener(|this, _, window, cx| this.save_provider(window, cx))),
+            Compact
+                .primary_icon_action(
+                    "save-provider",
+                    AppIcon::Save,
+                    provider_save_tooltip(editor.is_new()),
+                    cx,
+                )
+                .loading(editor.saving)
+                .disabled(busy || !editor.is_dirty(cx))
+                .on_click(cx.listener(|this, _, window, cx| this.save_provider(window, cx))),
         )
         .into_any_element()
 }

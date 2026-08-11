@@ -9,21 +9,17 @@ struct ReasoningPickerItem {
 
 #[derive(Clone)]
 pub(crate) struct ReasoningPickerDelegate {
-    all: Vec<ReasoningPickerItem>,
-    filtered: Vec<ReasoningPickerItem>,
-    selected: Option<IndexPath>,
+    state: FlatPickerState<ReasoningPickerItem>,
 }
 
 impl ReasoningPickerDelegate {
     pub(super) fn row_count(&self) -> usize {
-        self.filtered.len()
+        self.state.len()
     }
 
     pub(crate) fn empty() -> Self {
         Self {
-            all: Vec::new(),
-            filtered: Vec::new(),
-            selected: None,
+            state: FlatPickerState::empty(),
         }
     }
 
@@ -54,42 +50,26 @@ impl ReasoningPickerDelegate {
                 title,
             })
             .collect::<Vec<_>>();
-        let selected = all
-            .iter()
-            .position(|item| item.selected)
-            .map(IndexPath::new)
-            .or((!all.is_empty()).then(IndexPath::default));
         Self {
-            filtered: all.clone(),
-            all,
-            selected,
+            state: FlatPickerState::new(all, |item| item.selected),
         }
     }
 
     fn filter(&mut self, query: &str) {
         let query = query.trim().to_ascii_lowercase();
-        self.filtered = self
-            .all
-            .iter()
-            .filter(|item| {
-                query.is_empty()
-                    || item.title.to_ascii_lowercase().contains(&query)
-                    || item.id.to_ascii_lowercase().contains(&query)
-            })
-            .cloned()
-            .collect();
+        self.state.filter(|item| {
+            query.is_empty()
+                || item.title.to_ascii_lowercase().contains(&query)
+                || item.id.to_ascii_lowercase().contains(&query)
+        });
     }
 
     pub(crate) fn initial_selection(&self) -> Option<IndexPath> {
-        self.filtered
-            .iter()
-            .position(|item| item.selected)
-            .map(IndexPath::new)
-            .or((!self.filtered.is_empty()).then(IndexPath::default))
+        self.state.initial_selection()
     }
 
     pub(crate) fn selected_id(&self, index: IndexPath) -> Option<String> {
-        self.filtered.get(index.row).map(|item| item.id.clone())
+        self.state.get(index).map(|item| item.id.clone())
     }
 }
 
@@ -97,7 +77,7 @@ impl ListDelegate for ReasoningPickerDelegate {
     type Item = ListItem;
 
     fn items_count(&self, _: usize, _: &App) -> usize {
-        self.filtered.len()
+        self.state.len()
     }
 
     fn perform_search(
@@ -116,7 +96,7 @@ impl ListDelegate for ReasoningPickerDelegate {
         _: &mut Window,
         cx: &mut Context<ListState<Self>>,
     ) {
-        self.selected = index;
+        self.state.set_selected(index);
         cx.notify();
     }
 
@@ -126,10 +106,10 @@ impl ListDelegate for ReasoningPickerDelegate {
         _: &mut Window,
         cx: &mut Context<ListState<Self>>,
     ) -> Option<Self::Item> {
-        let item = self.filtered.get(index.row)?;
+        let item = self.state.get(index)?;
         Some(
             ListItem::new(SharedString::from(format!("pick-reasoning-{}", item.id)))
-                .selected(self.selected == Some(index))
+                .selected(self.state.selected() == Some(index))
                 .h(px(52.0))
                 .my_0p5()
                 .rounded(px(12.0))
@@ -152,21 +132,7 @@ impl ListDelegate for ReasoningPickerDelegate {
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .child(item.title.clone()),
                         )
-                        .children(item.selected.then(|| {
-                            div()
-                                .flex_none()
-                                .size(px(28.0))
-                                .rounded_full()
-                                .bg(cx.theme().accent)
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .child(
-                                    Icon::new(IconName::Check)
-                                        .size(px(16.0))
-                                        .text_color(cx.theme().primary),
-                                )
-                        })),
+                        .children(item.selected.then(|| selected_check_badge(cx))),
                 ),
         )
     }

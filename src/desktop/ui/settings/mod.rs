@@ -59,8 +59,14 @@ use gpui_component::{
 };
 
 use super::{
+    badges::{StatusPillBackground, status_pill},
+    controls::sync_slider,
     copy_button::CopyButton,
-    icons::{AppIcon, IconTone, render_icon},
+    icons::{AppIcon, IconActionSize::Compact, IconTone, render_icon},
+    input::multiline as multiline_input,
+    mcp::tool_row as mcp_tool_row,
+    model::capability_summary as model_capability_summary,
+    text::summary as text_summary,
 };
 use crate::{
     desktop::app::{ConnectionTestStatus, DefaultModelRole, FontRole, OneChat},
@@ -78,39 +84,6 @@ use crate::{
     },
     providers::AvailableModel,
 };
-
-fn icon_action(
-    id: impl Into<ElementId>,
-    icon: AppIcon,
-    tone: IconTone,
-    tooltip: &'static str,
-    cx: &App,
-) -> Button {
-    Button::new(id)
-        .ghost()
-        .tooltip(tooltip)
-        .size(px(30.0))
-        .p_0()
-        .child(render_icon(icon, tone, 16.0, cx))
-}
-
-fn primary_icon_action(
-    id: impl Into<ElementId>,
-    icon: AppIcon,
-    tooltip: &'static str,
-    cx: &App,
-) -> Button {
-    icon_action(id, icon, IconTone::OnAccent, tooltip, cx).primary()
-}
-
-fn danger_icon_action(
-    id: impl Into<ElementId>,
-    icon: AppIcon,
-    tooltip: &'static str,
-    cx: &App,
-) -> Button {
-    icon_action(id, icon, IconTone::OnAccent, tooltip, cx).danger()
-}
 
 pub(crate) fn render(app: &OneChat, sidebar_width: f32, cx: &mut Context<OneChat>) -> AnyElement {
     let detail = match &app.settings_ui.section {
@@ -332,43 +305,9 @@ fn error_banner(error: &str) -> AnyElement {
     Alert::error("settings-form-error", error.to_string()).into_any_element()
 }
 
-fn prompt_preview(prompt: &str) -> String {
-    const MAX_CHARACTERS: usize = 420;
-    let prompt = prompt.split_whitespace().collect::<Vec<_>>().join(" ");
-    let mut characters = prompt.chars();
-    let preview = characters.by_ref().take(MAX_CHARACTERS).collect::<String>();
-    if characters.next().is_some() {
-        format!("{preview}…")
-    } else {
-        preview
-    }
-}
-
 fn nonempty(value: &str) -> Option<String> {
     let value = value.trim();
     (!value.is_empty()).then(|| value.to_string())
-}
-
-fn status_pill(label: impl Into<SharedString>, accent: bool, cx: &App) -> AnyElement {
-    div()
-        .flex_none()
-        .rounded_full()
-        .bg(if accent {
-            cx.theme().accent
-        } else {
-            cx.theme().muted
-        })
-        .px_2()
-        .py_1()
-        .text_size(px(10.0))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(if accent {
-            cx.theme().primary
-        } else {
-            cx.theme().muted_foreground
-        })
-        .child(label.into())
-        .into_any_element()
 }
 
 fn stretching_column() -> Div {

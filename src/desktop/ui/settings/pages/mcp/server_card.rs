@@ -95,8 +95,13 @@ pub(super) fn mcp_server_card(
                                 .flex()
                                 .items_center()
                                 .gap_2()
-                                .child(status_pill(tool_label, false, cx))
-                                .child(status_pill(status, accent, cx))
+                                .child(status_pill(
+                                    tool_label,
+                                    false,
+                                    StatusPillBackground::Muted,
+                                    cx,
+                                ))
+                                .child(status_pill(status, accent, StatusPillBackground::Muted, cx))
                                 .child(
                                     Switch::new(SharedString::from(format!(
                                         "toggle-mcp-server-{}",
@@ -122,112 +127,107 @@ pub(super) fn mcp_server_card(
                                 .items_center()
                                 .gap_0()
                                 .children(server.interactive_oauth.then(|| {
-                                    icon_action(
-                                        SharedString::from(format!(
-                                            "authenticate-mcp-server-{}",
-                                            server.id
-                                        )),
-                                        AppIcon::Key,
-                                        IconTone::Muted,
-                                        "Authenticate MCP server",
-                                        cx,
-                                    )
-                                    .size(px(24.0))
-                                    .loading(testing)
-                                    .disabled(testing || app.mcp.loading)
-                                    .on_click(cx.listener(
-                                        move |this, _, _, cx| {
+                                    Compact
+                                        .icon_action(
+                                            SharedString::from(format!(
+                                                "authenticate-mcp-server-{}",
+                                                server.id
+                                            )),
+                                            AppIcon::Key,
+                                            IconTone::Muted,
+                                            "Authenticate MCP server",
+                                            cx,
+                                        )
+                                        .size(px(24.0))
+                                        .loading(testing)
+                                        .disabled(testing || app.mcp.loading)
+                                        .on_click(cx.listener(move |this, _, _, cx| {
                                             this.authenticate_mcp_server(auth_id.clone(), cx)
-                                        },
-                                    ))
+                                        }))
                                 }))
                                 .child(
-                                    icon_action(
-                                        SharedString::from(format!(
-                                            "test-mcp-server-{}",
-                                            server.id
-                                        )),
-                                        AppIcon::Plug,
-                                        IconTone::Muted,
-                                        "Test MCP server",
-                                        cx,
-                                    )
-                                    .size(px(24.0))
-                                    .loading(testing)
-                                    .disabled(testing || app.mcp.loading)
-                                    .on_click(cx.listener(
-                                        move |this, _, _, cx| {
+                                    Compact
+                                        .icon_action(
+                                            SharedString::from(format!(
+                                                "test-mcp-server-{}",
+                                                server.id
+                                            )),
+                                            AppIcon::Plug,
+                                            IconTone::Muted,
+                                            "Test MCP server",
+                                            cx,
+                                        )
+                                        .size(px(24.0))
+                                        .loading(testing)
+                                        .disabled(testing || app.mcp.loading)
+                                        .on_click(cx.listener(move |this, _, _, cx| {
                                             this.test_mcp_server(test_id.clone(), cx)
-                                        },
-                                    )),
+                                        })),
                                 )
                                 .child(
-                                    icon_action(
-                                        SharedString::from(format!(
-                                            "edit-mcp-server-{}",
-                                            server.id
-                                        )),
-                                        AppIcon::Pencil,
-                                        IconTone::Muted,
-                                        "Edit MCP server",
-                                        cx,
-                                    )
-                                    .size(px(24.0))
-                                    .disabled(app.mcp.loading)
-                                    .on_click(cx.listener(
-                                        move |this, _, window, cx| {
+                                    Compact
+                                        .icon_action(
+                                            SharedString::from(format!(
+                                                "edit-mcp-server-{}",
+                                                server.id
+                                            )),
+                                            AppIcon::Pencil,
+                                            IconTone::Muted,
+                                            "Edit MCP server",
+                                            cx,
+                                        )
+                                        .size(px(24.0))
+                                        .disabled(app.mcp.loading)
+                                        .on_click(cx.listener(move |this, _, window, cx| {
                                             this.begin_edit_mcp_server(edit_id.clone(), window, cx)
-                                        },
-                                    )),
+                                        })),
                                 )
                                 .child(
-                                    icon_action(
-                                        SharedString::from(format!(
-                                            "delete-mcp-server-{}",
-                                            server.id
-                                        )),
-                                        AppIcon::Trash,
-                                        IconTone::Danger,
-                                        "Delete MCP server",
-                                        cx,
-                                    )
-                                    .size(px(24.0))
-                                    .disabled(app.mcp.loading)
-                                    .on_click(cx.listener(
-                                        move |this, _, window, cx| {
+                                    Compact
+                                        .icon_action(
+                                            SharedString::from(format!(
+                                                "delete-mcp-server-{}",
+                                                server.id
+                                            )),
+                                            AppIcon::Trash,
+                                            IconTone::Danger,
+                                            "Delete MCP server",
+                                            cx,
+                                        )
+                                        .size(px(24.0))
+                                        .disabled(app.mcp.loading)
+                                        .on_click(cx.listener(move |this, _, window, cx| {
                                             this.request_delete_mcp_server(
                                                 delete_id.clone(),
                                                 window,
                                                 cx,
                                             )
-                                        },
-                                    )),
+                                        })),
                                 )
                                 .child(
-                                    icon_action(
-                                        SharedString::from(format!(
-                                            "expand-mcp-server-{}",
-                                            server.id
-                                        )),
-                                        if expanded {
-                                            AppIcon::ChevronUp
-                                        } else {
-                                            AppIcon::ChevronDown
-                                        },
-                                        IconTone::Muted,
-                                        if expanded {
-                                            "Collapse MCP server"
-                                        } else {
-                                            "Expand MCP server"
-                                        },
-                                        cx,
-                                    )
-                                    .size(px(24.0))
-                                    .on_click(cx.listener(
-                                        move |this, _, _, cx| {
+                                    Compact
+                                        .icon_action(
+                                            SharedString::from(format!(
+                                                "expand-mcp-server-{}",
+                                                server.id
+                                            )),
+                                            if expanded {
+                                                AppIcon::ChevronUp
+                                            } else {
+                                                AppIcon::ChevronDown
+                                            },
+                                            IconTone::Muted,
+                                            if expanded {
+                                                "Collapse MCP server"
+                                            } else {
+                                                "Expand MCP server"
+                                            },
+                                            cx,
+                                        )
+                                        .size(px(24.0))
+                                        .on_click(cx.listener(move |this, _, _, cx| {
                                             this.toggle_mcp_server_expanded(expand_id.clone(), cx)
-                                        },
-                                    )),
+                                        })),
                                 ),
                         ),
                 ),
@@ -270,6 +270,7 @@ pub(super) fn mcp_executable_row(name: &str, path: &str, available: bool, cx: &A
         .child(status_pill(
             if available { "Available" } else { "Missing" },
             available,
+            StatusPillBackground::Muted,
             cx,
         ))
         .into_any_element()

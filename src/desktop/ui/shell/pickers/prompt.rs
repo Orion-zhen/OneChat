@@ -11,21 +11,17 @@ struct PromptPickerItem {
 
 #[derive(Clone)]
 pub(crate) struct PromptPickerDelegate {
-    all: Vec<PromptPickerItem>,
-    filtered: Vec<PromptPickerItem>,
-    selected: Option<IndexPath>,
+    state: FlatPickerState<PromptPickerItem>,
 }
 
 impl PromptPickerDelegate {
     pub(super) fn row_count(&self) -> usize {
-        self.filtered.len()
+        self.state.len()
     }
 
     pub(crate) fn empty() -> Self {
         Self {
-            all: Vec::new(),
-            filtered: Vec::new(),
-            selected: None,
+            state: FlatPickerState::empty(),
         }
     }
 
@@ -50,48 +46,32 @@ impl PromptPickerDelegate {
                 .map(|preset| PromptPickerItem {
                     name: Some(preset.name.clone()),
                     title: preset.name.clone(),
-                    excerpt: prompt_excerpt(&preset.content),
+                    excerpt: text_summary(&preset.content, 100, Some("Empty prompt")),
                     selected: !none_selected && preset.content == current_prompt,
                     default: app.settings().default_system_prompt_preset.as_deref()
                         == Some(preset.name.as_str()),
                 }),
         );
-        let selected = all
-            .iter()
-            .position(|item| item.selected)
-            .map(IndexPath::new)
-            .or(Some(IndexPath::default()));
         Self {
-            filtered: all.clone(),
-            all,
-            selected,
+            state: FlatPickerState::new(all, |item| item.selected),
         }
     }
 
     fn filter(&mut self, query: &str) {
         let query = query.trim().to_lowercase();
-        self.filtered = self
-            .all
-            .iter()
-            .filter(|item| {
-                query.is_empty()
-                    || item.title.to_lowercase().contains(&query)
-                    || item.excerpt.to_lowercase().contains(&query)
-            })
-            .cloned()
-            .collect();
+        self.state.filter(|item| {
+            query.is_empty()
+                || item.title.to_lowercase().contains(&query)
+                || item.excerpt.to_lowercase().contains(&query)
+        });
     }
 
     pub(crate) fn initial_selection(&self) -> Option<IndexPath> {
-        self.filtered
-            .iter()
-            .position(|item| item.selected)
-            .map(IndexPath::new)
-            .or((!self.filtered.is_empty()).then(IndexPath::default))
+        self.state.initial_selection()
     }
 
     pub(crate) fn selected_name(&self, index: IndexPath) -> Option<Option<String>> {
-        self.filtered.get(index.row).map(|item| item.name.clone())
+        self.state.get(index).map(|item| item.name.clone())
     }
 }
 
@@ -99,7 +79,7 @@ impl ListDelegate for PromptPickerDelegate {
     type Item = ListItem;
 
     fn items_count(&self, _: usize, _: &App) -> usize {
-        self.filtered.len()
+        self.state.len()
     }
 
     fn perform_search(
@@ -118,7 +98,7 @@ impl ListDelegate for PromptPickerDelegate {
         _: &mut Window,
         cx: &mut Context<ListState<Self>>,
     ) {
-        self.selected = index;
+        self.state.set_selected(index);
         cx.notify();
     }
 
@@ -128,13 +108,13 @@ impl ListDelegate for PromptPickerDelegate {
         _: &mut Window,
         cx: &mut Context<ListState<Self>>,
     ) -> Option<Self::Item> {
-        let item = self.filtered.get(index.row)?;
+        let item = self.state.get(index)?;
         Some(
             ListItem::new(SharedString::from(format!(
                 "pick-prompt-{}",
                 item.name.as_deref().unwrap_or("none")
             )))
-            .selected(self.selected == Some(index))
+            .selected(self.state.selected() == Some(index))
             .h(px(68.0))
             .my_0p5()
             .rounded(px(12.0))
@@ -186,21 +166,7 @@ impl ListDelegate for PromptPickerDelegate {
                                     .child(item.excerpt.clone()),
                             ),
                     )
-                    .children(item.selected.then(|| {
-                        div()
-                            .flex_none()
-                            .size(px(28.0))
-                            .rounded_full()
-                            .bg(cx.theme().accent)
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .child(
-                                Icon::new(IconName::Check)
-                                    .size(px(16.0))
-                                    .text_color(cx.theme().primary),
-                            )
-                    })),
+                    .children(item.selected.then(|| selected_check_badge(cx))),
             ),
         )
     }

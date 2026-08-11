@@ -5,10 +5,10 @@ use crate::domain::{
     RequestError, RequestInfo, RequestStatus, now_timestamp,
 };
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct EventOutcome {
     pub terminal: bool,
-    pub thinking_finished: bool,
+    pub finished_reasoning_id: Option<String>,
 }
 
 pub fn apply_event(
@@ -17,6 +17,7 @@ pub fn apply_event(
     request: &mut RequestInfo,
     elapsed: Duration,
 ) -> EventOutcome {
+    let elapsed_ms = elapsed.as_millis() as u64;
     match event {
         GenerationEvent::Started => {
             request.status = RequestStatus::Streaming;
@@ -24,29 +25,53 @@ pub fn apply_event(
         }
         GenerationEvent::TextDelta(delta) => {
             mark_first_token(request, elapsed);
-            let thinking_finished = !delta.is_empty()
-                && assistant.content.is_empty()
-                && !assistant.thinking.is_empty()
-                && finish_thinking(assistant, request, elapsed);
-            assistant.content.push_str(&delta);
+            let finished_reasoning_id = (!delta.is_empty())
+                .then(|| assistant.append_output(&delta, elapsed_ms))
+                .flatten();
+            record_thinking_duration(request, elapsed, finished_reasoning_id.is_some());
             assistant.updated_at = now_timestamp();
             EventOutcome {
-                thinking_finished,
+                finished_reasoning_id,
                 ..EventOutcome::default()
             }
         }
-        GenerationEvent::ThinkingDelta(delta) => {
+        GenerationEvent::ThinkingDelta { provider_id, delta } => {
             mark_first_token(request, elapsed);
-            assistant.thinking.push_str(&delta);
+            let finished_reasoning_id = (!delta.is_empty())
+                .then(|| assistant.append_reasoning(provider_id, &delta, elapsed_ms))
+                .flatten();
+            record_thinking_duration(request, elapsed, finished_reasoning_id.is_some());
             assistant.updated_at = now_timestamp();
-            EventOutcome::default()
+            EventOutcome {
+                finished_reasoning_id,
+                ..EventOutcome::default()
+            }
+        }
+        GenerationEvent::ToolCallObserved {
+            internal_call_id,
+            provider_tool_call_id,
+        } => {
+            mark_first_token(request, elapsed);
+            let finished_reasoning_id =
+                assistant.observe_tool_call(internal_call_id, provider_tool_call_id, elapsed_ms);
+            record_thinking_duration(request, elapsed, finished_reasoning_id.is_some());
+            assistant.updated_at = now_timestamp();
+            EventOutcome {
+                finished_reasoning_id,
+                ..EventOutcome::default()
+            }
         }
         GenerationEvent::StepStarted {
             estimated_input_tokens,
         } => {
+            let finished_reasoning_id = assistant.finish_reasoning(elapsed_ms);
+            record_thinking_duration(request, elapsed, finished_reasoning_id.is_some());
             request.last_step_input_tokens = None;
             request.last_step_estimated_input_tokens = Some(estimated_input_tokens);
-            EventOutcome::default()
+            EventOutcome {
+                finished_reasoning_id,
+                ..EventOutcome::default()
+            }
         }
         GenerationEvent::UsageUpdated(usage) => {
             request.last_step_input_tokens = usage.input_tokens;
@@ -60,20 +85,9 @@ pub fn apply_event(
             }
             EventOutcome::default()
         }
-        GenerationEvent::ProviderOutput => {
-            mark_first_token(request, elapsed);
-            EventOutcome::default()
-        }
         GenerationEvent::ToolExecutionUpdated(execution) => {
-            if let Some(stored) = assistant
-                .tool_executions
-                .iter_mut()
-                .find(|stored| stored.id == execution.id)
-            {
-                *stored = *execution;
-            } else {
-                assistant.tool_executions.push(*execution);
-            }
+            let finished_reasoning_id = assistant.upsert_tool_execution(*execution, elapsed_ms);
+            record_thinking_duration(request, elapsed, finished_reasoning_id.is_some());
             request.tool_call_count = assistant.tool_executions.len() as u64;
             request.tool_duration_ms = assistant
                 .tool_executions
@@ -82,7 +96,10 @@ pub fn apply_event(
                 .reduce(u64::saturating_add);
             request.status = RequestStatus::Streaming;
             assistant.updated_at = now_timestamp();
-            EventOutcome::default()
+            EventOutcome {
+                finished_reasoning_id,
+                ..EventOutcome::default()
+            }
         }
         GenerationEvent::TranscriptAppended(message) => {
             if matches!(message.as_ref(), crate::domain::Message::Assistant { .. }) {
@@ -93,17 +110,19 @@ pub fn apply_event(
             EventOutcome::default()
         }
         GenerationEvent::Completed => {
-            let thinking_finished = finish_thinking(assistant, request, elapsed);
+            let finished_reasoning_id = assistant.finish_reasoning(elapsed_ms);
+            record_thinking_duration(request, elapsed, finished_reasoning_id.is_some());
             estimate_output_usage(assistant, request);
             assistant.status = MessageStatus::Completed;
             finish_request(request, RequestStatus::Completed, elapsed);
             EventOutcome {
                 terminal: true,
-                thinking_finished,
+                finished_reasoning_id,
             }
         }
         GenerationEvent::Failed(error) => {
-            let thinking_finished = finish_thinking(assistant, request, elapsed);
+            let finished_reasoning_id = assistant.finish_reasoning(elapsed_ms);
+            record_thinking_duration(request, elapsed, finished_reasoning_id.is_some());
             estimate_output_usage(assistant, request);
             let cancelled = error.kind == GenerationErrorKind::UserCancelled;
             assistant.status = if cancelled {
@@ -123,7 +142,7 @@ pub fn apply_event(
             );
             EventOutcome {
                 terminal: true,
-                thinking_finished,
+                finished_reasoning_id,
             }
         }
     }
@@ -151,16 +170,14 @@ fn mark_first_token(request: &mut RequestInfo, elapsed: Duration) {
     request.status = RequestStatus::Streaming;
 }
 
-fn finish_thinking(
-    assistant: &AssistantResponse,
+fn record_thinking_duration(
     request: &mut RequestInfo,
     elapsed: Duration,
-) -> bool {
-    if assistant.thinking.is_empty() || request.thinking_duration_ms.is_some() {
-        return false;
+    reasoning_finished: bool,
+) {
+    if reasoning_finished && request.thinking_duration_ms.is_none() {
+        request.thinking_duration_ms = Some(elapsed.as_millis() as u64);
     }
-    request.thinking_duration_ms = Some(elapsed.as_millis() as u64);
-    true
 }
 
 fn finish_request(request: &mut RequestInfo, status: RequestStatus, elapsed: Duration) {

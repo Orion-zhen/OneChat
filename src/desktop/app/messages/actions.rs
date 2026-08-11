@@ -1,11 +1,14 @@
 use gpui::{App, Context, Entity, Window, prelude::*};
 use gpui_component::input::{InputEvent, InputState};
 
-use super::super::{MessageEditor, MessageEditorTarget, OneChat, PendingFocus, multiline_input};
+use super::super::{
+    AssistantOutputEditor, MessageEditor, MessageEditorTarget, OneChat, PendingFocus,
+    multiline_input,
+};
 use crate::{
-    application::generation::{ContextPolicy, PreparedGeneration},
+    application::generation::PreparedGeneration,
     desktop::ui::inspector::InspectorTab,
-    domain::{AssistantResponse, MessageStatus, Turn, new_id, now_timestamp},
+    domain::{AssistantBlock, AssistantResponse, Turn, new_id, now_timestamp},
 };
 
 const ASSISTANT_EDITOR_MAX_ROWS: usize = 24;
@@ -59,7 +62,7 @@ impl OneChat {
         else {
             return;
         };
-        if response.status != MessageStatus::Completed || response.content.is_empty() {
+        if !response.is_usable_as_context() {
             return;
         }
         let Some(source) = self.current_conversation().cloned() else {
@@ -106,14 +109,10 @@ impl OneChat {
     pub(crate) fn assistant_message_editor(
         &self,
         response: &AssistantResponse,
-    ) -> Option<Entity<InputState>> {
-        self.chat
-            .message_editor
-            .as_ref()
-            .filter(|editor| {
-                matches!(&editor.target, MessageEditorTarget::Assistant(id) if id == &response.id)
-            })
-            .map(|editor| editor.input.clone())
+    ) -> Option<&MessageEditor> {
+        self.chat.message_editor.as_ref().filter(|editor| {
+            matches!(&editor.target, MessageEditorTarget::Assistant(id) if id == &response.id)
+        })
     }
 
     pub(crate) fn active_message_editor(&self) -> Option<Entity<InputState>> {
@@ -154,8 +153,30 @@ impl OneChat {
         }) else {
             return false;
         };
-        self.response(response_id)
-            .is_some_and(|(_, response)| editor.input.read(cx).value() != response.content)
+        let Some((_, response)) = self.response(response_id) else {
+            return false;
+        };
+        let outputs = editor
+            .output_editors
+            .iter()
+            .map(|output| (output.block_id.as_str(), output.input.read(cx).value()))
+            .collect::<Vec<_>>();
+        let valid = outputs
+            .iter()
+            .any(|(_, content)| !content.trim().is_empty());
+        let changed = outputs.iter().any(|(block_id, content)| {
+            if response.blocks.is_empty() {
+                content.as_str() != response.content
+            } else {
+                response.blocks.iter().find_map(|block| match block {
+                    AssistantBlock::Output { id, content } if id == block_id => {
+                        Some(content.as_str())
+                    }
+                    _ => None,
+                }) != Some(content.as_str())
+            }
+        });
+        valid && changed
     }
 
     pub(crate) fn begin_edit_user(
@@ -190,6 +211,7 @@ impl OneChat {
         self.chat.message_editor = Some(MessageEditor {
             target: MessageEditorTarget::User(turn_id),
             input,
+            output_editors: Vec::new(),
             attachments,
             attachment_drafts: Vec::new(),
             attachment_previews: Default::default(),
@@ -215,20 +237,40 @@ impl OneChat {
         let Some((_, response)) = self.response(&response_id) else {
             return;
         };
-        let content = response.content.clone();
-        let input = cx.new(|cx| {
-            multiline_input(content, "Edit assistant response", window, cx)
-                .auto_grow(1, ASSISTANT_EDITOR_MAX_ROWS)
-        });
-        cx.subscribe_in(&input, window, |_, _, event: &InputEvent, _, cx| {
-            if matches!(event, InputEvent::Change) {
-                cx.notify();
-            }
-        })
-        .detach();
+        let outputs = if response.blocks.is_empty() {
+            vec![(response.id.clone(), response.content.clone())]
+        } else {
+            response
+                .blocks
+                .iter()
+                .filter_map(|block| match block {
+                    AssistantBlock::Output { id, content } => Some((id.clone(), content.clone())),
+                    _ => None,
+                })
+                .collect()
+        };
+        if outputs.is_empty() {
+            return;
+        }
+        let mut output_editors = Vec::with_capacity(outputs.len());
+        for (block_id, content) in outputs {
+            let input = cx.new(|cx| {
+                multiline_input(content, "Edit assistant output", window, cx)
+                    .auto_grow(1, ASSISTANT_EDITOR_MAX_ROWS)
+            });
+            cx.subscribe_in(&input, window, |_, _, event: &InputEvent, _, cx| {
+                if matches!(event, InputEvent::Change) {
+                    cx.notify();
+                }
+            })
+            .detach();
+            output_editors.push(AssistantOutputEditor { block_id, input });
+        }
+        let input = output_editors[0].input.clone();
         self.chat.message_editor = Some(MessageEditor {
             target: MessageEditorTarget::Assistant(response_id),
             input,
+            output_editors,
             attachments: Vec::new(),
             attachment_drafts: Vec::new(),
             attachment_previews: Default::default(),
@@ -289,7 +331,6 @@ impl OneChat {
             cx.notify();
             return;
         }
-        let history_limit = self.effective_history_limit(&conversation);
         let new_attachments = match self
             .services
             .storage
@@ -304,35 +345,30 @@ impl OneChat {
         };
         let mut attachments = retained_attachments;
         attachments.extend(new_attachments.clone());
-        let storage = self.services.storage.clone();
-        let conversation_id = conversation.id.clone();
-        let include_document_images = model.capabilities.vision;
-        let user_message = |user: &crate::domain::UserMessage| {
-            storage
-                .message_for_user(&conversation_id, user, include_document_images)
-                .map_err(|error| error.to_string())
-        };
-        let prepared = match PreparedGeneration::new(
-            &conversation,
-            &provider,
-            &model,
-            &self.data.snapshot.current_turns,
-            turn.parent_response_id,
-            crate::domain::UserMessage::new(content, attachments),
-            ContextPolicy::new(history_limit, &user_message),
-        ) {
-            Ok(prepared) => prepared,
-            Err(error) => {
-                let _ = self
-                    .services
-                    .storage
-                    .remove_attachments(&conversation.id, &new_attachments);
-                self.data.error = Some(format!("Could not load attachments: {error}"));
-                cx.notify();
-                return;
+        let prepared =
+            match self.prepare_with_storage_context(&conversation, &model, |context_policy| {
+                PreparedGeneration::new(
+                    &conversation,
+                    &provider,
+                    &model,
+                    &self.data.snapshot.current_turns,
+                    turn.parent_response_id,
+                    crate::domain::UserMessage::new(content, attachments),
+                    context_policy,
+                )
+            }) {
+                Ok(prepared) => prepared,
+                Err(error) => {
+                    let _ = self
+                        .services
+                        .storage
+                        .remove_attachments(&conversation.id, &new_attachments);
+                    self.data.error = Some(format!("Could not load attachments: {error}"));
+                    cx.notify();
+                    return;
+                }
             }
-        }
-        .with_new_attachments(new_attachments);
+            .with_new_attachments(new_attachments);
         self.stop_audio_playback();
         self.chat.message_editor = None;
         self.navigation.pending_focus = Some(PendingFocus::Composer);
@@ -367,7 +403,16 @@ impl OneChat {
         }) else {
             return;
         };
-        let content = editor.input.read(cx).value().to_string();
+        let outputs = editor
+            .output_editors
+            .iter()
+            .map(|output| {
+                (
+                    output.block_id.clone(),
+                    output.input.read(cx).value().to_string(),
+                )
+            })
+            .collect::<Vec<_>>();
         let Some((turn_id, mut response)) = self
             .response(&response_id)
             .map(|(turn, response)| (turn.id.clone(), response.clone()))
@@ -378,7 +423,7 @@ impl OneChat {
         else {
             return;
         };
-        response.replace_content(content);
+        response.replace_outputs(&outputs);
         response.updated_at = now_timestamp();
         self.chat.message_editor = None;
         self.navigation.pending_focus = Some(PendingFocus::Composer);

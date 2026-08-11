@@ -16,54 +16,54 @@ pub(super) struct SettingsFile {
 
 impl Storage {
     pub fn save_settings(&self, app: &AppSettings) -> Result<()> {
-        let _guard = self.lock()?;
-        let mut settings = self.read_settings()?;
-        settings.app = app.clone();
-        self.write_settings(&settings)
+        self.edit_settings(|settings| {
+            settings.app = app.clone();
+            Ok(())
+        })
     }
 
     pub fn insert_provider(&self, provider: &Provider) -> Result<()> {
-        let _guard = self.lock()?;
-        let mut settings = self.read_settings()?;
-        if settings.providers.iter().any(|item| item.id == provider.id) {
-            return Err(conflict("provider", &provider.id));
-        }
-        settings.providers.push(provider.clone());
-        self.write_settings(&settings)
+        self.edit_settings(|settings| {
+            if settings.providers.iter().any(|item| item.id == provider.id) {
+                return Err(conflict("provider", &provider.id));
+            }
+            settings.providers.push(provider.clone());
+            Ok(())
+        })
     }
 
     pub fn update_provider(&self, provider: &Provider) -> Result<()> {
-        let _guard = self.lock()?;
-        let mut settings = self.read_settings()?;
-        let stored = settings
-            .providers
-            .iter_mut()
-            .find(|item| item.id == provider.id)
-            .ok_or_else(|| missing("provider", &provider.id))?;
-        *stored = provider.clone();
-        self.write_settings(&settings)
+        self.edit_settings(|settings| {
+            let stored = settings
+                .providers
+                .iter_mut()
+                .find(|item| item.id == provider.id)
+                .ok_or_else(|| missing("provider", &provider.id))?;
+            *stored = provider.clone();
+            Ok(())
+        })
     }
 
     pub fn reorder_providers(&self, ordered_ids: &[String]) -> Result<()> {
-        let _guard = self.lock()?;
-        let mut settings = self.read_settings()?;
-        if ordered_ids.len() != settings.providers.len() {
-            return Err(StorageError::InvalidData(
-                "provider order does not match the configured providers".into(),
-            ));
-        }
+        self.edit_settings(|settings| {
+            if ordered_ids.len() != settings.providers.len() {
+                return Err(StorageError::InvalidData(
+                    "provider order does not match the configured providers".into(),
+                ));
+            }
 
-        let mut providers = Vec::with_capacity(ordered_ids.len());
-        for id in ordered_ids {
-            let index = settings
-                .providers
-                .iter()
-                .position(|provider| &provider.id == id)
-                .ok_or_else(|| missing("provider", id))?;
-            providers.push(settings.providers.remove(index));
-        }
-        settings.providers = providers;
-        self.write_settings(&settings)
+            let mut providers = Vec::with_capacity(ordered_ids.len());
+            for id in ordered_ids {
+                let index = settings
+                    .providers
+                    .iter()
+                    .position(|provider| &provider.id == id)
+                    .ok_or_else(|| missing("provider", id))?;
+                providers.push(settings.providers.remove(index));
+            }
+            settings.providers = providers;
+            Ok(())
+        })
     }
 
     pub fn delete_provider(&self, id: &str) -> Result<()> {
@@ -103,27 +103,27 @@ impl Storage {
     }
 
     pub fn insert_model(&self, model: &Model) -> Result<()> {
-        let _guard = self.lock()?;
-        let mut settings = self.read_settings()?;
-        validate_model(&settings, model, None)?;
-        settings.models.push(model.clone());
-        self.write_settings(&settings)
+        self.edit_settings(|settings| {
+            validate_model(settings, model, None)?;
+            settings.models.push(model.clone());
+            Ok(())
+        })
     }
 
     pub fn update_model(&self, model: &Model) -> Result<()> {
-        let _guard = self.lock()?;
-        let mut settings = self.read_settings()?;
-        if !settings.models.iter().any(|item| item.id == model.id) {
-            return Err(missing("model", &model.id));
-        }
-        validate_model(&settings, model, Some(&model.id))?;
-        let stored = settings
-            .models
-            .iter_mut()
-            .find(|item| item.id == model.id)
-            .expect("model existence was checked");
-        *stored = model.clone();
-        self.write_settings(&settings)
+        self.edit_settings(|settings| {
+            if !settings.models.iter().any(|item| item.id == model.id) {
+                return Err(missing("model", &model.id));
+            }
+            validate_model(settings, model, Some(&model.id))?;
+            let stored = settings
+                .models
+                .iter_mut()
+                .find(|item| item.id == model.id)
+                .expect("model existence was checked");
+            *stored = model.clone();
+            Ok(())
+        })
     }
 
     pub fn delete_model(&self, id: &str) -> Result<()> {
@@ -141,6 +141,13 @@ impl Storage {
             settings.app.title_generation_model_id = None;
         }
         self.clear_conversation_models(&[id.to_string()])?;
+        self.write_settings(&settings)
+    }
+
+    fn edit_settings(&self, edit: impl FnOnce(&mut SettingsFile) -> Result<()>) -> Result<()> {
+        let _guard = self.lock()?;
+        let mut settings = self.read_settings()?;
+        edit(&mut settings)?;
         self.write_settings(&settings)
     }
 

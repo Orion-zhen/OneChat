@@ -137,14 +137,10 @@ impl OneChat {
         self.settings_ui.model_fetch_revision =
             self.settings_ui.model_fetch_revision.wrapping_add(1);
         let revision = self.settings_ui.model_fetch_revision;
-        let (sender, receiver) = async_channel::bounded(1);
-        self.services.runtime.spawn(async move {
-            let result: Result<Vec<AvailableModel>, _> = providers::list_models(&provider).await;
-            let _ = sender.send(result).await;
-        });
-        cx.spawn(async move |this, cx| {
-            let result = receiver.recv().await;
-            let _ = this.update(cx, |this, cx| {
+        self.spawn_tokio(
+            async move { providers::list_models(&provider).await },
+            cx,
+            move |this, result, cx| {
                 if this.settings_ui.model_fetch_revision != revision {
                     return;
                 }
@@ -180,9 +176,8 @@ impl OneChat {
                     Err(_) => editor.fail_fetch("Model discovery task stopped".into()),
                 }
                 cx.notify();
-            });
-        })
-        .detach();
+            },
+        );
         cx.notify();
     }
 

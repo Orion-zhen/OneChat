@@ -1,5 +1,8 @@
-use gpui::{AnyElement, App, Hsla, div, prelude::*, px};
-use gpui_component::{ActiveTheme as _, Icon as ComponentIcon, IconName};
+use gpui::{AnyElement, App, ElementId, Hsla, div, prelude::*, px};
+use gpui_component::{
+    ActiveTheme as _, Icon as ComponentIcon, IconName,
+    button::{Button, ButtonVariants as _},
+};
 use lucide_icons::Icon as LucideIcon;
 
 pub(crate) const LUCIDE_FONT_FAMILY: &str = "lucide";
@@ -117,6 +120,73 @@ pub(crate) enum IconTone {
     Accent,
     Danger,
     OnAccent,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum IconActionSize {
+    Compact,
+    Regular,
+}
+
+impl IconActionSize {
+    pub(super) fn icon_action(
+        self,
+        id: impl Into<ElementId>,
+        icon: AppIcon,
+        tone: IconTone,
+        tooltip: &'static str,
+        cx: &App,
+    ) -> Button {
+        let (button_size, icon_size) = match self {
+            Self::Compact => (30.0, 16.0),
+            Self::Regular => (36.0, 19.0),
+        };
+        Button::new(id)
+            .ghost()
+            .tooltip(tooltip)
+            .size(px(button_size))
+            .p_0()
+            .child(render_icon(icon, tone, icon_size, cx))
+    }
+
+    pub(super) fn primary_icon_action(
+        self,
+        id: impl Into<ElementId>,
+        icon: AppIcon,
+        tooltip: &'static str,
+        cx: &App,
+    ) -> Button {
+        self.icon_action(id, icon, IconTone::OnAccent, tooltip, cx)
+            .primary()
+    }
+
+    pub(super) fn danger_icon_action(
+        self,
+        id: impl Into<ElementId>,
+        icon: AppIcon,
+        tooltip: &'static str,
+        cx: &App,
+    ) -> Button {
+        self.icon_action(id, icon, IconTone::OnAccent, tooltip, cx)
+            .danger()
+    }
+}
+
+pub(super) fn selected_check_badge(cx: &App) -> AnyElement {
+    div()
+        .flex_none()
+        .size(px(28.0))
+        .rounded_full()
+        .bg(cx.theme().accent)
+        .flex()
+        .items_center()
+        .justify_center()
+        .child(
+            ComponentIcon::new(IconName::Check)
+                .size(px(16.0))
+                .text_color(cx.theme().primary),
+        )
+        .into_any_element()
 }
 
 pub(crate) fn render_icon(icon: AppIcon, tone: IconTone, size: f32, cx: &App) -> AnyElement {

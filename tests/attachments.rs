@@ -6,7 +6,9 @@ use std::{
 };
 
 use onechat::{
-    application::attachments::{MAX_AUDIO_BYTES, load as load_attachment, validate_image},
+    application::attachments::{
+        LoadManyOptions, MAX_AUDIO_BYTES, load as load_attachment, load_many, validate_image,
+    },
     domain::{
         AttachmentDraft, AttachmentFileKind, AttachmentKind, AudioAttachmentSource, Conversation,
         UserMessage,
@@ -29,6 +31,8 @@ mod audio;
 mod basic;
 #[path = "attachments/docx.rs"]
 mod docx;
+#[path = "attachments/many.rs"]
+mod many;
 #[path = "attachments/office.rs"]
 mod office;
 #[path = "attachments/pptx.rs"]

@@ -3,7 +3,7 @@ use gpui::Context;
 use super::super::{OneChat, PendingTitleTransition};
 use crate::{
     application::title::generate_title,
-    domain::{AssistantResponse, AutoTitleState, MessageStatus},
+    domain::{AssistantResponse, AutoTitleState},
 };
 
 enum AutoTitleRequest {
@@ -28,7 +28,7 @@ impl OneChat {
         response: &AssistantResponse,
         cx: &mut Context<Self>,
     ) {
-        if response.status != MessageStatus::Completed || response.content.trim().is_empty() {
+        if !response.is_usable_as_context() || response.content.trim().is_empty() {
             return;
         }
         if !self.data.snapshot.conversations.iter().any(|conversation| {

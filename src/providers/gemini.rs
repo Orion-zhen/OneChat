@@ -1,7 +1,7 @@
 use async_channel::Sender;
 use rig_core::{
     client::{CompletionClient, VerifyClient},
-    completion::{CompletionModel, Message},
+    completion::Message,
     providers::gemini::{self as rig_gemini, completion::gemini_api_types::FinishReason},
 };
 use serde_json::{Map, Value, json};
@@ -10,8 +10,8 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     domain::{GenerationError, GenerationErrorKind, GenerationEvent, GenerationRequest, Provider},
     providers::{
-        consume_stream, insert_optional, merged_additional_parameters, remove_keys, sdk_base_url,
-        sdk_completion_error, sdk_headers, sdk_http_client, sdk_request, sdk_verify_error,
+        insert_optional, merged_additional_parameters, remove_keys, sdk_base_url, sdk_headers,
+        sdk_http_client, sdk_request, sdk_verify_error, stream_model,
     },
 };
 
@@ -34,33 +34,35 @@ pub async fn stream(
     let client = build_client(&request.provider)?;
     let model = client.completion_model(request.model.remote_id.clone());
     let sdk_request = sdk_request(&request, additional_parameters(&request)?)?;
-    let response = tokio::select! {
-        _ = cancellation.cancelled() => return Err(GenerationError::cancelled()),
-        response = model.stream(sdk_request) => response.map_err(|error| sdk_completion_error(error, false))?,
-    };
-
-    consume_stream(
-        response,
+    stream_model(
+        model,
+        sdk_request,
         events,
         cancellation,
         true,
-        |final_response| match final_response.finish_reason {
-            Some(FinishReason::Stop | FinishReason::MaxTokens) => Ok(()),
-            Some(ref reason) => Err(GenerationError::new(
-                GenerationErrorKind::Unknown,
-                "Gemini stopped without completing the response",
-            )
-            .with_detail(format!(
-                "finish_reason={reason:?}, message={}",
-                final_response.finish_message.as_deref().unwrap_or("none")
-            ))),
-            None => Err(GenerationError::new(
-                GenerationErrorKind::StreamInterrupted,
-                "Provider stream ended before completion",
-            )),
-        },
+        validate_final_response,
     )
     .await
+}
+
+fn validate_final_response(
+    response: &rig_gemini::streaming::StreamingCompletionResponse,
+) -> Result<(), GenerationError> {
+    match response.finish_reason {
+        Some(FinishReason::Stop | FinishReason::MaxTokens) => Ok(()),
+        Some(ref reason) => Err(GenerationError::new(
+            GenerationErrorKind::Unknown,
+            "Gemini stopped without completing the response",
+        )
+        .with_detail(format!(
+            "finish_reason={reason:?}, message={}",
+            response.finish_message.as_deref().unwrap_or("none")
+        ))),
+        None => Err(GenerationError::new(
+            GenerationErrorKind::StreamInterrupted,
+            "Provider stream ended before completion",
+        )),
+    }
 }
 
 fn additional_parameters(
@@ -167,8 +169,44 @@ mod tests {
     use rig_core::{
         OneOrMany,
         message::{AudioMediaType, UserContent},
-        providers::gemini::completion::gemini_api_types::Content,
+        providers::gemini::{
+            completion::gemini_api_types::Content,
+            streaming::{PartialUsage, StreamingCompletionResponse},
+        },
     };
+
+    fn final_response(
+        finish_reason: Option<FinishReason>,
+        finish_message: Option<&str>,
+    ) -> StreamingCompletionResponse {
+        StreamingCompletionResponse {
+            usage_metadata: PartialUsage::default(),
+            finish_reason,
+            finish_message: finish_message.map(str::to_string),
+            model_version: None,
+        }
+    }
+
+    #[test]
+    fn accepts_only_successful_gemini_finish_reasons() {
+        for reason in [FinishReason::Stop, FinishReason::MaxTokens] {
+            assert!(validate_final_response(&final_response(Some(reason), None)).is_ok());
+        }
+
+        let error = validate_final_response(&final_response(
+            Some(FinishReason::Safety),
+            Some("unsafe content"),
+        ))
+        .unwrap_err();
+        assert_eq!(error.kind, GenerationErrorKind::Unknown);
+        assert_eq!(
+            error.detail.as_deref(),
+            Some("finish_reason=Safety, message=unsafe content")
+        );
+
+        let error = validate_final_response(&final_response(None, None)).unwrap_err();
+        assert_eq!(error.kind, GenerationErrorKind::StreamInterrupted);
+    }
 
     #[test]
     fn strips_audio_output_modalities() {

@@ -30,17 +30,19 @@ pub(in crate::desktop::ui::settings) fn model_form(
         .items_center()
         .gap_2()
         .child(
-            icon_action(
-                "cancel-model",
-                AppIcon::Close,
-                IconTone::Muted,
-                "Cancel",
-                cx,
-            )
-            .on_click(cx.listener(|this, _, _, cx| this.cancel_model_editor(cx))),
+            Compact
+                .icon_action(
+                    "cancel-model",
+                    AppIcon::Close,
+                    IconTone::Muted,
+                    "Cancel",
+                    cx,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.cancel_model_editor(cx))),
         )
         .child(
-            primary_icon_action("save-model", AppIcon::Save, "Save model", cx)
+            Compact
+                .primary_icon_action("save-model", AppIcon::Save, "Save model", cx)
                 .on_click(cx.listener(|this, _, _, cx| this.save_model(cx))),
         );
 
@@ -50,20 +52,7 @@ pub(in crate::desktop::ui::settings) fn model_form(
         .flex()
         .flex_col()
         .gap_4()
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap_4()
-                .child(
-                    div()
-                        .text_sm()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(title),
-                )
-                .child(actions),
-        )
+        .child(editor_header(title, actions))
         .child(
             Form::vertical()
                 .columns(2)
@@ -130,14 +119,15 @@ fn model_fetch_status(editor: &ModelEditor, cx: &mut Context<OneChat>) -> Option
             .gap_2()
             .child(Alert::error("model-fetch-error", error.clone()).small())
             .child(
-                icon_action(
-                    "retry-model-list",
-                    AppIcon::Regenerate,
-                    IconTone::Muted,
-                    "Retry loading models",
-                    cx,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.retry_available_models(cx))),
+                Compact
+                    .icon_action(
+                        "retry-model-list",
+                        AppIcon::Regenerate,
+                        IconTone::Muted,
+                        "Retry loading models",
+                        cx,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.retry_available_models(cx))),
             )
             .into_any_element(),
         ModelFetchStatus::Loaded if editor.available_models.is_empty() => Alert::info(

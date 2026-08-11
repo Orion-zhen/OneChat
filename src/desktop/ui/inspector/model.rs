@@ -11,13 +11,16 @@ pub(super) fn render_model(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEleme
             .gap_3()
             .child(notice("This conversation has no model.", cx))
             .child(
-                primary_icon_action(
-                    "inspector-choose-model-empty",
-                    AppIcon::Layers,
-                    "Choose model",
-                    cx,
-                )
-                .on_click(cx.listener(|this, _, window, cx| this.open_model_picker(window, cx))),
+                Regular
+                    .primary_icon_action(
+                        "inspector-choose-model-empty",
+                        AppIcon::Layers,
+                        "Choose model",
+                        cx,
+                    )
+                    .on_click(
+                        cx.listener(|this, _, window, cx| this.open_model_picker(window, cx)),
+                    ),
             )
             .into_any_element();
     };
@@ -97,30 +100,6 @@ pub(super) fn render_model(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEleme
                 .map(|error| Alert::error("generation-parameter-error", error.clone()).small()),
         )
         .into_any_element()
-}
-
-pub(crate) fn capability_summary(model: &Model) -> String {
-    let capabilities = &model.capabilities;
-    let mut labels = Vec::new();
-    if capabilities.vision {
-        labels.push("Vision".to_string());
-    }
-    if capabilities.audio_input {
-        labels.push("Audio".to_string());
-    }
-    if capabilities.tools {
-        labels.push("Tools".to_string());
-    }
-    if model.reasoning.is_some() {
-        labels.push("Reasoning".to_string());
-    }
-    if let Some(tokens) = model.context_window_tokens {
-        labels.push(format!(
-            "{} context",
-            crate::domain::format_compact_token_count(tokens)
-        ));
-    }
-    labels.join(" · ")
 }
 
 fn parameter_field(
@@ -234,7 +213,7 @@ fn add_parameter_select(
 }
 
 fn model_summary(model: &Model, provider: &str, cx: &App) -> AnyElement {
-    let metadata = capability_summary(model);
+    let metadata = crate::desktop::ui::model::capability_summary(model, " · ");
     let details = if metadata.is_empty() {
         provider.to_string()
     } else {

@@ -2,36 +2,26 @@ use super::*;
 
 #[derive(Clone)]
 pub(crate) struct CommandPaletteDelegate {
-    commands: Vec<PaletteCommand>,
-    filtered: Vec<PaletteCommand>,
-    selected: Option<IndexPath>,
+    state: FlatPickerState<PaletteCommand>,
 }
 
 impl CommandPaletteDelegate {
     pub(super) fn row_count(&self) -> usize {
-        self.filtered.len()
+        self.state.len()
     }
 
     pub(crate) fn new() -> Self {
-        let commands = PaletteCommand::ALL.to_vec();
         Self {
-            filtered: commands.clone(),
-            commands,
-            selected: Some(IndexPath::default()),
+            state: FlatPickerState::new(PaletteCommand::ALL.to_vec(), |_| false),
         }
     }
 
     fn filter(&mut self, query: &str) {
-        self.filtered = self
-            .commands
-            .iter()
-            .copied()
-            .filter(|command| command.matches(query))
-            .collect();
+        self.state.filter(|command| command.matches(query));
     }
 
     pub(crate) fn command(&self, index: IndexPath) -> Option<PaletteCommand> {
-        self.filtered.get(index.row).copied()
+        self.state.get(index).copied()
     }
 }
 
@@ -39,7 +29,7 @@ impl ListDelegate for CommandPaletteDelegate {
     type Item = ListItem;
 
     fn items_count(&self, _: usize, _: &App) -> usize {
-        self.filtered.len()
+        self.state.len()
     }
 
     fn perform_search(
@@ -58,7 +48,7 @@ impl ListDelegate for CommandPaletteDelegate {
         _: &mut Window,
         cx: &mut Context<ListState<Self>>,
     ) {
-        self.selected = index;
+        self.state.set_selected(index);
         cx.notify();
     }
 
@@ -71,7 +61,7 @@ impl ListDelegate for CommandPaletteDelegate {
         let command = self.command(index)?;
         Some(
             ListItem::new(SharedString::from(format!("command-{command:?}")))
-                .selected(self.selected == Some(index))
+                .selected(self.state.selected() == Some(index))
                 .h(px(52.0))
                 .my_0p5()
                 .rounded(px(12.0))

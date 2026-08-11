@@ -1,7 +1,7 @@
 use async_channel::Sender;
 use rig_core::{
     client::{CompletionClient, VerifyClient},
-    completion::{CompletionModel, Message},
+    completion::Message,
     providers::anthropic as rig_anthropic,
 };
 use serde_json::{Map, Value, json};
@@ -10,8 +10,8 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     domain::{GenerationError, GenerationErrorKind, GenerationEvent, GenerationRequest, Provider},
     providers::{
-        consume_stream, insert_optional, merged_additional_parameters, remove_keys, sdk_base_url,
-        sdk_completion_error, sdk_headers, sdk_http_client, sdk_request, sdk_verify_error,
+        insert_optional, merged_additional_parameters, remove_keys, sdk_base_url, sdk_headers,
+        sdk_http_client, sdk_request, sdk_verify_error, stream_model,
     },
 };
 
@@ -37,12 +37,7 @@ pub async fn stream(
     if sdk_request.max_tokens.is_none() {
         sdk_request.max_tokens = Some(4096);
     }
-    let response = tokio::select! {
-        _ = cancellation.cancelled() => return Err(GenerationError::cancelled()),
-        response = model.stream(sdk_request) => response.map_err(|error| sdk_completion_error(error, false))?,
-    };
-
-    consume_stream(response, events, cancellation, true, |_| Ok(())).await
+    stream_model(model, sdk_request, events, cancellation, true, |_| Ok(())).await
 }
 
 fn additional_parameters(
@@ -102,4 +97,45 @@ fn build_client(provider: &Provider) -> Result<rig_anthropic::Client, Generation
             )
             .with_detail(error.to_string())
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{GenerationConfig, Model, ProviderKind};
+
+    #[test]
+    fn keeps_anthropic_parameters_at_the_expected_level() {
+        let provider = Provider::new("Anthropic", ProviderKind::Anthropic);
+        let mut model = Model::new(&provider.id, "model", "Model");
+        model.capabilities.top_k = true;
+        let mut config = GenerationConfig {
+            top_p: Some(0.8),
+            top_k: Some(40),
+            stop_sequences: vec!["stop".into()],
+            ..Default::default()
+        };
+        config.extra.insert("messages".into(), json!(["ignored"]));
+        config.extra.insert("custom".into(), json!(true));
+        let request = GenerationRequest {
+            provider,
+            model,
+            system_prompt: String::new(),
+            config,
+            messages: vec![Message::user("Hello")],
+            audio_duration_ms: 0,
+            tools: Vec::new(),
+        };
+
+        assert_eq!(
+            additional_parameters(&request).unwrap(),
+            serde_json::from_value::<Map<String, Value>>(json!({
+                "custom": true,
+                "top_p": 0.8,
+                "top_k": 40,
+                "stop_sequences": ["stop"]
+            }))
+            .unwrap()
+        );
+    }
 }

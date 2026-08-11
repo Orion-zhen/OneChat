@@ -31,13 +31,14 @@ use super::{
     markdown,
     motion::translated_y,
     selectable_text::{SelectableText, selection_color},
+    text::summary as text_summary,
     typography::MessageTypography,
 };
 use crate::{
     desktop::app::{COLLAPSED_THINKING_HEIGHT, OneChat, SystemPromptMode},
     domain::{
-        AssistantResponse, MAX_MESSAGE_WIDTH_RATIO, MIN_MESSAGE_WIDTH_RATIO, MessageStatus,
-        RequestInfo, SendMessageShortcut, ToolExecution, ToolExecutionStatus, Turn,
+        AssistantBlock, AssistantResponse, MAX_MESSAGE_WIDTH_RATIO, MIN_MESSAGE_WIDTH_RATIO,
+        MessageStatus, RequestInfo, SendMessageShortcut, ToolExecution, ToolExecutionStatus, Turn,
     },
 };
 

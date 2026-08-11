@@ -334,15 +334,10 @@ impl OneChat {
             }
         };
         self.settings_ui.form_error = None;
-        let (sender, receiver) = async_channel::bounded(1);
-        self.services.runtime.spawn(async move {
-            let _ = sender
-                .send(providers::test_connection(&provider).await)
-                .await;
-        });
-        cx.spawn(async move |this, cx| {
-            let result = receiver.recv().await;
-            let _ = this.update(cx, |this, cx| {
+        self.spawn_tokio(
+            async move { providers::test_connection(&provider).await },
+            cx,
+            move |this, result, cx| {
                 let status = match result {
                     Ok(Ok(())) => ConnectionTestStatus::Connected,
                     Ok(Err(error)) => ConnectionTestStatus::Failed(error.message),
@@ -352,9 +347,8 @@ impl OneChat {
                     editor.finish_test(revision, status);
                 }
                 cx.notify();
-            });
-        })
-        .detach();
+            },
+        );
         cx.notify();
     }
 
@@ -372,15 +366,10 @@ impl OneChat {
         self.settings_ui
             .connection_tests
             .insert(provider_id.clone(), ConnectionTestStatus::Testing);
-        let (sender, receiver) = async_channel::bounded(1);
-        self.services.runtime.spawn(async move {
-            let _ = sender
-                .send(providers::test_connection(&provider).await)
-                .await;
-        });
-        cx.spawn(async move |this, cx| {
-            let result = receiver.recv().await;
-            let _ = this.update(cx, |this, cx| {
+        self.spawn_tokio(
+            async move { providers::test_connection(&provider).await },
+            cx,
+            move |this, result, cx| {
                 let status = match result {
                     Ok(Ok(())) => ConnectionTestStatus::Connected,
                     Ok(Err(error)) => ConnectionTestStatus::Failed(error.message),
@@ -390,9 +379,8 @@ impl OneChat {
                     .connection_tests
                     .insert(provider_id, status);
                 cx.notify();
-            });
-        })
-        .detach();
+            },
+        );
         cx.notify();
     }
 }

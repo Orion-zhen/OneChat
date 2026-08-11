@@ -310,6 +310,28 @@ impl UserMessage {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AssistantBlock {
+    Reasoning {
+        id: String,
+        provider_id: Option<String>,
+        content: String,
+        started_after_ms: u64,
+        duration_ms: Option<u64>,
+    },
+    Output {
+        id: String,
+        content: String,
+    },
+    ToolCall {
+        id: String,
+        internal_call_id: String,
+        provider_tool_call_id: String,
+        execution_id: Option<String>,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct AssistantResponse {
     pub id: String,
     pub model_id: String,
@@ -320,6 +342,8 @@ pub struct AssistantResponse {
     pub status: MessageStatus,
     pub content: String,
     pub thinking: String,
+    #[serde(default)]
+    pub blocks: Vec<AssistantBlock>,
     #[serde(default)]
     pub transcript: Vec<Message>,
     #[serde(default)]
@@ -341,6 +365,7 @@ impl AssistantResponse {
             status: MessageStatus::Completed,
             content: String::new(),
             thinking: String::new(),
+            blocks: Vec::new(),
             transcript: Vec::new(),
             tool_executions: Vec::new(),
             created_at: now,
@@ -348,10 +373,190 @@ impl AssistantResponse {
         }
     }
 
-    pub fn replace_content(&mut self, content: String) {
-        self.content.clone_from(&content);
+    pub fn is_usable_as_context(&self) -> bool {
+        self.status == MessageStatus::Completed && !self.content.is_empty()
+    }
+
+    pub fn append_output(&mut self, delta: &str, elapsed_ms: u64) -> Option<String> {
+        let finished = self.finish_reasoning(elapsed_ms);
+        self.content.push_str(delta);
+        if let Some(AssistantBlock::Output { content, .. }) = self.blocks.last_mut() {
+            content.push_str(delta);
+        } else {
+            self.blocks.push(AssistantBlock::Output {
+                id: new_id("output"),
+                content: delta.to_string(),
+            });
+        }
+        finished
+    }
+
+    pub fn append_reasoning(
+        &mut self,
+        provider_id: Option<String>,
+        delta: &str,
+        elapsed_ms: u64,
+    ) -> Option<String> {
+        self.thinking.push_str(delta);
+        let continues_current = matches!(
+            self.blocks.last(),
+            Some(AssistantBlock::Reasoning { provider_id: current, .. })
+                if provider_id.is_none() || current.is_none() || current == &provider_id
+        );
+        if continues_current {
+            let Some(AssistantBlock::Reasoning { content, .. }) = self.blocks.last_mut() else {
+                unreachable!();
+            };
+            content.push_str(delta);
+            return None;
+        }
+        let finished = self.finish_reasoning(elapsed_ms);
+        self.blocks.push(AssistantBlock::Reasoning {
+            id: new_id("reasoning"),
+            provider_id,
+            content: delta.to_string(),
+            started_after_ms: elapsed_ms,
+            duration_ms: None,
+        });
+        finished
+    }
+
+    pub fn observe_tool_call(
+        &mut self,
+        internal_call_id: String,
+        provider_tool_call_id: String,
+        elapsed_ms: u64,
+    ) -> Option<String> {
+        let finished = self.finish_reasoning(elapsed_ms);
+        if let Some(AssistantBlock::ToolCall {
+            provider_tool_call_id: stored_provider_id,
+            ..
+        }) = self.blocks.iter_mut().find(|block| {
+            matches!(block, AssistantBlock::ToolCall { internal_call_id: stored, .. } if stored == &internal_call_id)
+        }) {
+            if !provider_tool_call_id.is_empty() {
+                *stored_provider_id = provider_tool_call_id;
+            }
+            return finished;
+        }
+        self.blocks.push(AssistantBlock::ToolCall {
+            id: new_id("tool-call"),
+            internal_call_id,
+            provider_tool_call_id,
+            execution_id: None,
+        });
+        finished
+    }
+
+    pub fn upsert_tool_execution(
+        &mut self,
+        execution: ToolExecution,
+        elapsed_ms: u64,
+    ) -> Option<String> {
+        let finished = self.finish_reasoning(elapsed_ms);
+        let execution_id = execution.id.clone();
+        let provider_tool_call_id = execution.provider_tool_call_id.clone();
+        if let Some(stored) = self
+            .tool_executions
+            .iter_mut()
+            .find(|stored| stored.id == execution.id)
+        {
+            *stored = execution;
+        } else {
+            self.tool_executions.push(execution);
+        }
+        if let Some(AssistantBlock::ToolCall {
+            execution_id: stored_execution_id,
+            ..
+        }) = self.blocks.iter_mut().find(|block| {
+            matches!(block, AssistantBlock::ToolCall { provider_tool_call_id: stored, .. } if stored == &provider_tool_call_id)
+        }) {
+            *stored_execution_id = Some(execution_id);
+        } else {
+            self.blocks.push(AssistantBlock::ToolCall {
+                id: new_id("tool-call"),
+                internal_call_id: provider_tool_call_id.clone(),
+                provider_tool_call_id,
+                execution_id: Some(execution_id),
+            });
+        }
+        finished
+    }
+
+    pub fn finish_reasoning(&mut self, elapsed_ms: u64) -> Option<String> {
+        let Some(AssistantBlock::Reasoning {
+            id,
+            started_after_ms,
+            duration_ms,
+            ..
+        }) = self.blocks.last_mut()
+        else {
+            return None;
+        };
+        if duration_ms.is_some() {
+            return None;
+        }
+        *duration_ms = Some(elapsed_ms.saturating_sub(*started_after_ms));
+        Some(id.clone())
+    }
+
+    pub fn replace_outputs(&mut self, outputs: &[(String, String)]) {
+        if self.blocks.is_empty() {
+            if let Some((_, content)) = outputs.first() {
+                self.replace_legacy_content(content.clone());
+            }
+            return;
+        }
+        for block in &mut self.blocks {
+            let AssistantBlock::Output { id, content } = block else {
+                continue;
+            };
+            if let Some((_, edited)) = outputs.iter().find(|(edited_id, _)| edited_id == id) {
+                content.clone_from(edited);
+            }
+        }
+        for block in &mut self.blocks {
+            if let AssistantBlock::Output { content, .. } = block
+                && content.trim().is_empty()
+            {
+                content.clear();
+            }
+        }
+        self.sync_transcript_outputs();
+        self.blocks.retain(|block| {
+            !matches!(block, AssistantBlock::Output { content, .. } if content.trim().is_empty())
+        });
+        let output = self
+            .blocks
+            .iter()
+            .filter_map(|block| match block {
+                AssistantBlock::Output { content, .. } => Some(content.as_str()),
+                _ => None,
+            })
+            .collect::<String>();
+        self.content.clone_from(&output);
+    }
+
+    fn replace_legacy_content(&mut self, content: String) {
+        self.content = content;
+        self.sync_transcript_outputs();
+    }
+
+    fn sync_transcript_outputs(&mut self) {
+        let outputs = if self.blocks.is_empty() {
+            vec![self.content.clone()]
+        } else {
+            self.blocks
+                .iter()
+                .filter_map(|block| match block {
+                    AssistantBlock::Output { content, .. } => Some(content.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut output_index = 0;
         let mut last_assistant = None;
-        for (index, message) in self.transcript.iter_mut().enumerate() {
+        for (message_index, message) in self.transcript.iter_mut().enumerate() {
             let Message::Assistant {
                 content: assistant_content,
                 ..
@@ -359,30 +564,26 @@ impl AssistantResponse {
             else {
                 continue;
             };
-            last_assistant = Some(index);
+            last_assistant = Some(message_index);
             for item in assistant_content.iter_mut() {
                 if let AssistantContent::Text(text) = item {
-                    text.text.clear();
+                    text.text = outputs.get(output_index).cloned().unwrap_or_default();
+                    output_index += 1;
                 }
             }
         }
-        let Some(index) = last_assistant else {
+        let Some(message_index) = last_assistant else {
             return;
         };
         let Message::Assistant {
             content: assistant_content,
             ..
-        } = &mut self.transcript[index]
+        } = &mut self.transcript[message_index]
         else {
             unreachable!();
         };
-        if let Some(AssistantContent::Text(text)) = assistant_content
-            .iter_mut()
-            .find(|item| matches!(item, AssistantContent::Text(_)))
-        {
-            text.text = content;
-        } else {
-            assistant_content.push(AssistantContent::text(content));
+        for output in outputs.into_iter().skip(output_index) {
+            assistant_content.push(AssistantContent::text(output));
         }
     }
 }
@@ -421,6 +622,25 @@ impl Turn {
             .iter()
             .find(|response| response.id == response_id)
     }
+
+    pub fn continuation_response(&self) -> Option<&AssistantResponse> {
+        self.continuation_response_id
+            .as_deref()
+            .and_then(|id| self.response(id))
+            .filter(|response| response.is_usable_as_context())
+    }
+
+    pub fn promote_continuation_response(&mut self, response_id: &str) -> bool {
+        if self.continuation_response().is_some()
+            || !self
+                .response(response_id)
+                .is_some_and(AssistantResponse::is_usable_as_context)
+        {
+            return false;
+        }
+        self.continuation_response_id = Some(response_id.to_string());
+        true
+    }
 }
 
 pub fn active_turns(turns: &[Turn]) -> Vec<&Turn> {
@@ -435,10 +655,10 @@ pub fn active_turns(turns: &[Turn]) -> Vec<&Turn> {
             break;
         }
         path.push(turn);
-        let Some(response_id) = turn.continuation_response_id.as_deref() else {
+        let Some(response) = turn.continuation_response() else {
             break;
         };
-        parent_response_id = Some(response_id);
+        parent_response_id = Some(response.id.as_str());
     }
 
     path

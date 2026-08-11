@@ -10,15 +10,40 @@ pub(super) fn render_reasoning(
     if message.thinking.is_empty() {
         return None;
     }
-
-    let streaming = matches!(
+    render_reasoning_block(
+        app,
+        &message.id,
+        &message.thinking,
+        0,
+        request.and_then(|request| request.thinking_duration_ms),
         message.status,
-        MessageStatus::Pending | MessageStatus::Streaming
-    );
-    let live = streaming && request.is_some_and(|request| request.thinking_duration_ms.is_none());
-    let expanded = app.thinking_expanded(&message.id, live);
-    let duration = request
-        .and_then(|request| reasoning_duration_ms(app, request, live))
+        request,
+        typography,
+        cx,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn render_reasoning_block(
+    app: &OneChat,
+    reasoning_id: &str,
+    content: &str,
+    started_after_ms: u64,
+    duration_ms: Option<u64>,
+    status: MessageStatus,
+    request: Option<&RequestInfo>,
+    typography: MessageTypography,
+    cx: &mut Context<OneChat>,
+) -> Option<AnyElement> {
+    if content.is_empty() {
+        return None;
+    }
+
+    let live = matches!(status, MessageStatus::Pending | MessageStatus::Streaming)
+        && duration_ms.is_none()
+        && request.is_some();
+    let expanded = app.thinking_expanded(reasoning_id, live);
+    let duration = reasoning_duration_ms(app, request, started_after_ms, duration_ms, live)
         .map(format_reasoning_duration);
 
     let mut controls = div().flex().items_center().gap_2();
@@ -43,10 +68,10 @@ pub(super) fn render_reasoning(
                 .child(duration),
         );
     }
-    let thinking_id = message.id.clone();
+    let toggle_id = reasoning_id.to_string();
     controls = controls.child(
         icon_button(
-            SharedString::from(format!("thinking-{}", message.id)),
+            SharedString::from(format!("thinking-{reasoning_id}")),
             if expanded {
                 AppIcon::ChevronUp
             } else {
@@ -56,32 +81,30 @@ pub(super) fn render_reasoning(
             cx,
         )
         .on_click(
-            cx.listener(move |this, _, _, cx| this.toggle_thinking(thinking_id.clone(), live, cx)),
+            cx.listener(move |this, _, _, cx| this.toggle_thinking(toggle_id.clone(), live, cx)),
         )
         .with_animation(
             SharedString::from(format!(
-                "thinking-toggle-{}-{}",
+                "thinking-toggle-{}-{reasoning_id}",
                 if expanded { "expanded" } else { "collapsed" },
-                message.id
             )),
             Animation::new(Duration::from_millis(180)).with_easing(ease_out_quint()),
             |button, delta| button.opacity(0.7 + delta * 0.3),
         ),
     );
 
-    let scroll = app.chat.thinking_scrolls.get(&message.id).cloned();
+    let scroll = app.chat.thinking_scrolls.get(reasoning_id).cloned();
     let boundary_scroll = scroll.clone();
     let body = div()
         .id(SharedString::from(format!(
-            "thinking-content-{}",
-            message.id
+            "thinking-content-{reasoning_id}"
         )))
         .whitespace_normal()
         .overflow_y_scroll()
         .pr_2()
         .child(SelectableText::new(
-            SharedString::from(format!("thinking-text-{}", message.id)),
-            message.thinking.clone(),
+            SharedString::from(format!("thinking-text-{reasoning_id}")),
+            content.to_string(),
             app.chat.text_selection.clone(),
             selection_color(cx),
         ));
@@ -90,16 +113,15 @@ pub(super) fn render_reasoning(
     } else {
         body
     };
-    let body = if let Some(motion) = app.chat.thinking_motions.get(&message.id).copied() {
+    let body = if let Some(motion) = app.chat.thinking_motions.get(reasoning_id).copied() {
         let target_height = if expanded {
             motion.full_height
         } else {
             motion.full_height.min(COLLAPSED_THINKING_HEIGHT)
         };
         let animation_id = SharedString::from(format!(
-            "thinking-{}-{}",
+            "thinking-{}-{reasoning_id}",
             if expanded { "expand" } else { "collapse" },
-            message.id
         ));
         body.with_animation(
             animation_id,
@@ -130,15 +152,13 @@ pub(super) fn render_reasoning(
     } else {
         div()
             .id(SharedString::from(format!(
-                "thinking-scroll-boundary-{}",
-                message.id
+                "thinking-scroll-boundary-{reasoning_id}"
             )))
             .on_scroll_wheel(move |event, window, cx| {
                 let Some(scroll) = boundary_scroll.as_ref() else {
                     return;
                 };
                 let delta_y = event.delta.pixel_delta(window.line_height()).y;
-                // GPUI scrolls the child before this ancestor listener runs.
                 let offset_before_event = scroll.offset().y - delta_y;
                 if should_capture_nested_scroll(
                     f32::from(delta_y),
@@ -185,17 +205,26 @@ pub(super) fn render_reasoning(
     )
 }
 
-fn reasoning_duration_ms(app: &OneChat, request: &RequestInfo, live: bool) -> Option<u64> {
-    if let Some(duration) = request.thinking_duration_ms {
-        return Some(duration);
+fn reasoning_duration_ms(
+    app: &OneChat,
+    request: Option<&RequestInfo>,
+    started_after_ms: u64,
+    duration_ms: Option<u64>,
+    live: bool,
+) -> Option<u64> {
+    if let Some(duration_ms) = duration_ms {
+        return Some(duration_ms);
     }
     if !live {
         return None;
     }
+    let request = request?;
     app.chat
         .thinking_started_at
         .get(&request.id)
-        .map(|started_at| started_at.elapsed().as_millis() as u64)
+        .map(|started_at| {
+            (started_at.elapsed().as_millis() as u64).saturating_sub(started_after_ms)
+        })
 }
 
 pub(super) fn format_reasoning_duration(duration_ms: u64) -> String {

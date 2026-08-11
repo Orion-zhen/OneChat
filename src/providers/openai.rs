@@ -1,7 +1,7 @@
 use async_channel::Sender;
 use rig_core::{
     client::{CompletionClient, VerifyClient},
-    completion::{CompletionModel, CompletionRequest, Message},
+    completion::Message,
     providers::openai as rig_openai,
 };
 use serde_json::{Map, Value, json};
@@ -13,8 +13,8 @@ use crate::{
         ProviderKind,
     },
     providers::{
-        consume_stream, insert_optional, merged_additional_parameters, remove_keys, sdk_base_url,
-        sdk_completion_error, sdk_headers, sdk_http_client, sdk_request, sdk_verify_error,
+        insert_optional, merged_additional_parameters, remove_keys, sdk_base_url, sdk_headers,
+        sdk_http_client, sdk_request, sdk_verify_error, stream_model,
     },
 };
 
@@ -63,6 +63,8 @@ pub async fn stream(
                 sdk_request,
                 events,
                 cancellation,
+                false,
+                |_| Ok(()),
             )
             .await
         }
@@ -72,24 +74,12 @@ pub async fn stream(
                 sdk_request,
                 events,
                 cancellation,
+                false,
+                |_| Ok(()),
             )
             .await
         }
     }
-}
-
-async fn stream_model<M: CompletionModel>(
-    model: M,
-    request: CompletionRequest,
-    events: &Sender<GenerationEvent>,
-    cancellation: CancellationToken,
-) -> Result<Message, GenerationError> {
-    let response = tokio::select! {
-        _ = cancellation.cancelled() => return Err(GenerationError::cancelled()),
-        response = model.stream(request) => response.map_err(|error| sdk_completion_error(error, false))?,
-    };
-
-    consume_stream(response, events, cancellation, false, |_| Ok(())).await
 }
 
 fn additional_parameters(

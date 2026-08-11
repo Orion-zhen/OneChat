@@ -18,8 +18,8 @@ pub(crate) use prompt_variable::{
 };
 
 pub(crate) struct KeyValueEditor {
-    pub name: Entity<InputState>,
-    pub value: Entity<InputState>,
+    pub(crate) name: Entity<InputState>,
+    pub(crate) value: Entity<InputState>,
 }
 
 impl KeyValueEditor {
@@ -33,6 +33,22 @@ impl KeyValueEditor {
             name: single_line_input(name, "Name", window, cx),
             value: single_line_input(value, "Value", window, cx),
         }
+    }
+}
+
+fn append_draft_if_tail_complete<T>(
+    items: &mut Vec<T>,
+    tail_complete: bool,
+    draft: impl FnOnce() -> T,
+) {
+    if tail_complete {
+        items.push(draft());
+    }
+}
+
+fn remove_committed<T>(items: &mut Vec<T>, index: usize) {
+    if index < items.len().saturating_sub(1) {
+        items.remove(index);
     }
 }
 
@@ -63,17 +79,28 @@ fn masked_input(
     })
 }
 
-fn multiline_input(
-    value: impl Into<String>,
-    placeholder: &'static str,
-    window: &mut Window,
-    cx: &mut Context<OneChat>,
-) -> Entity<InputState> {
-    cx.new(|cx| {
-        InputState::new(window, cx)
-            .multi_line(true)
-            .soft_wrap(true)
-            .default_value(value.into())
-            .placeholder(placeholder)
-    })
+#[cfg(test)]
+mod collection_tests {
+    use super::{append_draft_if_tail_complete, remove_committed};
+
+    #[test]
+    fn appends_only_after_complete_tail() {
+        let mut items = vec!["saved", ""];
+        append_draft_if_tail_complete(&mut items, false, || "new");
+        assert_eq!(items, ["saved", ""]);
+
+        items[1] = "complete";
+        append_draft_if_tail_complete(&mut items, true, || "");
+        assert_eq!(items, ["saved", "complete", ""]);
+    }
+
+    #[test]
+    fn removes_only_committed_rows() {
+        let mut items = vec!["first", "second", ""];
+        remove_committed(&mut items, 1);
+        assert_eq!(items, ["first", ""]);
+
+        remove_committed(&mut items, 1);
+        assert_eq!(items, ["first", ""]);
+    }
 }

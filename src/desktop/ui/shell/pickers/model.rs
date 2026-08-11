@@ -278,26 +278,11 @@ impl ListDelegate for ModelPickerDelegate {
                                     div()
                                         .text_size(px(11.0))
                                         .text_color(cx.theme().muted_foreground)
-                                        .child(inspector::capability_summary(&item.model)),
+                                        .child(model_capability_summary(&item.model, " · ")),
                                 ),
                         )
                         .children(if item.current {
-                            Some(
-                                div()
-                                    .flex_none()
-                                    .size(px(28.0))
-                                    .rounded_full()
-                                    .bg(cx.theme().accent)
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .child(
-                                        Icon::new(IconName::Check)
-                                            .size(px(16.0))
-                                            .text_color(cx.theme().primary),
-                                    )
-                                    .into_any_element(),
-                            )
+                            Some(selected_check_badge(cx))
                         } else if !item.available {
                             Some(
                                 div()

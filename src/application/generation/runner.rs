@@ -36,7 +36,7 @@ pub struct GenerationSnapshot {
     pub response: AssistantResponse,
     pub request: RequestInfo,
     pub terminal: bool,
-    pub thinking_finished: bool,
+    pub finished_reasoning_ids: Vec<String>,
 }
 
 pub enum GenerationUpdate {
@@ -346,7 +346,7 @@ async fn fail_before_provider(
             response,
             request,
             terminal: outcome.terminal,
-            thinking_finished: outcome.thinking_finished,
+            finished_reasoning_ids: outcome.finished_reasoning_id.into_iter().collect(),
         })))
         .await;
 }
@@ -397,11 +397,11 @@ pub async fn run_generation(
             continue;
         }
 
-        let mut thinking_finished = false;
+        let mut finished_reasoning_ids = Vec::new();
         for event in events {
             let outcome = apply_event(event, &mut response, &mut request, started.elapsed());
             terminal |= outcome.terminal;
-            thinking_finished |= outcome.thinking_finished;
+            finished_reasoning_ids.extend(outcome.finished_reasoning_id);
         }
         dirty |= has_events;
 
@@ -448,7 +448,7 @@ pub async fn run_generation(
                 response: response.clone(),
                 request: request.clone(),
                 terminal,
-                thinking_finished,
+                finished_reasoning_ids,
             })))
             .await
             .is_err()

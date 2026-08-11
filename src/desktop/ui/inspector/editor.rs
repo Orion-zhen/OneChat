@@ -398,21 +398,6 @@ fn optional_number_input<T: Display>(
     })
 }
 
-fn multiline_input(
-    value: impl Into<String>,
-    placeholder: &'static str,
-    window: &mut Window,
-    cx: &mut Context<OneChat>,
-) -> Entity<InputState> {
-    cx.new(|cx| {
-        InputState::new(window, cx)
-            .multi_line(true)
-            .soft_wrap(true)
-            .default_value(value.into())
-            .placeholder(placeholder)
-    })
-}
-
 fn parse_optional<T>(label: &str, value: &str) -> Result<Option<T>, String>
 where
     T: FromStr,

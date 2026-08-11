@@ -74,29 +74,31 @@ pub(super) fn provider_page(
             .items_center()
             .gap_2()
             .child(
-                icon_action(
-                    SharedString::from(format!("test-provider-{}", provider.id)),
-                    AppIcon::Plug,
-                    IconTone::Muted,
-                    "Test connection",
-                    cx,
-                )
-                .loading(testing)
-                .disabled(testing)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.test_provider_connection(provider_id.clone(), cx)
-                })),
+                Compact
+                    .icon_action(
+                        SharedString::from(format!("test-provider-{}", provider.id)),
+                        AppIcon::Plug,
+                        IconTone::Muted,
+                        "Test connection",
+                        cx,
+                    )
+                    .loading(testing)
+                    .disabled(testing)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.test_provider_connection(provider_id.clone(), cx)
+                    })),
             )
             .child(
-                primary_icon_action(
-                    SharedString::from(format!("edit-provider-{}", provider.id)),
-                    AppIcon::Pencil,
-                    "Edit provider",
-                    cx,
-                )
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.begin_edit_provider(edit_id.clone(), window, cx)
-                })),
+                Compact
+                    .primary_icon_action(
+                        SharedString::from(format!("edit-provider-{}", provider.id)),
+                        AppIcon::Pencil,
+                        "Edit provider",
+                        cx,
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.begin_edit_provider(edit_id.clone(), window, cx)
+                    })),
             )
             .into_any_element()
     };
@@ -265,7 +267,8 @@ fn provider_endpoint_row(provider: &Provider, cx: &App) -> AnyElement {
 
 fn provider_danger_zone(provider: &Provider, cx: &mut Context<OneChat>) -> AnyElement {
     let provider_id = provider.id.clone();
-    let delete = danger_icon_action("delete-provider", AppIcon::Trash, "Delete provider", cx)
+    let delete = Compact
+        .danger_icon_action("delete-provider", AppIcon::Trash, "Delete provider", cx)
         .on_click(cx.listener(move |this, _, window, cx| {
             this.request_delete_provider(provider_id.clone(), window, cx)
         }));
@@ -331,7 +334,8 @@ fn provider_models(app: &OneChat, provider: &Provider, cx: &mut Context<OneChat>
     }
 
     let actions = editor.is_none().then(|| {
-        primary_icon_action("add-model", AppIcon::Plus, "Add model", cx)
+        Compact
+            .primary_icon_action("add-model", AppIcon::Plus, "Add model", cx)
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.begin_add_model(provider_id.clone(), window, cx)
             }))
@@ -350,7 +354,7 @@ fn provider_models(app: &OneChat, provider: &Provider, cx: &mut Context<OneChat>
 fn model_row(model: &Model, cx: &mut Context<OneChat>) -> AnyElement {
     let edit_id = model.id.clone();
     let delete_id = model.id.clone();
-    let metadata = model_capability_summary(model);
+    let metadata = model_capability_summary(model, ", ");
     let subtitle = if metadata.is_empty() {
         model.remote_id.clone()
     } else {
@@ -395,53 +399,31 @@ fn model_row(model: &Model, cx: &mut Context<OneChat>) -> AnyElement {
                 .flex()
                 .gap_1()
                 .child(
-                    icon_action(
-                        SharedString::from(format!("edit-model-{}", model.id)),
-                        AppIcon::Pencil,
-                        IconTone::Muted,
-                        "Edit model",
-                        cx,
-                    )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.begin_edit_model(edit_id.clone(), window, cx)
-                    })),
+                    Compact
+                        .icon_action(
+                            SharedString::from(format!("edit-model-{}", model.id)),
+                            AppIcon::Pencil,
+                            IconTone::Muted,
+                            "Edit model",
+                            cx,
+                        )
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.begin_edit_model(edit_id.clone(), window, cx)
+                        })),
                 )
                 .child(
-                    icon_action(
-                        SharedString::from(format!("delete-model-{}", model.id)),
-                        AppIcon::Trash,
-                        IconTone::Danger,
-                        "Delete model",
-                        cx,
-                    )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.request_delete_model(delete_id.clone(), window, cx)
-                    })),
+                    Compact
+                        .icon_action(
+                            SharedString::from(format!("delete-model-{}", model.id)),
+                            AppIcon::Trash,
+                            IconTone::Danger,
+                            "Delete model",
+                            cx,
+                        )
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.request_delete_model(delete_id.clone(), window, cx)
+                        })),
                 ),
         )
         .into_any_element()
-}
-
-pub(super) fn model_capability_summary(model: &Model) -> String {
-    let capabilities = &model.capabilities;
-    let mut labels = Vec::new();
-    if capabilities.vision {
-        labels.push("Vision".to_string());
-    }
-    if capabilities.audio_input {
-        labels.push("Audio".to_string());
-    }
-    if capabilities.tools {
-        labels.push("Tools".to_string());
-    }
-    if model.reasoning.is_some() {
-        labels.push("Reasoning".to_string());
-    }
-    if let Some(tokens) = model.context_window_tokens {
-        labels.push(format!(
-            "{} context",
-            crate::domain::format_compact_token_count(tokens)
-        ));
-    }
-    labels.join(", ")
 }

@@ -31,6 +31,7 @@ pub(super) fn prepare_response(
     response.status = MessageStatus::Streaming;
     response.content.clear();
     response.thinking.clear();
+    response.blocks.clear();
     response.transcript.clear();
     response.tool_executions.clear();
     response.updated_at = now_timestamp();

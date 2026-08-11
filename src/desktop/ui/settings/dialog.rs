@@ -33,20 +33,21 @@ pub(crate) fn prompt_variable_dialog(
         .border_b_1()
         .border_color(cx.theme().border)
         .child(
-            icon_action(
-                "close-prompt-variable",
-                AppIcon::Close,
-                IconTone::Muted,
-                "Cancel",
-                cx,
-            )
-            .absolute()
-            .left(px(12.0))
-            .top(px(11.0))
-            .on_click(move |_, window, cx| {
-                close_app.update(cx, |app, cx| app.cancel_prompt_variable_edit(cx));
-                window.close_dialog(cx);
-            }),
+            Compact
+                .icon_action(
+                    "close-prompt-variable",
+                    AppIcon::Close,
+                    IconTone::Muted,
+                    "Cancel",
+                    cx,
+                )
+                .absolute()
+                .left(px(12.0))
+                .top(px(11.0))
+                .on_click(move |_, window, cx| {
+                    close_app.update(cx, |app, cx| app.cancel_prompt_variable_edit(cx));
+                    window.close_dialog(cx);
+                }),
         )
         .child(
             div()
@@ -56,7 +57,8 @@ pub(crate) fn prompt_variable_dialog(
                 .child(title),
         )
         .child(
-            primary_icon_action("save-prompt-variable", AppIcon::Save, "Save", cx)
+            Compact
+                .primary_icon_action("save-prompt-variable", AppIcon::Save, "Save", cx)
                 .absolute()
                 .right(px(12.0))
                 .top(px(11.0))
@@ -119,28 +121,29 @@ pub(crate) fn prompt_preset_dialog(
         .border_b_1()
         .border_color(cx.theme().border)
         .child(
-            icon_action(
-                "close-prompt-preset",
-                AppIcon::Close,
-                IconTone::Muted,
-                if editing { "Cancel" } else { "Close" },
-                cx,
-            )
-            .absolute()
-            .left(px(12.0))
-            .top(px(11.0))
-            .on_click(move |_, window, cx| {
-                close_app.update(cx, |app, cx| {
-                    if editing {
-                        app.cancel_prompt_preset_edit(cx);
-                    } else {
-                        app.settings_ui.viewed_prompt_preset = None;
-                        app.settings_ui.form_error = None;
-                        cx.notify();
-                    }
-                });
-                window.close_dialog(cx);
-            }),
+            Compact
+                .icon_action(
+                    "close-prompt-preset",
+                    AppIcon::Close,
+                    IconTone::Muted,
+                    if editing { "Cancel" } else { "Close" },
+                    cx,
+                )
+                .absolute()
+                .left(px(12.0))
+                .top(px(11.0))
+                .on_click(move |_, window, cx| {
+                    close_app.update(cx, |app, cx| {
+                        if editing {
+                            app.cancel_prompt_preset_edit(cx);
+                        } else {
+                            app.settings_ui.viewed_prompt_preset = None;
+                            app.settings_ui.form_error = None;
+                            cx.notify();
+                        }
+                    });
+                    window.close_dialog(cx);
+                }),
         )
         .child(
             div()
@@ -153,7 +156,8 @@ pub(crate) fn prompt_preset_dialog(
         .when(editing, |header| {
             let save_app = app.clone();
             header.child(
-                primary_icon_action("save-prompt-preset", AppIcon::Save, "Save", cx)
+                Compact
+                    .primary_icon_action("save-prompt-preset", AppIcon::Save, "Save", cx)
                     .absolute()
                     .right(px(12.0))
                     .top(px(11.0))

@@ -10,10 +10,10 @@ pub use catalog::{
     GenerationConfig, Model, ModelCapabilities, Provider, ProviderKind, format_compact_token_count,
 };
 pub use conversation::{
-    AssistantResponse, Attachment, AttachmentDraft, AttachmentDraftFile, AttachmentFile,
-    AttachmentFileKind, AttachmentKind, AudioAttachmentMetadata, AudioAttachmentSource,
-    AutoTitleState, Conversation, MessageStatus, ToolRef, ToolSelection, Turn, UserMessage,
-    active_turns, user_branches,
+    AssistantBlock, AssistantResponse, Attachment, AttachmentDraft, AttachmentDraftFile,
+    AttachmentFile, AttachmentFileKind, AttachmentKind, AudioAttachmentMetadata,
+    AudioAttachmentSource, AutoTitleState, Conversation, MessageStatus, ToolRef, ToolSelection,
+    Turn, UserMessage, active_turns, user_branches,
 };
 pub use generation::{
     GenerationError, GenerationErrorKind, GenerationEvent, GenerationRequest, Message,

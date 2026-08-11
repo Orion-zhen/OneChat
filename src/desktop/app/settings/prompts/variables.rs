@@ -108,20 +108,18 @@ impl OneChat {
         cx.notify();
 
         let variables = BTreeMap::from([("__test__".to_string(), source)]);
-        let (sender, receiver) = async_channel::bounded(1);
-        self.services.runtime.spawn(async move {
-            let result = render_prompt(
-                "{{__test__}}".into(),
-                variables,
-                PromptContext::default(),
-                CancellationToken::new(),
-            )
-            .await;
-            let _ = sender.send(result).await;
-        });
-        cx.spawn(async move |this, cx| {
-            let result = receiver.recv().await;
-            let _ = this.update(cx, |this, cx| {
+        self.spawn_tokio(
+            async move {
+                render_prompt(
+                    "{{__test__}}".into(),
+                    variables,
+                    PromptContext::default(),
+                    CancellationToken::new(),
+                )
+                .await
+            },
+            cx,
+            move |this, result, cx| {
                 if this.settings_ui.prompt_variable_test_revision != revision {
                     return;
                 }
@@ -142,9 +140,8 @@ impl OneChat {
                     ),
                 });
                 cx.notify();
-            });
-        })
-        .detach();
+            },
+        );
     }
 
     pub(crate) fn cancel_prompt_variable_edit(&mut self, cx: &mut Context<Self>) {

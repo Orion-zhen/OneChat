@@ -26,7 +26,48 @@ pub(super) fn render_tool_executions(
     )
 }
 
-fn render_tool_execution(
+pub(super) fn render_tool_placeholder(
+    block_id: &str,
+    typography: MessageTypography,
+    cx: &App,
+) -> AnyElement {
+    div()
+        .id(SharedString::from(format!("tool-call-{block_id}")))
+        .rounded_xl()
+        .border_1()
+        .border_color(cx.theme().border)
+        .bg(cx.theme().popover)
+        .shadow_xs()
+        .px_3()
+        .py_2()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(render_icon(AppIcon::Plug, IconTone::Accent, 16.0, cx))
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .text_size(px(typography.metadata_size))
+                .line_height(px(typography.metadata_line_height))
+                .font_weight(FontWeight::SEMIBOLD)
+                .child("Preparing tool call…"),
+        )
+        .child(
+            div()
+                .rounded_full()
+                .bg(cx.theme().secondary)
+                .px_2()
+                .py_1()
+                .text_size(px(typography.micro_size))
+                .line_height(px(typography.micro_line_height))
+                .text_color(cx.theme().primary)
+                .child("Streaming"),
+        )
+        .into_any_element()
+}
+
+pub(super) fn render_tool_execution(
     app: &OneChat,
     execution: &ToolExecution,
     typography: MessageTypography,

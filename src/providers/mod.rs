@@ -16,8 +16,8 @@ use crate::domain::{
 
 pub use catalog::{AvailableModel, list_models};
 pub(crate) use common::{
-    consume_stream, insert_optional, merged_additional_parameters, remove_keys, sdk_base_url,
-    sdk_headers, sdk_http_client, sdk_request,
+    insert_optional, merged_additional_parameters, remove_keys, sdk_base_url, sdk_headers,
+    sdk_http_client, sdk_request, stream_model,
 };
 pub(crate) use error::{classify_provider_error, sdk_completion_error, sdk_verify_error};
 

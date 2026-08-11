@@ -19,10 +19,18 @@ pub struct GenerationRequest {
 pub enum GenerationEvent {
     Started,
     TextDelta(String),
-    ThinkingDelta(String),
-    StepStarted { estimated_input_tokens: u64 },
+    ThinkingDelta {
+        provider_id: Option<String>,
+        delta: String,
+    },
+    ToolCallObserved {
+        internal_call_id: String,
+        provider_tool_call_id: String,
+    },
+    StepStarted {
+        estimated_input_tokens: u64,
+    },
     UsageUpdated(TokenUsage),
-    ProviderOutput,
     ToolExecutionUpdated(Box<ToolExecution>),
     TranscriptAppended(Box<Message>),
     Completed,

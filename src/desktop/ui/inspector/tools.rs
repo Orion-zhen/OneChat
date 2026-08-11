@@ -4,28 +4,6 @@ mod server;
 
 use server::render_tool_server;
 
-fn tool_status_pill(label: impl Into<SharedString>, accent: bool, cx: &App) -> AnyElement {
-    div()
-        .flex_none()
-        .rounded_full()
-        .bg(if accent {
-            cx.theme().accent
-        } else {
-            cx.theme().background
-        })
-        .px_2()
-        .py_1()
-        .text_size(px(10.0))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(if accent {
-            cx.theme().primary
-        } else {
-            cx.theme().muted_foreground
-        })
-        .child(label.into())
-        .into_any_element()
-}
-
 pub(super) fn render_tools(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
     let Some(conversation) = app.current_conversation() else {
         return notice("Select a conversation to configure its tools.", cx);

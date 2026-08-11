@@ -17,8 +17,8 @@ mod user;
 
 pub(super) use assistant::render_assistant_turn;
 use attachments::{render_sent_attachment, user_editor_width};
-use reasoning::render_reasoning;
-use tools::render_tool_executions;
+use reasoning::{render_reasoning, render_reasoning_block};
+use tools::{render_tool_execution, render_tool_executions, render_tool_placeholder};
 pub(super) use user::render_user_turn;
 
 fn message_edit_submits(app: &OneChat, action: &Enter) -> bool {

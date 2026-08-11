@@ -60,25 +60,26 @@ pub(in crate::desktop::ui::settings) fn prompt_variable_dialog_body(
                             .child("Advanced Options"),
                     )
                     .child(
-                        icon_action(
-                            "toggle-prompt-variable-advanced",
-                            if editor.advanced_expanded {
-                                AppIcon::ChevronUp
-                            } else {
-                                AppIcon::ChevronDown
-                            },
-                            IconTone::Muted,
-                            if editor.advanced_expanded {
-                                "Collapse advanced options"
-                            } else {
-                                "Expand advanced options"
-                            },
-                            cx,
-                        )
-                        .on_click(move |_, _, cx| {
-                            advanced_app
-                                .update(cx, |app, cx| app.toggle_prompt_variable_advanced(cx));
-                        }),
+                        Compact
+                            .icon_action(
+                                "toggle-prompt-variable-advanced",
+                                if editor.advanced_expanded {
+                                    AppIcon::ChevronUp
+                                } else {
+                                    AppIcon::ChevronDown
+                                },
+                                IconTone::Muted,
+                                if editor.advanced_expanded {
+                                    "Collapse advanced options"
+                                } else {
+                                    "Expand advanced options"
+                                },
+                                cx,
+                            )
+                            .on_click(move |_, _, cx| {
+                                advanced_app
+                                    .update(cx, |app, cx| app.toggle_prompt_variable_advanced(cx));
+                            }),
                     ),
             )
             .when(editor.advanced_expanded, |content| {
@@ -124,21 +125,22 @@ pub(in crate::desktop::ui::settings) fn prompt_variable_dialog_body(
                             .child("Run once to inspect the output before saving."),
                     )
                     .child(
-                        icon_action(
-                            "test-prompt-variable-command",
-                            AppIcon::Command,
-                            IconTone::Muted,
-                            if running {
-                                "Command is running"
-                            } else {
-                                "Test command"
-                            },
-                            cx,
-                        )
-                        .disabled(running)
-                        .on_click(move |_, _, cx| {
-                            test_app.update(cx, |app, cx| app.test_prompt_variable_command(cx));
-                        }),
+                        Compact
+                            .icon_action(
+                                "test-prompt-variable-command",
+                                AppIcon::Command,
+                                IconTone::Muted,
+                                if running {
+                                    "Command is running"
+                                } else {
+                                    "Test command"
+                                },
+                                cx,
+                            )
+                            .disabled(running)
+                            .on_click(move |_, _, cx| {
+                                test_app.update(cx, |app, cx| app.test_prompt_variable_command(cx));
+                            }),
                     ),
             )
             .children(command_test_result(editor, cx));

@@ -1,13 +1,19 @@
+mod badges;
 pub(crate) mod chat;
+mod controls;
 pub(crate) mod copy_button;
 pub(crate) mod icons;
+pub(crate) mod input;
 pub(crate) mod inspector;
 pub(crate) mod markdown;
+mod mcp;
+mod model;
 pub(crate) mod motion;
 pub(crate) mod selectable_text;
 pub(crate) mod settings;
 pub(crate) mod shell;
 pub(crate) mod stream;
+mod text;
 pub(crate) mod theme;
 pub(crate) mod typography;
 

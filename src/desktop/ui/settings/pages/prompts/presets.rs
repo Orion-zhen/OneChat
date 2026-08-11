@@ -93,7 +93,9 @@ pub(super) fn prompt_presets_content(app: &OneChat, cx: &mut Context<OneChat>) -
                                         .font_weight(FontWeight::SEMIBOLD)
                                         .child(preset.name.clone()),
                                 )
-                                .children(default.then(|| status_pill("Default", true, cx))),
+                                .children(default.then(|| {
+                                    status_pill("Default", true, StatusPillBackground::Muted, cx)
+                                })),
                         )
                         .child(
                             div()
@@ -103,44 +105,47 @@ pub(super) fn prompt_presets_content(app: &OneChat, cx: &mut Context<OneChat>) -
                                 .text_ellipsis()
                                 .text_size(px(12.0))
                                 .text_color(cx.theme().muted_foreground)
-                                .child(prompt_preview(&preset.content)),
+                                .child(text_summary(&preset.content, 420, None)),
                         ),
                 )
                 .child(
-                    icon_action(
-                        SharedString::from(format!("view-prompt-{}", preset.name)),
-                        AppIcon::Eye,
-                        IconTone::Muted,
-                        "View prompt",
-                        cx,
-                    )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.view_prompt_preset(view_name.clone(), window, cx)
-                    })),
+                    Compact
+                        .icon_action(
+                            SharedString::from(format!("view-prompt-{}", preset.name)),
+                            AppIcon::Eye,
+                            IconTone::Muted,
+                            "View prompt",
+                            cx,
+                        )
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.view_prompt_preset(view_name.clone(), window, cx)
+                        })),
                 )
                 .child(
-                    icon_action(
-                        SharedString::from(format!("edit-prompt-{}", preset.name)),
-                        AppIcon::Pencil,
-                        IconTone::Muted,
-                        "Edit prompt",
-                        cx,
-                    )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.begin_edit_prompt_preset(edit_name.clone(), window, cx)
-                    })),
+                    Compact
+                        .icon_action(
+                            SharedString::from(format!("edit-prompt-{}", preset.name)),
+                            AppIcon::Pencil,
+                            IconTone::Muted,
+                            "Edit prompt",
+                            cx,
+                        )
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.begin_edit_prompt_preset(edit_name.clone(), window, cx)
+                        })),
                 )
                 .child(
-                    icon_action(
-                        SharedString::from(format!("delete-prompt-{}", preset.name)),
-                        AppIcon::Trash,
-                        IconTone::Danger,
-                        "Delete prompt",
-                        cx,
-                    )
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        this.request_delete_prompt_preset(delete_name.clone(), window, cx)
-                    })),
+                    Compact
+                        .icon_action(
+                            SharedString::from(format!("delete-prompt-{}", preset.name)),
+                            AppIcon::Trash,
+                            IconTone::Danger,
+                            "Delete prompt",
+                            cx,
+                        )
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.request_delete_prompt_preset(delete_name.clone(), window, cx)
+                        })),
                 )
         }))
         .into_any_element()

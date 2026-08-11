@@ -1,4 +1,8 @@
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+    time::Duration,
+};
 
 use onechat::{
     application::generation::{
@@ -7,12 +11,13 @@ use onechat::{
         run_generation,
     },
     domain::{
-        AssistantResponse, Attachment, AttachmentDraft, AttachmentDraftFile, AttachmentFileKind,
-        AttachmentKind, AudioAttachmentMetadata, AudioAttachmentSource, Conversation,
-        CustomReasoningPreset, GenerationConfig, GenerationError, GenerationErrorKind,
-        GenerationEvent, HistoryLimit, KnownReasoningFormat, Message, MessageStatus, Model,
-        ModelReasoningConfig, PromptVariableSource, Provider, ProviderKind, ReasoningParameter,
-        ReasoningParameterValue, RequestInfo, RequestStatus, TokenUsage, Turn, UserMessage,
+        AssistantBlock, AssistantResponse, Attachment, AttachmentDraft, AttachmentDraftFile,
+        AttachmentFileKind, AttachmentKind, AudioAttachmentMetadata, AudioAttachmentSource,
+        Conversation, CustomReasoningPreset, GenerationConfig, GenerationError,
+        GenerationErrorKind, GenerationEvent, HistoryLimit, KnownReasoningFormat, Message,
+        MessageStatus, Model, ModelReasoningConfig, PromptVariableSource, Provider, ProviderKind,
+        ReasoningParameter, ReasoningParameterValue, RequestContextInfo, RequestInfo,
+        RequestStatus, TokenUsage, ToolExecution, ToolRef, ToolSelection, Turn, UserMessage,
         merge_json_patch,
     },
     mcp::McpManager,
@@ -28,6 +33,8 @@ mod attachments;
 mod branching;
 #[path = "generation/context_window.rs"]
 mod context_window;
+#[path = "generation/continuation.rs"]
+mod continuation;
 #[path = "generation/history.rs"]
 mod history;
 #[path = "generation/manager.rs"]

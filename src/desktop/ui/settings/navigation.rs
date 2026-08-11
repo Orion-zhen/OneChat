@@ -156,16 +156,19 @@ pub(super) fn settings_sidebar(app: &OneChat, width: f32, cx: &mut Context<OneCh
                         .child("Providers"),
                 )
                 .child(
-                    icon_action(
-                        "add-provider-sidebar",
-                        AppIcon::Plus,
-                        IconTone::Accent,
-                        "Add provider",
-                        cx,
-                    )
-                    .on_click(
-                        cx.listener(|this, _, window, cx| this.request_add_provider(window, cx)),
-                    ),
+                    Compact
+                        .icon_action(
+                            "add-provider-sidebar",
+                            AppIcon::Plus,
+                            IconTone::Accent,
+                            "Add provider",
+                            cx,
+                        )
+                        .on_click(
+                            cx.listener(|this, _, window, cx| {
+                                this.request_add_provider(window, cx)
+                            }),
+                        ),
                 ),
         )
         .child(

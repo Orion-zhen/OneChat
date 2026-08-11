@@ -12,7 +12,10 @@ use gpui_component::{
 use crate::{
     desktop::{
         app::{OneChat, PaletteCommand, PickerOverlay},
-        ui::{inspector, motion::translated_y},
+        ui::{
+            icons::selected_check_badge, model::capability_summary as model_capability_summary,
+            motion::translated_y, text::summary as text_summary,
+        },
     },
     domain::Model,
 };
@@ -26,6 +29,65 @@ pub(crate) use command::CommandPaletteDelegate;
 pub(crate) use model::ModelPickerDelegate;
 pub(crate) use prompt::PromptPickerDelegate;
 pub(crate) use reasoning::ReasoningPickerDelegate;
+
+#[derive(Clone)]
+struct FlatPickerState<T> {
+    all: Vec<T>,
+    filtered: Vec<T>,
+    selected: Option<IndexPath>,
+}
+
+impl<T: Clone> FlatPickerState<T> {
+    fn empty() -> Self {
+        Self {
+            all: Vec::new(),
+            filtered: Vec::new(),
+            selected: None,
+        }
+    }
+
+    fn new(all: Vec<T>, is_selected: impl Fn(&T) -> bool) -> Self {
+        let selected = all
+            .iter()
+            .position(is_selected)
+            .map(IndexPath::new)
+            .or((!all.is_empty()).then(IndexPath::default));
+        Self {
+            filtered: all.clone(),
+            all,
+            selected,
+        }
+    }
+
+    fn filter(&mut self, mut matches: impl FnMut(&T) -> bool) {
+        self.filtered = self
+            .all
+            .iter()
+            .filter(|item| matches(item))
+            .cloned()
+            .collect();
+    }
+
+    fn len(&self) -> usize {
+        self.filtered.len()
+    }
+
+    fn get(&self, index: IndexPath) -> Option<&T> {
+        self.filtered.get(index.row)
+    }
+
+    fn initial_selection(&self) -> Option<IndexPath> {
+        self.selected
+    }
+
+    fn selected(&self) -> Option<IndexPath> {
+        self.selected
+    }
+
+    fn set_selected(&mut self, selected: Option<IndexPath>) {
+        self.selected = selected;
+    }
+}
 
 pub(crate) fn command_palette_dialog(
     dialog: Dialog,
@@ -388,16 +450,29 @@ fn command_shortcut(command: PaletteCommand) -> Option<String> {
     }
 }
 
-fn prompt_excerpt(prompt: &str) -> String {
-    const MAX_CHARACTERS: usize = 100;
-    let prompt = prompt.split_whitespace().collect::<Vec<_>>().join(" ");
-    let mut characters = prompt.chars();
-    let excerpt = characters.by_ref().take(MAX_CHARACTERS).collect::<String>();
-    if characters.next().is_some() {
-        format!("{excerpt}…")
-    } else if excerpt.is_empty() {
-        "Empty prompt".into()
-    } else {
-        excerpt
+#[cfg(test)]
+mod flat_picker_tests {
+    use super::FlatPickerState;
+    use gpui_component::IndexPath;
+
+    #[test]
+    fn filters_without_discarding_all_items_or_selection() {
+        let mut state = FlatPickerState::new(vec!["first", "selected", "last"], |item| {
+            *item == "selected"
+        });
+        state.filter(|item| item.contains('s'));
+
+        assert_eq!(state.len(), 3);
+        assert_eq!(state.initial_selection(), Some(IndexPath::new(1)));
+        state.filter(|item| item.starts_with('l'));
+        assert_eq!(state.get(IndexPath::default()), Some(&"last"));
+        assert_eq!(state.initial_selection(), Some(IndexPath::new(1)));
+    }
+
+    #[test]
+    fn defaults_to_first_item_and_handles_empty_state() {
+        let state = FlatPickerState::new(vec![1, 2], |_| false);
+        assert_eq!(state.initial_selection(), Some(IndexPath::default()));
+        assert_eq!(FlatPickerState::<i32>::empty().initial_selection(), None);
     }
 }

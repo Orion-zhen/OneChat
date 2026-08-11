@@ -53,10 +53,10 @@ pub struct McpServerEditor {
     pub id: Entity<InputState>,
     pub command: Entity<InputState>,
     pub url: Entity<InputState>,
-    pub args: Vec<Entity<InputState>>,
-    pub env: Vec<KeyValueEditor>,
+    pub(in crate::desktop::ui::settings) args: Vec<Entity<InputState>>,
+    pub(in crate::desktop::ui::settings) env: Vec<KeyValueEditor>,
     pub cwd: Entity<InputState>,
-    pub headers: Vec<KeyValueEditor>,
+    pub(in crate::desktop::ui::settings) headers: Vec<KeyValueEditor>,
     pub proxy: Entity<InputState>,
     pub bearer_token: Entity<InputState>,
     pub oauth_flow: Option<McpOAuthFlow>,
@@ -294,52 +294,45 @@ impl McpServerEditor {
     }
 
     pub fn add_argument(&mut self, window: &mut Window, cx: &mut Context<OneChat>) {
-        if self
+        let complete = self
             .args
             .last()
-            .is_some_and(|argument| !argument.read(cx).value().trim().is_empty())
-        {
-            self.args
-                .push(single_line_input("", "Argument", window, cx));
-        }
+            .is_some_and(|argument| !argument.read(cx).value().trim().is_empty());
+        append_draft_if_tail_complete(&mut self.args, complete, || {
+            single_line_input("", "Argument", window, cx)
+        });
     }
 
     pub fn remove_argument(&mut self, index: usize) {
-        if index + 1 < self.args.len() {
-            self.args.remove(index);
-        }
+        remove_committed(&mut self.args, index);
     }
 
     pub fn add_environment_variable(&mut self, window: &mut Window, cx: &mut Context<OneChat>) {
-        if self
+        let complete = self
             .env
             .last()
-            .is_some_and(|variable| !variable.name.read(cx).value().trim().is_empty())
-        {
-            self.env.push(KeyValueEditor::new("", "", window, cx));
-        }
+            .is_some_and(|variable| !variable.name.read(cx).value().trim().is_empty());
+        append_draft_if_tail_complete(&mut self.env, complete, || {
+            KeyValueEditor::new("", "", window, cx)
+        });
     }
 
     pub fn remove_environment_variable(&mut self, index: usize) {
-        if index + 1 < self.env.len() {
-            self.env.remove(index);
-        }
+        remove_committed(&mut self.env, index);
     }
 
     pub fn add_header(&mut self, window: &mut Window, cx: &mut Context<OneChat>) {
-        if self
+        let complete = self
             .headers
             .last()
-            .is_some_and(|header| !header.name.read(cx).value().trim().is_empty())
-        {
-            self.headers.push(KeyValueEditor::new("", "", window, cx));
-        }
+            .is_some_and(|header| !header.name.read(cx).value().trim().is_empty());
+        append_draft_if_tail_complete(&mut self.headers, complete, || {
+            KeyValueEditor::new("", "", window, cx)
+        });
     }
 
     pub fn remove_header(&mut self, index: usize) {
-        if index + 1 < self.headers.len() {
-            self.headers.remove(index);
-        }
+        remove_committed(&mut self.headers, index);
     }
 
     pub fn oauth_mode_index(&self) -> usize {

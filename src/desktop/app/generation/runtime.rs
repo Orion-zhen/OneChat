@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    time::{Duration, Instant},
+};
 
 use gpui::{Context, ScrollHandle, Task, prelude::*};
 use tokio_util::sync::CancellationToken;
@@ -9,7 +12,7 @@ use crate::{
         generation::{GenerationStart, GenerationUpdate, PreparedGeneration, run_generation},
         prompt::PromptContext,
     },
-    domain::{AssistantResponse, MessageStatus, RequestInfo},
+    domain::{AssistantBlock, AssistantResponse, MessageStatus, RequestInfo},
     markdown::MarkdownDocument,
 };
 
@@ -183,7 +186,7 @@ impl OneChat {
 
         let cleanup_request_id = request_id.clone();
         cx.spawn(async move |this, cx| {
-            let mut last_markdown_source = String::new();
+            let mut last_markdown_sources = HashMap::<String, String>::new();
             while let Ok(update) = receiver.recv().await {
                 match update {
                     GenerationUpdate::PersistenceFailed(error) => {
@@ -196,22 +199,31 @@ impl OneChat {
                         let response = snapshot.response;
                         let request = snapshot.request;
                         let terminal = snapshot.terminal;
-                        let thinking_finished = snapshot.thinking_finished;
-                        let parsed_markdown = if response.content != last_markdown_source {
-                            last_markdown_source.clone_from(&response.content);
-                            let source = response.content.clone();
-                            Some(
-                                cx.background_spawn(async move {
-                                    let document = MarkdownDocument::parse(&source);
-                                    (source, document)
-                                })
-                                .await,
-                            )
-                        } else {
-                            None
-                        };
+                        let finished_reasoning_ids = snapshot.finished_reasoning_ids;
+                        let markdown_sources = response_output_sources(&response)
+                            .into_iter()
+                            .filter_map(|(id, source)| {
+                                if last_markdown_sources.get(&id) == Some(&source) {
+                                    None
+                                } else {
+                                    last_markdown_sources.insert(id.clone(), source.clone());
+                                    Some((id, source))
+                                }
+                            })
+                            .collect::<Vec<_>>();
+                        let parsed_markdown = cx
+                            .background_spawn(async move {
+                                markdown_sources
+                                    .into_iter()
+                                    .map(|(id, source)| {
+                                        let document = MarkdownDocument::parse(&source);
+                                        (id, source, document)
+                                    })
+                                    .collect::<Vec<_>>()
+                            })
+                            .await;
                         let _ = this.update(cx, |this, cx| {
-                            if request.thinking_duration_ms.is_some() || terminal {
+                            if terminal {
                                 this.chat.thinking_started_at.remove(&request.id);
                             }
                             let visible = this.update_generation_snapshot(
@@ -219,18 +231,21 @@ impl OneChat {
                                 &response,
                                 &request,
                             );
-                            if visible && thinking_finished && !response.thinking.is_empty() {
-                                this.finish_thinking(response.id.clone());
+                            if visible {
+                                for reasoning_id in finished_reasoning_ids {
+                                    this.finish_thinking(reasoning_id);
+                                }
                             }
-                            if let Some((source, document)) = parsed_markdown
-                                && this
+                            for (id, source, document) in parsed_markdown {
+                                let current = this
                                     .response(&response.id)
-                                    .is_some_and(|(_, stored)| stored.content == source)
-                            {
-                                this.chat.markdown_documents.insert(
-                                    response.id.clone(),
-                                    CachedMarkdown { source, document },
-                                );
+                                    .and_then(|(_, stored)| response_output_source(stored, &id))
+                                    == Some(source.as_str());
+                                if current {
+                                    this.chat
+                                        .markdown_documents
+                                        .insert(id, CachedMarkdown { source, document });
+                                }
                             }
                             if terminal {
                                 this.chat.generations.finish(&conversation_id, &request_id);
@@ -313,19 +328,7 @@ impl OneChat {
             {
                 *stored = response.clone();
             }
-            let continuation_is_unusable = turn
-                .continuation_response_id
-                .as_deref()
-                .and_then(|id| turn.response(id))
-                .is_none_or(|response| {
-                    response.status != MessageStatus::Completed || response.content.is_empty()
-                });
-            if response.status == MessageStatus::Completed
-                && !response.content.is_empty()
-                && continuation_is_unusable
-            {
-                turn.continuation_response_id = Some(response.id.clone());
-            }
+            turn.promote_continuation_response(&response.id);
         }
         if let Some(info) = self
             .data
@@ -337,9 +340,18 @@ impl OneChat {
             *info = request.clone();
         }
         if thinking_grew {
+            let reasoning_id = response
+                .blocks
+                .iter()
+                .rev()
+                .find_map(|block| match block {
+                    AssistantBlock::Reasoning { id, .. } => Some(id.clone()),
+                    _ => None,
+                })
+                .unwrap_or_else(|| response.id.clone());
             self.chat
                 .thinking_scrolls
-                .entry(response.id.clone())
+                .entry(reasoning_id)
                 .or_default()
                 .scroll_to_bottom();
         }
@@ -348,4 +360,31 @@ impl OneChat {
         }
         true
     }
+}
+
+fn response_output_sources(response: &AssistantResponse) -> Vec<(String, String)> {
+    if response.blocks.is_empty() {
+        return vec![(response.id.clone(), response.content.clone())];
+    }
+    response
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            AssistantBlock::Output { id, content } => Some((id.clone(), content.clone())),
+            _ => None,
+        })
+        .collect()
+}
+
+fn response_output_source<'a>(response: &'a AssistantResponse, id: &str) -> Option<&'a str> {
+    if response.blocks.is_empty() {
+        return (response.id == id).then_some(response.content.as_str());
+    }
+    response.blocks.iter().find_map(|block| match block {
+        AssistantBlock::Output {
+            id: output_id,
+            content,
+        } if output_id == id => Some(content.as_str()),
+        _ => None,
+    })
 }

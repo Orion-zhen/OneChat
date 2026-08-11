@@ -207,37 +207,43 @@ fn font_stack_editor(app: &OneChat, role: FontRole, cx: &mut Context<OneChat>) -
         .bg(cx.theme().muted)
         .overflow_hidden()
         .children(families.iter().enumerate().map(|(index, family)| {
-            let move_up = icon_action(
-                SharedString::from(format!("font-{role:?}-{index}-up")),
-                AppIcon::ArrowUp,
-                IconTone::Muted,
-                "Move earlier",
-                cx,
-            )
-            .disabled(index == 0)
-            .on_click(
-                cx.listener(move |this, _, _, cx| this.move_font_family(role, index, true, cx)),
-            );
-            let move_down = icon_action(
-                SharedString::from(format!("font-{role:?}-{index}-down")),
-                AppIcon::ArrowDown,
-                IconTone::Muted,
-                "Move later",
-                cx,
-            )
-            .disabled(index + 1 == count)
-            .on_click(
-                cx.listener(move |this, _, _, cx| this.move_font_family(role, index, false, cx)),
-            );
-            let remove = icon_action(
-                SharedString::from(format!("font-{role:?}-{index}-remove")),
-                AppIcon::Trash,
-                IconTone::Danger,
-                "Remove font",
-                cx,
-            )
-            .disabled(count == 1)
-            .on_click(cx.listener(move |this, _, _, cx| this.remove_font_family(role, index, cx)));
+            let move_up = Compact
+                .icon_action(
+                    SharedString::from(format!("font-{role:?}-{index}-up")),
+                    AppIcon::ArrowUp,
+                    IconTone::Muted,
+                    "Move earlier",
+                    cx,
+                )
+                .disabled(index == 0)
+                .on_click(
+                    cx.listener(move |this, _, _, cx| this.move_font_family(role, index, true, cx)),
+                );
+            let move_down =
+                Compact
+                    .icon_action(
+                        SharedString::from(format!("font-{role:?}-{index}-down")),
+                        AppIcon::ArrowDown,
+                        IconTone::Muted,
+                        "Move later",
+                        cx,
+                    )
+                    .disabled(index + 1 == count)
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.move_font_family(role, index, false, cx)
+                    }));
+            let remove = Compact
+                .icon_action(
+                    SharedString::from(format!("font-{role:?}-{index}-remove")),
+                    AppIcon::Trash,
+                    IconTone::Danger,
+                    "Remove font",
+                    cx,
+                )
+                .disabled(count == 1)
+                .on_click(
+                    cx.listener(move |this, _, _, cx| this.remove_font_family(role, index, cx)),
+                );
 
             div()
                 .min_h(px(46.0))

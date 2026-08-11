@@ -16,7 +16,7 @@ use crate::{
         },
     },
     domain::{ReasoningLevel, now_timestamp},
-    providers::{self, AvailableModel},
+    providers,
 };
 mod model;
 mod provider;

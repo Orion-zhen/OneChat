@@ -102,23 +102,24 @@ pub(super) fn default_reasoning_action(
     selected: bool,
     cx: &App,
 ) -> Button {
-    icon_action(
-        id,
-        AppIcon::Pin,
-        if selected {
-            IconTone::Accent
-        } else {
-            IconTone::Muted
-        },
-        if selected {
-            "Default preset"
-        } else {
-            "Set as default"
-        },
-        cx,
-    )
-    .selected(selected)
-    .toggled(selected)
+    Compact
+        .icon_action(
+            id,
+            AppIcon::Pin,
+            if selected {
+                IconTone::Accent
+            } else {
+                IconTone::Muted
+            },
+            if selected {
+                "Default preset"
+            } else {
+                "Set as default"
+            },
+            cx,
+        )
+        .selected(selected)
+        .toggled(selected)
 }
 
 pub(super) fn known_reasoning_presets(

@@ -27,5 +27,7 @@ mod recovery;
 mod settings;
 #[path = "storage/support.rs"]
 mod support;
+#[path = "storage/transactions.rs"]
+mod transactions;
 
 pub(crate) use support::*;

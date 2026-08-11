@@ -63,8 +63,9 @@ struct RodioBackend {
 impl PlaybackBackend for RodioBackend {
     fn start(&mut self, source: PlaybackSource) -> Result<(), String> {
         self.stop();
-        let output = DeviceSinkBuilder::open_default_sink()
+        let mut output = DeviceSinkBuilder::open_default_sink()
             .map_err(|error| format!("Could not open the audio output device: {error}"))?;
+        output.log_on_drop(false);
         let player = Player::connect_new(output.mixer());
         match source {
             PlaybackSource::Bytes(bytes) => {

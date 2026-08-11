@@ -1,11 +1,11 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{fmt::Display, path::PathBuf, sync::Arc};
 
 use gpui::{Context, prelude::*};
 
 use super::{MessageEditorTarget, OneChat};
 use crate::{
     application::attachments::{
-        MAX_ATTACHMENTS, MAX_IMAGE_BYTES, load as load_attachment, validate_image,
+        LoadManyOptions, MAX_ATTACHMENTS, MAX_IMAGE_BYTES, load_many, validate_image,
     },
     domain::{
         AttachmentDraft, AttachmentDraftFile, AttachmentFileKind, AttachmentKind,
@@ -15,11 +15,38 @@ use crate::{
 
 struct ComposerAttachmentLoad {
     conversation_id: String,
-    vision: bool,
-    audio_input: bool,
-    parse_document_images: bool,
-    remaining: usize,
+    options: LoadManyOptions,
     revision: u64,
+}
+
+enum AttachmentPathSelection {
+    Selected(Vec<PathBuf>),
+    Cancelled,
+    Error(String),
+}
+
+fn attachment_path_prompt_options() -> gpui::PathPromptOptions {
+    gpui::PathPromptOptions {
+        files: true,
+        directories: false,
+        multiple: true,
+        prompt: Some("Select Attachments".into()),
+    }
+}
+
+fn normalize_attachment_path_selection<PromptError: Display, ChannelError: Display>(
+    result: Result<Result<Option<Vec<PathBuf>>, PromptError>, ChannelError>,
+) -> AttachmentPathSelection {
+    match result {
+        Ok(Ok(Some(paths))) => AttachmentPathSelection::Selected(paths),
+        Ok(Ok(None)) => AttachmentPathSelection::Cancelled,
+        Ok(Err(error)) => {
+            AttachmentPathSelection::Error(format!("Could not open attachments: {error}"))
+        }
+        Err(error) => AttachmentPathSelection::Error(format!(
+            "Attachment picker closed unexpectedly: {error}"
+        )),
+    }
 }
 
 mod composer;

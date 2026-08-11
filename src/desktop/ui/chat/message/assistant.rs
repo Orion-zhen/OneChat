@@ -5,7 +5,9 @@ mod content;
 mod header;
 
 use actions::render_message_actions;
-use content::render_message_content;
+use content::{
+    render_editor_controls, render_message_content, render_output_content, render_output_editor,
+};
 use header::render_message_header;
 
 pub(in crate::desktop::ui::chat) fn render_assistant_turn(
@@ -44,7 +46,11 @@ fn render_assistant_message(
     let action_group: SharedString = format!("assistant-actions-{}", message.id).into();
     let latest = app.is_latest_turn(&turn.id);
     let generating = app.is_current_generating();
-    let content = render_message_content(app, message, scale_factor, typography, cx);
+    let content = if message.blocks.is_empty() {
+        render_message_content(app, message, scale_factor, typography, cx)
+    } else {
+        render_ordered_content(app, message, request, scale_factor, typography, cx)
+    };
     let actions = render_message_actions(
         app,
         turn,
@@ -67,8 +73,11 @@ fn render_assistant_message(
         .w_full()
         .max_w(px(message_max_width))
         .child(header)
-        .children(render_reasoning(app, message, request, typography, cx))
-        .children(render_tool_executions(app, message, typography, cx))
+        .children(message.blocks.is_empty().then(|| {
+            div()
+                .children(render_reasoning(app, message, request, typography, cx))
+                .children(render_tool_executions(app, message, typography, cx))
+        }))
         .child(content)
         .children(render_error_card(
             app, message, request, latest, generating, typography, cx,
@@ -94,6 +103,120 @@ fn render_assistant_message(
                 })),
         )
         .into_any_element()
+}
+
+fn render_ordered_content(
+    app: &OneChat,
+    message: &AssistantResponse,
+    request: Option<&RequestInfo>,
+    scale_factor: f32,
+    typography: MessageTypography,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    let editor = app.assistant_message_editor(message);
+    let output_count = message
+        .blocks
+        .iter()
+        .filter(|block| matches!(block, AssistantBlock::Output { .. }))
+        .count();
+    let mut output_index = 0;
+    let mut body = div();
+    for block in &message.blocks {
+        match block {
+            AssistantBlock::Reasoning {
+                id,
+                content,
+                started_after_ms,
+                duration_ms,
+                ..
+            } => {
+                body = body.children(render_reasoning_block(
+                    app,
+                    id,
+                    content,
+                    *started_after_ms,
+                    *duration_ms,
+                    message.status,
+                    request,
+                    typography,
+                    cx,
+                ));
+            }
+            AssistantBlock::Output { id, content } => {
+                let output = if let Some(output_editor) = editor.and_then(|editor| {
+                    editor
+                        .output_editors
+                        .iter()
+                        .find(|output| output.block_id == *id)
+                }) {
+                    render_output_editor(
+                        id,
+                        &output_editor.input,
+                        output_index,
+                        output_count,
+                        typography,
+                        cx,
+                    )
+                } else {
+                    render_output_content(app, id, content, scale_factor, typography, cx)
+                };
+                output_index += 1;
+                body = body.child(div().mb_4().child(output));
+            }
+            AssistantBlock::ToolCall {
+                id, execution_id, ..
+            } => {
+                let execution = execution_id.as_ref().and_then(|execution_id| {
+                    message
+                        .tool_executions
+                        .iter()
+                        .find(|execution| execution.id == *execution_id)
+                });
+                let tool = if let Some(execution) = execution {
+                    render_tool_execution(app, execution, typography, cx)
+                } else {
+                    render_tool_placeholder(id, typography, cx)
+                };
+                body = body.child(div().mb_4().child(tool));
+            }
+        }
+    }
+
+    let waiting = message.content.is_empty()
+        && matches!(
+            message.status,
+            MessageStatus::Pending | MessageStatus::Streaming
+        );
+    if waiting {
+        body = body.child(
+            div()
+                .mb_4()
+                .flex()
+                .items_center()
+                .gap_2()
+                .text_size(px(typography.metadata_size))
+                .line_height(px(typography.metadata_line_height))
+                .text_color(cx.theme().muted_foreground)
+                .child(div().size(px(7.0)).rounded_full().bg(cx.theme().primary))
+                .child(waiting_label(message)),
+        );
+    }
+    if editor.is_some() {
+        body = body.child(render_editor_controls(app, message, typography, cx));
+        let enter_id = message.id.clone();
+        body = body
+            .capture_action(cx.listener(move |this, action: &Enter, _, cx| {
+                if message_edit_submits(this, action) {
+                    cx.stop_propagation();
+                    this.save_assistant_edit(enter_id.clone(), cx);
+                }
+            }))
+            .capture_action(cx.listener(|this, _: &InputEscape, _, cx| {
+                cx.stop_propagation();
+                this.cancel_message_edit(cx);
+            }));
+    }
+    body.into_any_element()
 }
 
 pub(super) fn waiting_label(message: &AssistantResponse) -> String {

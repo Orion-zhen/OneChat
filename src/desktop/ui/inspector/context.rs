@@ -71,28 +71,28 @@ pub(super) fn render_context(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEle
                 .items_center()
                 .gap_2()
                 .child(
-                    primary_icon_action(
-                        "context-edit-system-prompt",
-                        AppIcon::Pencil,
-                        "Edit system prompt",
-                        cx,
-                    )
-                    .on_click(
-                        cx.listener(|this, _, window, cx| {
+                    Regular
+                        .primary_icon_action(
+                            "context-edit-system-prompt",
+                            AppIcon::Pencil,
+                            "Edit system prompt",
+                            cx,
+                        )
+                        .on_click(cx.listener(|this, _, window, cx| {
                             this.begin_edit_system_prompt(window, cx)
-                        }),
-                    ),
+                        })),
                 )
                 .child(
-                    danger_icon_action(
-                        "clear-conversation-context",
-                        AppIcon::Trash,
-                        "Clear context",
-                        cx,
-                    )
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.request_clear_current_context(window, cx)
-                    })),
+                    Regular
+                        .danger_icon_action(
+                            "clear-conversation-context",
+                            AppIcon::Trash,
+                            "Clear context",
+                            cx,
+                        )
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.request_clear_current_context(window, cx)
+                        })),
                 ),
         )
         .into_any_element()

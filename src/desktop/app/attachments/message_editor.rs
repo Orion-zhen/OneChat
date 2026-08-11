@@ -31,16 +31,13 @@ impl OneChat {
             return;
         }
 
-        let vision = model.capabilities.vision;
-        let audio_input = model.capabilities.audio_input;
-        let parse_document_images = self.settings().parse_document_images;
-        let remaining = MAX_ATTACHMENTS - attachment_count;
-        let paths = cx.prompt_for_paths(gpui::PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: true,
-            prompt: Some("Select Attachments".into()),
-        });
+        let options = LoadManyOptions {
+            remaining: MAX_ATTACHMENTS - attachment_count,
+            vision: model.capabilities.vision,
+            audio_input: model.capabilities.audio_input,
+            parse_document_images: self.settings().parse_document_images,
+        };
+        let paths = cx.prompt_for_paths(attachment_path_prompt_options());
         let load_id = new_id("attachment-load");
         if let Some(editor) = self.chat.message_editor.as_mut() {
             editor.attachment_load_id = Some(load_id.clone());
@@ -48,9 +45,14 @@ impl OneChat {
         cx.notify();
 
         cx.spawn(async move |this, cx| {
-            let selected = match paths.await {
-                Ok(Ok(Some(paths))) => paths,
-                Ok(Ok(None)) => {
+            let selected = match normalize_attachment_path_selection(paths.await) {
+                AttachmentPathSelection::Selected(paths) => paths,
+                selection => {
+                    let error = match selection {
+                        AttachmentPathSelection::Cancelled => None,
+                        AttachmentPathSelection::Error(error) => Some(error),
+                        AttachmentPathSelection::Selected(_) => unreachable!(),
+                    };
                     let _ = this.update(cx, |this, cx| {
                         let Some(editor) = this.chat.message_editor.as_mut().filter(|editor| {
                             matches!(&editor.target, MessageEditorTarget::User(id) if id == &turn_id)
@@ -59,35 +61,9 @@ impl OneChat {
                             return;
                         };
                         editor.attachment_load_id = None;
-                        cx.notify();
-                    });
-                    return;
-                }
-                Ok(Err(error)) => {
-                    let _ = this.update(cx, |this, cx| {
-                        let Some(editor) = this.chat.message_editor.as_mut().filter(|editor| {
-                            matches!(&editor.target, MessageEditorTarget::User(id) if id == &turn_id)
-                                && editor.attachment_load_id.as_deref() == Some(&load_id)
-                        }) else {
-                            return;
-                        };
-                        editor.attachment_load_id = None;
-                        this.data.error = Some(format!("Could not open attachments: {error}"));
-                        cx.notify();
-                    });
-                    return;
-                }
-                Err(error) => {
-                    let _ = this.update(cx, |this, cx| {
-                        let Some(editor) = this.chat.message_editor.as_mut().filter(|editor| {
-                            matches!(&editor.target, MessageEditorTarget::User(id) if id == &turn_id)
-                                && editor.attachment_load_id.as_deref() == Some(&load_id)
-                        }) else {
-                            return;
-                        };
-                        editor.attachment_load_id = None;
-                        this.data.error =
-                            Some(format!("Attachment picker closed unexpectedly: {error}"));
+                        if let Some(error) = error {
+                            this.data.error = Some(error);
+                        }
                         cx.notify();
                     });
                     return;
@@ -95,20 +71,7 @@ impl OneChat {
             };
 
             let result = cx
-                .background_spawn(async move {
-                    if selected.len() > remaining {
-                        return Err(format!(
-                            "Select at most {remaining} more attachment{}.",
-                            if remaining == 1 { "" } else { "s" }
-                        ));
-                    }
-                    selected
-                        .into_iter()
-                        .map(|path| {
-                            load_attachment(&path, vision, audio_input, parse_document_images)
-                        })
-                        .collect::<Result<Vec<_>, _>>()
-                })
+                .background_spawn(async move { load_many(selected, options) })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if this.current_conversation().map(|value| &value.id) != Some(&conversation_id) {

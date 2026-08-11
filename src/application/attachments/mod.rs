@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::domain::AttachmentDraft;
 
@@ -14,6 +14,45 @@ pub const MAX_ATTACHMENTS: usize = 10;
 pub const MAX_AUDIO_BYTES: u64 = 10 * 1024 * 1024;
 pub const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
 pub(super) const MAX_TEXT_BYTES: u64 = 1024 * 1024;
+
+#[derive(Clone, Copy, Debug)]
+pub struct LoadManyOptions {
+    pub remaining: usize,
+    pub vision: bool,
+    pub audio_input: bool,
+    pub parse_document_images: bool,
+}
+
+pub fn load_many(
+    paths: Vec<PathBuf>,
+    options: LoadManyOptions,
+) -> Result<Vec<AttachmentDraft>, String> {
+    if paths.len() > options.remaining {
+        return Err(format!(
+            "Select at most {} more attachment{}.",
+            options.remaining,
+            if options.remaining == 1 { "" } else { "s" }
+        ));
+    }
+    paths
+        .into_iter()
+        .map(|path| {
+            if path.is_dir() {
+                Err(format!(
+                    "Folders cannot be added as attachments: {}",
+                    path.display()
+                ))
+            } else {
+                load(
+                    &path,
+                    options.vision,
+                    options.audio_input,
+                    options.parse_document_images,
+                )
+            }
+        })
+        .collect()
+}
 
 pub fn load(
     path: &Path,

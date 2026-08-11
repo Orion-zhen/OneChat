@@ -23,16 +23,17 @@ pub(super) fn reasoning_parameter_list(
                     .child(label),
             )
             .child(
-                icon_action(
-                    SharedString::from(format!("add-reasoning-{scope_id}-{preset_index}")),
-                    AppIcon::Plus,
-                    IconTone::Accent,
-                    "Add parameter",
-                    cx,
-                )
-                .on_click(cx.listener(move |this, _, window, cx| {
-                    this.add_reasoning_parameter(preset_index, scope, window, cx)
-                })),
+                Compact
+                    .icon_action(
+                        SharedString::from(format!("add-reasoning-{scope_id}-{preset_index}")),
+                        AppIcon::Plus,
+                        IconTone::Accent,
+                        "Add parameter",
+                        cx,
+                    )
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        this.add_reasoning_parameter(preset_index, scope, window, cx)
+                    })),
             ),
     );
     if !parameters.is_empty() {
@@ -126,23 +127,24 @@ pub(super) fn reasoning_parameter_list(
                     )
                     .child(div().min_w_0().flex_1().child(value))
                     .child(
-                        icon_action(
-                            SharedString::from(format!(
-                                "remove-reasoning-{scope_id}-{preset_index}-{parameter_index}"
-                            )),
-                            AppIcon::Trash,
-                            IconTone::Danger,
-                            "Remove parameter",
-                            cx,
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.remove_reasoning_parameter(
-                                preset_index,
-                                scope,
-                                parameter_index,
+                        Compact
+                            .icon_action(
+                                SharedString::from(format!(
+                                    "remove-reasoning-{scope_id}-{preset_index}-{parameter_index}"
+                                )),
+                                AppIcon::Trash,
+                                IconTone::Danger,
+                                "Remove parameter",
                                 cx,
                             )
-                        })),
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.remove_reasoning_parameter(
+                                    preset_index,
+                                    scope,
+                                    parameter_index,
+                                    cx,
+                                )
+                            })),
                     )
             }),
     )

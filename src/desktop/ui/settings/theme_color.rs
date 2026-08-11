@@ -272,15 +272,16 @@ fn custom_header(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
         .justify_between()
         .child(picker_section_label("Custom", cx))
         .child(
-            icon_action(
-                "reset-theme-color",
-                AppIcon::Regenerate,
-                IconTone::Muted,
-                "Reset to default",
-                cx,
-            )
-            .disabled(at_default)
-            .on_click(cx.listener(|this, _, _, cx| this.reset_theme_color(cx))),
+            Compact
+                .icon_action(
+                    "reset-theme-color",
+                    AppIcon::Regenerate,
+                    IconTone::Muted,
+                    "Reset to default",
+                    cx,
+                )
+                .disabled(at_default)
+                .on_click(cx.listener(|this, _, _, cx| this.reset_theme_color(cx))),
         )
         .into_any_element()
 }

@@ -30,26 +30,33 @@ pub(in crate::desktop::ui::settings) fn system_prompts_page(
         .flex()
         .items_center()
         .gap_2()
-        .child(status_pill(preset_count_label, false, cx))
+        .child(status_pill(
+            preset_count_label,
+            false,
+            StatusPillBackground::Muted,
+            cx,
+        ))
         .child(
-            icon_action(
-                "reload-prompt-presets",
-                AppIcon::Regenerate,
-                IconTone::Muted,
-                "Reload prompts",
-                cx,
-            )
-            .on_click(cx.listener(|this, _, _, cx| this.reload_prompt_presets(cx))),
+            Compact
+                .icon_action(
+                    "reload-prompt-presets",
+                    AppIcon::Regenerate,
+                    IconTone::Muted,
+                    "Reload prompts",
+                    cx,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.reload_prompt_presets(cx))),
         )
         .child(
-            primary_icon_action("add-prompt-preset", AppIcon::Plus, "New prompt", cx).on_click(
-                cx.listener(|this, _, window, cx| this.begin_add_prompt_preset(window, cx)),
-            ),
+            Compact
+                .primary_icon_action("add-prompt-preset", AppIcon::Plus, "New prompt", cx)
+                .on_click(
+                    cx.listener(|this, _, window, cx| this.begin_add_prompt_preset(window, cx)),
+                ),
         );
-    let variable_actions =
-        primary_icon_action("add-prompt-variable", AppIcon::Plus, "New variable", cx).on_click(
-            cx.listener(|this, _, window, cx| this.begin_add_prompt_variable(window, cx)),
-        );
+    let variable_actions = Compact
+        .primary_icon_action("add-prompt-variable", AppIcon::Plus, "New variable", cx)
+        .on_click(cx.listener(|this, _, window, cx| this.begin_add_prompt_variable(window, cx)));
 
     let conversation_prompts = div()
         .w_full()

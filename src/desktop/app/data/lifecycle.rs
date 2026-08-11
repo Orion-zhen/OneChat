@@ -10,7 +10,7 @@ use crate::{
     desktop::ui::inspector::{
         GenerationConfigEditor, GenerationParameterItem, ReasoningPresetItem,
     },
-    domain::AutoTitleState,
+    domain::{AssistantBlock, AutoTitleState},
     markdown::MarkdownDocument,
     storage::{Storage, StorageResult, StorageSnapshot},
 };
@@ -124,28 +124,15 @@ impl OneChat {
     }
 
     pub(in crate::desktop::app) fn refresh_markdown_documents(&mut self, cx: &mut Context<Self>) {
-        self.chat.markdown_documents.retain(|message_id, cached| {
-            self.data.snapshot.current_turns.iter().any(|turn| {
-                (turn.user.id == *message_id && turn.user.content == cached.source)
-                    || turn.responses.iter().any(|response| {
-                        response.id == *message_id && response.content == cached.source
-                    })
-            })
+        let sources = markdown_sources(&self.data.snapshot);
+        self.chat.markdown_documents.retain(|id, cached| {
+            sources
+                .get(id)
+                .is_some_and(|source| source == &cached.source)
         });
-        let pending = self
-            .data
-            .snapshot
-            .current_turns
-            .iter()
-            .flat_map(|turn| {
-                std::iter::once((&turn.user.id, &turn.user.content)).chain(
-                    turn.responses
-                        .iter()
-                        .map(|response| (&response.id, &response.content)),
-                )
-            })
-            .filter(|(id, _)| !self.chat.markdown_documents.contains_key(id.as_str()))
-            .map(|(id, source)| (id.clone(), source.clone()))
+        let pending = sources
+            .into_iter()
+            .filter(|(id, _)| !self.chat.markdown_documents.contains_key(id))
             .collect::<Vec<_>>();
         if pending.is_empty() {
             return;
@@ -163,15 +150,9 @@ impl OneChat {
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
+                let current = markdown_sources(&this.data.snapshot);
                 for (id, source, document) in parsed {
-                    let current = this.data.snapshot.current_turns.iter().any(|turn| {
-                        (turn.user.id == id && turn.user.content == source)
-                            || turn
-                                .responses
-                                .iter()
-                                .any(|response| response.id == id && response.content == source)
-                    });
-                    if current {
+                    if current.get(&id) == Some(&source) {
                         this.chat
                             .markdown_documents
                             .insert(id, CachedMarkdown { source, document });
@@ -294,33 +275,35 @@ impl OneChat {
     }
 
     fn sync_thinking_scrolls(&mut self) {
-        self.chat.thinking_motions.retain(|message_id, _| {
-            self.data
-                .snapshot
-                .current_turns
-                .iter()
-                .flat_map(|turn| &turn.responses)
-                .any(|response| response.id == *message_id)
-        });
-        self.chat.thinking_scrolls.retain(|message_id, _| {
-            self.data
-                .snapshot
-                .current_turns
-                .iter()
-                .flat_map(|turn| &turn.responses)
-                .any(|response| response.id == *message_id)
-        });
-        for response in self
+        let reasoning_ids = self
             .data
             .snapshot
             .current_turns
             .iter()
             .flat_map(|turn| &turn.responses)
-        {
-            self.chat
-                .thinking_scrolls
-                .entry(response.id.clone())
-                .or_default();
+            .flat_map(|response| {
+                if response.blocks.is_empty() {
+                    vec![response.id.clone()]
+                } else {
+                    response
+                        .blocks
+                        .iter()
+                        .filter_map(|block| match block {
+                            AssistantBlock::Reasoning { id, .. } => Some(id.clone()),
+                            _ => None,
+                        })
+                        .collect()
+                }
+            })
+            .collect::<std::collections::HashSet<_>>();
+        self.chat
+            .thinking_motions
+            .retain(|reasoning_id, _| reasoning_ids.contains(reasoning_id));
+        self.chat
+            .thinking_scrolls
+            .retain(|reasoning_id, _| reasoning_ids.contains(reasoning_id));
+        for reasoning_id in reasoning_ids {
+            self.chat.thinking_scrolls.entry(reasoning_id).or_default();
         }
     }
 
@@ -380,4 +363,23 @@ impl OneChat {
             }
         });
     }
+}
+
+fn markdown_sources(snapshot: &StorageSnapshot) -> HashMap<String, String> {
+    let mut sources = HashMap::new();
+    for turn in &snapshot.current_turns {
+        sources.insert(turn.user.id.clone(), turn.user.content.clone());
+        for response in &turn.responses {
+            if response.blocks.is_empty() {
+                sources.insert(response.id.clone(), response.content.clone());
+                continue;
+            }
+            for block in &response.blocks {
+                if let AssistantBlock::Output { id, content } = block {
+                    sources.insert(id.clone(), content.clone());
+                }
+            }
+        }
+    }
+    sources
 }

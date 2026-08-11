@@ -12,6 +12,7 @@ mod playback;
 mod recording;
 mod settings;
 mod state;
+mod tokio_bridge;
 
 use motion::*;
 pub use navigation::{ConversationGroup, Page};
@@ -88,9 +89,15 @@ enum MessageEditorTarget {
     Assistant(String),
 }
 
+pub(crate) struct AssistantOutputEditor {
+    pub(crate) block_id: String,
+    pub(crate) input: Entity<InputState>,
+}
+
 pub(crate) struct MessageEditor {
     target: MessageEditorTarget,
     pub(crate) input: Entity<InputState>,
+    pub(crate) output_editors: Vec<AssistantOutputEditor>,
     pub(crate) attachments: Vec<Attachment>,
     pub(crate) attachment_drafts: Vec<AttachmentDraft>,
     pub(crate) attachment_previews: HashMap<String, Arc<gpui::Image>>,

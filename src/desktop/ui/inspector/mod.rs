@@ -6,11 +6,10 @@ mod tools;
 
 use context::render_context;
 use info::render_info;
-pub(crate) use model::capability_summary;
 use model::render_model;
 use tools::render_tools;
 
-pub use editor::{
+pub(crate) use editor::{
     GenerationConfigEditor, GenerationParameter, GenerationParameterItem, ReasoningPresetItem,
 };
 
@@ -34,7 +33,13 @@ use serde_json::{Map, Value};
 
 use crate::{
     desktop::app::OneChat,
-    desktop::ui::icons::{AppIcon, IconTone, render_icon},
+    desktop::ui::{
+        badges::{StatusPillBackground, status_pill},
+        controls::sync_slider,
+        icons::{AppIcon, IconActionSize::Regular, IconTone, render_icon},
+        input::multiline as multiline_input,
+        mcp::tool_row as mcp_tool_row,
+    },
     domain::{Conversation, GenerationConfig, Model, RequestStatus, ToolSelection},
     mcp::McpServerStatus,
 };
@@ -48,47 +53,9 @@ pub enum InspectorTab {
     Info,
 }
 
-fn icon_action(
-    id: impl Into<gpui::ElementId>,
-    icon: AppIcon,
-    tone: IconTone,
-    tooltip: &'static str,
-    cx: &App,
-) -> Button {
-    Button::new(id)
-        .ghost()
-        .tooltip(tooltip)
-        .size(px(36.0))
-        .p_0()
-        .child(render_icon(icon, tone, 19.0, cx))
-}
-
-fn primary_icon_action(
-    id: impl Into<gpui::ElementId>,
-    icon: AppIcon,
-    tooltip: &'static str,
-    cx: &App,
-) -> Button {
-    icon_action(id, icon, IconTone::OnAccent, tooltip, cx).primary()
-}
-
-fn danger_icon_action(
-    id: impl Into<gpui::ElementId>,
-    icon: AppIcon,
-    tooltip: &'static str,
-    cx: &App,
-) -> Button {
-    icon_action(id, icon, IconTone::OnAccent, tooltip, cx).danger()
-}
-
 pub(crate) fn sync_controls(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>) {
     let history_limit = app.displayed_history_limit().slider_value();
-    if (app.chat.history_limit_slider.read(cx).value().start() - history_limit).abs() > f32::EPSILON
-    {
-        app.chat
-            .history_limit_slider
-            .update(cx, |slider, cx| slider.set_value(history_limit, window, cx));
-    }
+    sync_slider(&app.chat.history_limit_slider, history_limit, window, cx);
 
     app.sync_generation_config_editor(window, cx);
     let model = app.current_model().cloned();
@@ -160,14 +127,15 @@ pub(crate) fn render(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
                         .child("Details"),
                 )
                 .child(
-                    icon_action(
-                        "close-inspector",
-                        AppIcon::Close,
-                        IconTone::Muted,
-                        "Close details",
-                        cx,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| this.close_inspector(cx))),
+                    Regular
+                        .icon_action(
+                            "close-inspector",
+                            AppIcon::Close,
+                            IconTone::Muted,
+                            "Close details",
+                            cx,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.close_inspector(cx))),
                 ),
         )
         .child(tabs)

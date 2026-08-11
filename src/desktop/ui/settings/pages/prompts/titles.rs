@@ -17,6 +17,7 @@ pub(super) fn title_prompt_content(app: &OneChat, cx: &mut Context<OneChat>) -> 
         .child(status_pill(
             if customized { "Customized" } else { "Built-in" },
             customized,
+            StatusPillBackground::Muted,
             cx,
         ));
 
@@ -24,14 +25,15 @@ pub(super) fn title_prompt_content(app: &OneChat, cx: &mut Context<OneChat>) -> 
         let mut actions = div().flex().items_center().justify_between().gap_2();
         if customized {
             actions = actions.child(
-                icon_action(
-                    "reset-title-generation-prompt-editor",
-                    AppIcon::Regenerate,
-                    IconTone::Muted,
-                    "Use default title prompt",
-                    cx,
-                )
-                .on_click(cx.listener(|this, _, _, cx| this.reset_title_generation_prompt(cx))),
+                Compact
+                    .icon_action(
+                        "reset-title-generation-prompt-editor",
+                        AppIcon::Regenerate,
+                        IconTone::Muted,
+                        "Use default title prompt",
+                        cx,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.reset_title_generation_prompt(cx))),
             );
         } else {
             actions = actions.child(div());
@@ -57,25 +59,27 @@ pub(super) fn title_prompt_content(app: &OneChat, cx: &mut Context<OneChat>) -> 
                         .items_center()
                         .gap_2()
                         .child(
-                            icon_action(
-                                "cancel-title-generation-system-prompt",
-                                AppIcon::Close,
-                                IconTone::Muted,
-                                "Cancel",
-                                cx,
-                            )
-                            .on_click(
-                                cx.listener(|this, _, _, cx| this.cancel_title_prompt_edit(cx)),
-                            ),
+                            Compact
+                                .icon_action(
+                                    "cancel-title-generation-system-prompt",
+                                    AppIcon::Close,
+                                    IconTone::Muted,
+                                    "Cancel",
+                                    cx,
+                                )
+                                .on_click(
+                                    cx.listener(|this, _, _, cx| this.cancel_title_prompt_edit(cx)),
+                                ),
                         )
                         .child(
-                            primary_icon_action(
-                                "save-title-generation-system-prompt",
-                                AppIcon::Save,
-                                "Save",
-                                cx,
-                            )
-                            .on_click(cx.listener(|this, _, _, cx| this.save_title_prompt(cx))),
+                            Compact
+                                .primary_icon_action(
+                                    "save-title-generation-system-prompt",
+                                    AppIcon::Save,
+                                    "Save",
+                                    cx,
+                                )
+                                .on_click(cx.listener(|this, _, _, cx| this.save_title_prompt(cx))),
                         ),
                 ),
             )
@@ -85,30 +89,32 @@ pub(super) fn title_prompt_content(app: &OneChat, cx: &mut Context<OneChat>) -> 
     let preview = if prompt.is_empty() {
         "No title instructions.".to_string()
     } else {
-        prompt_preview(prompt)
+        text_summary(prompt, 420, None)
     };
     let mut actions = div().flex_none().flex().items_center().gap_2();
     if customized {
         actions = actions.child(
-            icon_action(
-                "reset-title-generation-prompt",
-                AppIcon::Regenerate,
-                IconTone::Muted,
-                "Use default title prompt",
-                cx,
-            )
-            .on_click(cx.listener(|this, _, _, cx| this.reset_title_generation_prompt(cx))),
+            Compact
+                .icon_action(
+                    "reset-title-generation-prompt",
+                    AppIcon::Regenerate,
+                    IconTone::Muted,
+                    "Use default title prompt",
+                    cx,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.reset_title_generation_prompt(cx))),
         );
     }
     actions = actions.child(
-        icon_action(
-            "edit-title-generation-system-prompt",
-            AppIcon::Pencil,
-            IconTone::Muted,
-            "Edit title prompt",
-            cx,
-        )
-        .on_click(cx.listener(|this, _, window, cx| this.begin_edit_title_prompt(window, cx))),
+        Compact
+            .icon_action(
+                "edit-title-generation-system-prompt",
+                AppIcon::Pencil,
+                IconTone::Muted,
+                "Edit title prompt",
+                cx,
+            )
+            .on_click(cx.listener(|this, _, window, cx| this.begin_edit_title_prompt(window, cx))),
     );
 
     stretching_column()

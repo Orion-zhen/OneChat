@@ -36,7 +36,7 @@ pub struct ProviderEditor {
     pub endpoint: Entity<InputState>,
     pub api_key: Entity<InputState>,
     pub streaming: bool,
-    pub headers: Vec<KeyValueEditor>,
+    pub(crate) headers: Vec<KeyValueEditor>,
     pub proxy: Entity<InputState>,
     pub errors: ProviderFormErrors,
     pub saving: bool,
@@ -217,19 +217,17 @@ impl ProviderEditor {
     }
 
     pub fn add_header(&mut self, window: &mut Window, cx: &mut Context<OneChat>) {
-        if self
+        let complete = self
             .headers
             .last()
-            .is_some_and(|header| !header.name.read(cx).value().trim().is_empty())
-        {
-            self.headers.push(KeyValueEditor::new("", "", window, cx));
-        }
+            .is_some_and(|header| !header.name.read(cx).value().trim().is_empty());
+        append_draft_if_tail_complete(&mut self.headers, complete, || {
+            KeyValueEditor::new("", "", window, cx)
+        });
     }
 
     pub fn remove_header(&mut self, index: usize) {
-        if index + 1 < self.headers.len() {
-            self.headers.remove(index);
-        }
+        remove_committed(&mut self.headers, index);
     }
 
     pub fn select_kind(

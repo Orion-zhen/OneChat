@@ -147,36 +147,34 @@ fn custom_variables_content(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElem
                             placeholder,
                         ))
                         .child(
-                            icon_action(
-                                SharedString::from(format!("edit-prompt-variable-{name}")),
-                                AppIcon::Pencil,
-                                IconTone::Muted,
-                                "Edit variable",
-                                cx,
-                            )
-                            .on_click(cx.listener(
-                                move |this, _, window, cx| {
+                            Compact
+                                .icon_action(
+                                    SharedString::from(format!("edit-prompt-variable-{name}")),
+                                    AppIcon::Pencil,
+                                    IconTone::Muted,
+                                    "Edit variable",
+                                    cx,
+                                )
+                                .on_click(cx.listener(move |this, _, window, cx| {
                                     this.begin_edit_prompt_variable(edit_name.clone(), window, cx)
-                                },
-                            )),
+                                })),
                         )
                         .child(
-                            icon_action(
-                                SharedString::from(format!("delete-prompt-variable-{name}")),
-                                AppIcon::Trash,
-                                IconTone::Danger,
-                                "Delete variable",
-                                cx,
-                            )
-                            .on_click(cx.listener(
-                                move |this, _, window, cx| {
+                            Compact
+                                .icon_action(
+                                    SharedString::from(format!("delete-prompt-variable-{name}")),
+                                    AppIcon::Trash,
+                                    IconTone::Danger,
+                                    "Delete variable",
+                                    cx,
+                                )
+                                .on_click(cx.listener(move |this, _, window, cx| {
                                     this.request_delete_prompt_variable(
                                         delete_name.clone(),
                                         window,
                                         cx,
                                     )
-                                },
-                            )),
+                                })),
                         )
                 }),
         )
@@ -217,25 +215,31 @@ fn builtin_variables_content(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEle
                                 .font_weight(FontWeight::SEMIBOLD)
                                 .child("Built-in Variables"),
                         )
-                        .child(status_pill(BUILTIN_VARIABLES.len().to_string(), false, cx)),
+                        .child(status_pill(
+                            BUILTIN_VARIABLES.len().to_string(),
+                            false,
+                            StatusPillBackground::Muted,
+                            cx,
+                        )),
                 )
                 .child(
-                    icon_action(
-                        "toggle-built-in-prompt-variables",
-                        if expanded {
-                            AppIcon::ChevronUp
-                        } else {
-                            AppIcon::ChevronDown
-                        },
-                        IconTone::Muted,
-                        if expanded {
-                            "Collapse built-in variables"
-                        } else {
-                            "Expand built-in variables"
-                        },
-                        cx,
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| this.toggle_prompt_builtins(cx))),
+                    Compact
+                        .icon_action(
+                            "toggle-built-in-prompt-variables",
+                            if expanded {
+                                AppIcon::ChevronUp
+                            } else {
+                                AppIcon::ChevronDown
+                            },
+                            IconTone::Muted,
+                            if expanded {
+                                "Collapse built-in variables"
+                            } else {
+                                "Expand built-in variables"
+                            },
+                            cx,
+                        )
+                        .on_click(cx.listener(|this, _, _, cx| this.toggle_prompt_builtins(cx))),
                 ),
         )
         .when(expanded, |content| {

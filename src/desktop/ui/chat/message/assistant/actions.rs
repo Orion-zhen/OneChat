@@ -14,7 +14,7 @@ pub(super) fn render_message_actions(
     let has_info = app.request_for_response(message).is_some();
     let has_content = !message.content.is_empty();
     let can_copy = has_content;
-    let can_edit = !generating && (!editing_any || editing);
+    let can_edit = has_content && !generating && (!editing_any || editing);
     let can_regenerate = latest
         && !generating
         && !editing
@@ -22,11 +22,11 @@ pub(super) fn render_message_actions(
             message.status,
             MessageStatus::Failed | MessageStatus::Interrupted
         );
+    let usable_as_context = message.is_usable_as_context();
     let can_use_context = !generating
-        && message.status == MessageStatus::Completed
-        && has_content
+        && usable_as_context
         && turn.continuation_response_id.as_deref() != Some(&message.id);
-    let can_fork = !editing_any && message.status == MessageStatus::Completed && has_content;
+    let can_fork = !editing_any && usable_as_context;
 
     let content_actions = if can_copy || can_edit {
         let mut group = div().flex().items_center().gap_1();

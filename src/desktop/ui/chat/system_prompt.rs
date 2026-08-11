@@ -98,7 +98,7 @@ pub(super) fn render_system_prompt_card(
             .text_size(px(typography.secondary_size))
             .line_height(px(typography.secondary_line_height))
             .text_color(cx.theme().muted_foreground)
-            .child(prompt_preview(&conversation.system_prompt))
+            .child(text_summary(&conversation.system_prompt, 160, None))
             .into_any_element(),
         SystemPromptMode::Expanded => div()
             .text_size(px(typography.secondary_size))
@@ -211,16 +211,4 @@ pub(super) fn render_system_prompt_card(
         },
     )
     .into_any_element()
-}
-
-pub(super) fn prompt_preview(prompt: &str) -> String {
-    const MAX_CHARACTERS: usize = 160;
-    let prompt = prompt.split_whitespace().collect::<Vec<_>>().join(" ");
-    let mut characters = prompt.chars();
-    let preview = characters.by_ref().take(MAX_CHARACTERS).collect::<String>();
-    if characters.next().is_some() {
-        format!("{preview}…")
-    } else {
-        preview
-    }
 }

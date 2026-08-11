@@ -66,8 +66,18 @@ pub(super) fn render_tool_server(
                         .flex()
                         .items_center()
                         .gap_1()
-                        .child(tool_status_pill(tool_label, false, cx))
-                        .child(tool_status_pill(status, all_enabled, cx))
+                        .child(status_pill(
+                            tool_label,
+                            false,
+                            StatusPillBackground::Background,
+                            cx,
+                        ))
+                        .child(status_pill(
+                            status,
+                            all_enabled,
+                            StatusPillBackground::Background,
+                            cx,
+                        ))
                         .child(
                             Switch::new(SharedString::from(format!(
                                 "conversation-server-tools-{}",
@@ -93,30 +103,29 @@ pub(super) fn render_tool_server(
                             )),
                         )
                         .child(
-                            icon_action(
-                                SharedString::from(format!(
-                                    "expand-conversation-tool-server-{}",
-                                    server.id
-                                )),
-                                if expanded {
-                                    AppIcon::ChevronUp
-                                } else {
-                                    AppIcon::ChevronDown
-                                },
-                                IconTone::Muted,
-                                if expanded {
-                                    "Collapse tool server"
-                                } else {
-                                    "Expand tool server"
-                                },
-                                cx,
-                            )
-                            .size(px(24.0))
-                            .on_click(cx.listener(
-                                move |this, _, _, cx| {
+                            Regular
+                                .icon_action(
+                                    SharedString::from(format!(
+                                        "expand-conversation-tool-server-{}",
+                                        server.id
+                                    )),
+                                    if expanded {
+                                        AppIcon::ChevronUp
+                                    } else {
+                                        AppIcon::ChevronDown
+                                    },
+                                    IconTone::Muted,
+                                    if expanded {
+                                        "Collapse tool server"
+                                    } else {
+                                        "Expand tool server"
+                                    },
+                                    cx,
+                                )
+                                .size(px(24.0))
+                                .on_click(cx.listener(move |this, _, _, cx| {
                                     this.toggle_conversation_tool_server(expand_id.clone(), cx)
-                                },
-                            )),
+                                })),
                         ),
                 ),
         );
@@ -137,56 +146,30 @@ pub(super) fn render_tool_server(
                     let server_id = server.id.clone();
                     let tool_name = tool.name.clone();
                     let label = tool.title.as_deref().unwrap_or(&tool.name).to_string();
-                    div()
-                        .rounded(px(7.0))
-                        .bg(cx.theme().popover)
-                        .px_3()
-                        .py_2()
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap_3()
-                                .child(
-                                    div()
-                                        .min_w_0()
-                                        .flex_1()
-                                        .text_size(px(12.0))
-                                        .font_weight(FontWeight::SEMIBOLD)
-                                        .child(label),
-                                )
-                                .child(
-                                    Switch::new(SharedString::from(format!(
-                                        "conversation-tool-{}-{}",
-                                        server.id, tool.name
-                                    )))
-                                    .small()
-                                    .checked(checked)
-                                    .color(cx.theme().primary)
-                                    .disabled(generating || !server_available || app.mcp.loading)
-                                    .tooltip(if server_available {
-                                        "Override this tool for the conversation"
-                                    } else {
-                                        "The MCP server must be enabled and connected"
-                                    })
-                                    .on_click(cx.listener(move |this, enabled: &bool, _, cx| {
-                                        this.set_conversation_tool_enabled(
-                                            server_id.clone(),
-                                            tool_name.clone(),
-                                            *enabled,
-                                            cx,
-                                        )
-                                    })),
-                                ),
-                        )
-                        .children(tool.description.as_ref().map(|description| {
-                            div()
-                                .pt_0p5()
-                                .text_size(px(11.0))
-                                .line_height(px(16.0))
-                                .text_color(cx.theme().muted_foreground)
-                                .child(description.clone())
-                        }))
+                    let toggle = Switch::new(SharedString::from(format!(
+                        "conversation-tool-{}-{}",
+                        server.id, tool.name
+                    )))
+                    .small()
+                    .checked(checked)
+                    .color(cx.theme().primary)
+                    .disabled(generating || !server_available || app.mcp.loading)
+                    .tooltip(if server_available {
+                        "Override this tool for the conversation"
+                    } else {
+                        "The MCP server must be enabled and connected"
+                    })
+                    .on_click(cx.listener(
+                        move |this, enabled: &bool, _, cx| {
+                            this.set_conversation_tool_enabled(
+                                server_id.clone(),
+                                tool_name.clone(),
+                                *enabled,
+                                cx,
+                            )
+                        },
+                    ));
+                    mcp_tool_row(label, tool.description.clone().map(Into::into), toggle, cx)
                 })),
         );
     }

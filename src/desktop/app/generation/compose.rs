@@ -2,8 +2,8 @@ use gpui::{Context, Window};
 
 use super::super::OneChat;
 use crate::{
-    application::generation::{ContextPolicy, PreparedGeneration},
-    domain::{AttachmentKind, Conversation, MessageStatus, Model, Provider},
+    application::generation::PreparedGeneration,
+    domain::{AttachmentKind, Conversation, Model, Provider, Turn},
 };
 
 fn attempt_composer_submission(
@@ -95,22 +95,15 @@ impl OneChat {
             cx.notify();
             return false;
         }
-        let parent_response_id = self
-            .active_leaf_turn()
-            .and_then(|turn| turn.continuation_response_id.clone());
-        if self.active_leaf_turn().is_some_and(|turn| {
-            parent_response_id
-                .as_deref()
-                .and_then(|id| turn.response(id))
-                .is_none_or(|response| {
-                    response.status != MessageStatus::Completed || response.content.is_empty()
-                })
-        }) {
+        let active_leaf = self.active_leaf_turn();
+        let parent_response_id = active_leaf
+            .and_then(Turn::continuation_response)
+            .map(|response| response.id.clone());
+        if active_leaf.is_some_and(|turn| turn.continuation_response().is_none()) {
             self.data.error = Some("Choose a completed response before continuing.".into());
             cx.notify();
             return false;
         }
-        let history_limit = self.effective_history_limit(&conversation);
         let attachments = match self
             .services
             .storage
@@ -123,34 +116,29 @@ impl OneChat {
                 return false;
             }
         };
-        let storage = self.services.storage.clone();
-        let conversation_id = conversation.id.clone();
-        let include_document_images = model.capabilities.vision;
-        let user_message = |user: &crate::domain::UserMessage| {
-            storage
-                .message_for_user(&conversation_id, user, include_document_images)
-                .map_err(|error| error.to_string())
-        };
-        let prepared = match PreparedGeneration::new(
-            &conversation,
-            &provider,
-            &model,
-            &self.data.snapshot.current_turns,
-            parent_response_id,
-            crate::domain::UserMessage::new(prompt, attachments.clone()),
-            ContextPolicy::new(history_limit, &user_message),
-        ) {
-            Ok(prepared) => prepared.with_new_attachments(attachments.clone()),
-            Err(error) => {
-                let _ = self
-                    .services
-                    .storage
-                    .remove_attachments(&conversation.id, &attachments);
-                self.data.error = Some(format!("Could not prepare attachments: {error}"));
-                cx.notify();
-                return false;
-            }
-        };
+        let prepared =
+            match self.prepare_with_storage_context(&conversation, &model, |context_policy| {
+                PreparedGeneration::new(
+                    &conversation,
+                    &provider,
+                    &model,
+                    &self.data.snapshot.current_turns,
+                    parent_response_id,
+                    crate::domain::UserMessage::new(prompt, attachments.clone()),
+                    context_policy,
+                )
+            }) {
+                Ok(prepared) => prepared.with_new_attachments(attachments.clone()),
+                Err(error) => {
+                    let _ = self
+                        .services
+                        .storage
+                        .remove_attachments(&conversation.id, &attachments);
+                    self.data.error = Some(format!("Could not prepare attachments: {error}"));
+                    cx.notify();
+                    return false;
+                }
+            };
         self.begin_prepared_generation(prepared, cx);
         true
     }
@@ -188,23 +176,16 @@ impl OneChat {
             cx.notify();
             return;
         }
-        let history_limit = self.effective_history_limit(&conversation);
-        let storage = self.services.storage.clone();
-        let conversation_id = conversation.id.clone();
-        let include_document_images = model.capabilities.vision;
-        let user_message = |user: &crate::domain::UserMessage| {
-            storage
-                .message_for_user(&conversation_id, user, include_document_images)
-                .map_err(|error| error.to_string())
-        };
-        match PreparedGeneration::additional(
-            &conversation,
-            &provider,
-            &model,
-            &self.data.snapshot.current_turns,
-            &turn,
-            ContextPolicy::new(history_limit, &user_message),
-        ) {
+        match self.prepare_with_storage_context(&conversation, &model, |context_policy| {
+            PreparedGeneration::additional(
+                &conversation,
+                &provider,
+                &model,
+                &self.data.snapshot.current_turns,
+                &turn,
+                context_policy,
+            )
+        }) {
             Ok(prepared) => self.begin_prepared_generation(prepared, cx),
             Err(error) => {
                 self.data.error = Some(format!("Could not load attachments: {error}"));
@@ -274,24 +255,17 @@ impl OneChat {
         if let Some(reasoning_preset) = current_reasoning_preset {
             conversation.generation_config.reasoning_preset = reasoning_preset;
         }
-        let history_limit = self.effective_history_limit(&conversation);
-        let storage = self.services.storage.clone();
-        let conversation_id = conversation.id.clone();
-        let include_document_images = model.capabilities.vision;
-        let user_message = |user: &crate::domain::UserMessage| {
-            storage
-                .message_for_user(&conversation_id, user, include_document_images)
-                .map_err(|error| error.to_string())
-        };
-        match PreparedGeneration::regenerate(
-            &conversation,
-            &provider,
-            &model,
-            &self.data.snapshot.current_turns,
-            &turn,
-            &response,
-            ContextPolicy::new(history_limit, &user_message),
-        ) {
+        match self.prepare_with_storage_context(&conversation, &model, |context_policy| {
+            PreparedGeneration::regenerate(
+                &conversation,
+                &provider,
+                &model,
+                &self.data.snapshot.current_turns,
+                &turn,
+                &response,
+                context_policy,
+            )
+        }) {
             Ok(prepared) => self.begin_prepared_generation(prepared, cx),
             Err(error) => {
                 self.data.error = Some(format!("Could not load attachments: {error}"));

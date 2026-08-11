@@ -271,50 +271,17 @@ impl PreparedGeneration {
         turn: &Turn,
         context_policy: ContextPolicy<'_>,
     ) -> Result<Self, String> {
-        let context = prepare_context(
+        Self::existing_turn(
+            (conversation, provider, model),
             turns,
-            turn.parent_response_id.as_deref(),
-            &turn.user,
-            context_policy.history_limit,
-            context_policy.user_message,
-        )?;
-        let mut response = AssistantResponse::new(model, provider);
-        let mut request_info = prepare_response(
-            &conversation.id,
-            &turn.id,
-            &mut response,
-            provider,
-            model,
-            RequestInput::new(
-                &conversation.system_prompt,
-                &context.messages,
-                context.audio_duration_ms,
-            ),
-        );
-        request_info.context = Some(context.request_context);
-        let provider_request = provider_request(
-            provider,
-            model,
-            &conversation.system_prompt,
-            &turn.generation_config,
-            context.messages,
-            context.audio_duration_ms,
-        );
-        Ok(Self {
-            start: GenerationStart::AddResponse {
+            turn,
+            AssistantResponse::new(model, provider),
+            turn.generation_config.clone(),
+            GenerationStart::AddResponse {
                 turn_id: turn.id.clone(),
             },
-            response,
-            request_info,
-            provider_request,
-            tool_selection: conversation.tool_selection.clone(),
-            new_attachments: Vec::new(),
-            history_groups: context.history_groups,
-            current_message_requirements: context.current_message_requirements,
-            prompt_variables: BTreeMap::new(),
-            prompt_context: PromptContext::default(),
-        }
-        .validated())
+            context_policy,
+        )
     }
 
     pub fn regenerate(
@@ -326,6 +293,33 @@ impl PreparedGeneration {
         previous_response: &AssistantResponse,
         context_policy: ContextPolicy<'_>,
     ) -> Result<Self, String> {
+        let mut config = turn.generation_config.clone();
+        config
+            .reasoning_preset
+            .clone_from(&conversation.generation_config.reasoning_preset);
+        Self::existing_turn(
+            (conversation, provider, model),
+            turns,
+            turn,
+            previous_response.clone(),
+            config,
+            GenerationStart::RetryResponse {
+                turn_id: turn.id.clone(),
+            },
+            context_policy,
+        )
+    }
+
+    fn existing_turn(
+        target: (&Conversation, &Provider, &Model),
+        turns: &[Turn],
+        turn: &Turn,
+        mut response: AssistantResponse,
+        config: GenerationConfig,
+        start: GenerationStart,
+        context_policy: ContextPolicy<'_>,
+    ) -> Result<Self, String> {
+        let (conversation, provider, model) = target;
         let context = prepare_context(
             turns,
             turn.parent_response_id.as_deref(),
@@ -333,7 +327,6 @@ impl PreparedGeneration {
             context_policy.history_limit,
             context_policy.user_message,
         )?;
-        let mut response = previous_response.clone();
         let mut request_info = prepare_response(
             &conversation.id,
             &turn.id,
@@ -347,10 +340,6 @@ impl PreparedGeneration {
             ),
         );
         request_info.context = Some(context.request_context);
-        let mut config = turn.generation_config.clone();
-        config
-            .reasoning_preset
-            .clone_from(&conversation.generation_config.reasoning_preset);
         let provider_request = provider_request(
             provider,
             model,
@@ -360,9 +349,7 @@ impl PreparedGeneration {
             context.audio_duration_ms,
         );
         Ok(Self {
-            start: GenerationStart::RetryResponse {
-                turn_id: turn.id.clone(),
-            },
+            start,
             response,
             request_info,
             provider_request,

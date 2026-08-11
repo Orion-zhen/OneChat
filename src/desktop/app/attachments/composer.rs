@@ -6,39 +6,20 @@ impl OneChat {
             return;
         };
         let revision = load.revision;
-        let paths = cx.prompt_for_paths(gpui::PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: true,
-            prompt: Some("Select Attachments".into()),
-        });
+        let paths = cx.prompt_for_paths(attachment_path_prompt_options());
 
         cx.spawn(async move |this, cx| {
-            let selected = match paths.await {
-                Ok(Ok(Some(paths))) => paths,
-                Ok(Ok(None)) => {
+            let selected = match normalize_attachment_path_selection(paths.await) {
+                AttachmentPathSelection::Selected(paths) => paths,
+                AttachmentPathSelection::Cancelled => {
                     let _ = this.update(cx, |this, cx| {
                         this.cancel_composer_attachment_load(revision, None, cx)
                     });
                     return;
                 }
-                Ok(Err(error)) => {
+                AttachmentPathSelection::Error(error) => {
                     let _ = this.update(cx, |this, cx| {
-                        this.cancel_composer_attachment_load(
-                            revision,
-                            Some(format!("Could not open attachments: {error}")),
-                            cx,
-                        )
-                    });
-                    return;
-                }
-                Err(error) => {
-                    let _ = this.update(cx, |this, cx| {
-                        this.cancel_composer_attachment_load(
-                            revision,
-                            Some(format!("Attachment picker closed unexpectedly: {error}")),
-                            cx,
-                        )
+                        this.cancel_composer_attachment_load(revision, Some(error), cx)
                     });
                     return;
                 }
@@ -87,10 +68,12 @@ impl OneChat {
 
         let load = ComposerAttachmentLoad {
             conversation_id,
-            vision: model.capabilities.vision,
-            audio_input: model.capabilities.audio_input,
-            parse_document_images: self.settings().parse_document_images,
-            remaining: MAX_ATTACHMENTS - self.chat.attachments.len(),
+            options: LoadManyOptions {
+                remaining: MAX_ATTACHMENTS - self.chat.attachments.len(),
+                vision: model.capabilities.vision,
+                audio_input: model.capabilities.audio_input,
+                parse_document_images: self.settings().parse_document_images,
+            },
             revision: self.chat.attachments_revision.wrapping_add(1),
         };
         self.chat.attachments_loading = true;
@@ -123,35 +106,12 @@ impl OneChat {
     ) {
         let ComposerAttachmentLoad {
             conversation_id,
-            vision,
-            audio_input,
-            parse_document_images,
-            remaining,
+            options,
             revision,
         } = load;
         cx.spawn(async move |this, cx| {
             let result = cx
-                .background_spawn(async move {
-                    if paths.len() > remaining {
-                        return Err(format!(
-                            "Select at most {remaining} more attachment{}.",
-                            if remaining == 1 { "" } else { "s" }
-                        ));
-                    }
-                    paths
-                        .into_iter()
-                        .map(|path| {
-                            if path.is_dir() {
-                                Err(format!(
-                                    "Folders cannot be added as attachments: {}",
-                                    path.display()
-                                ))
-                            } else {
-                                load_attachment(&path, vision, audio_input, parse_document_images)
-                            }
-                        })
-                        .collect::<Result<Vec<_>, _>>()
-                })
+                .background_spawn(async move { load_many(paths, options) })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if this.chat.attachments_revision != revision

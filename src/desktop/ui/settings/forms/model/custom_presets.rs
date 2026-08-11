@@ -22,15 +22,16 @@ pub(super) fn custom_reasoning_presets(
                         .child("Presets"),
                 )
                 .child(
-                    primary_icon_action(
-                        "add-custom-reasoning-preset",
-                        AppIcon::Plus,
-                        "Add reasoning preset",
-                        cx,
-                    )
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.add_custom_reasoning_preset(window, cx)
-                    })),
+                    Compact
+                        .primary_icon_action(
+                            "add-custom-reasoning-preset",
+                            AppIcon::Plus,
+                            "Add reasoning preset",
+                            cx,
+                        )
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.add_custom_reasoning_preset(window, cx)
+                        })),
                 ),
         )
         .child(
@@ -85,36 +86,36 @@ pub(super) fn custom_reasoning_presets(
                             .items_center()
                             .gap_2()
                             .child(
-                                icon_action(
-                                    SharedString::from(format!("move-reasoning-preset-up-{index}")),
-                                    AppIcon::ArrowUp,
-                                    IconTone::Muted,
-                                    "Move preset up",
-                                    cx,
-                                )
-                                .disabled(!can_move_up)
-                                .on_click(cx.listener(
-                                    move |this, _, _, cx| {
+                                Compact
+                                    .icon_action(
+                                        SharedString::from(format!(
+                                            "move-reasoning-preset-up-{index}"
+                                        )),
+                                        AppIcon::ArrowUp,
+                                        IconTone::Muted,
+                                        "Move preset up",
+                                        cx,
+                                    )
+                                    .disabled(!can_move_up)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
                                         this.move_custom_reasoning_preset(index, -1, cx)
-                                    },
-                                )),
+                                    })),
                             )
                             .child(
-                                icon_action(
-                                    SharedString::from(format!(
-                                        "move-reasoning-preset-down-{index}"
-                                    )),
-                                    AppIcon::ArrowDown,
-                                    IconTone::Muted,
-                                    "Move preset down",
-                                    cx,
-                                )
-                                .disabled(!can_move_down)
-                                .on_click(cx.listener(
-                                    move |this, _, _, cx| {
+                                Compact
+                                    .icon_action(
+                                        SharedString::from(format!(
+                                            "move-reasoning-preset-down-{index}"
+                                        )),
+                                        AppIcon::ArrowDown,
+                                        IconTone::Muted,
+                                        "Move preset down",
+                                        cx,
+                                    )
+                                    .disabled(!can_move_down)
+                                    .on_click(cx.listener(move |this, _, _, cx| {
                                         this.move_custom_reasoning_preset(index, 1, cx)
-                                    },
-                                )),
+                                    })),
                             )
                             .child(
                                 default_reasoning_action(
@@ -129,17 +130,18 @@ pub(super) fn custom_reasoning_presets(
                                 )),
                             )
                             .child(
-                                danger_icon_action(
-                                    SharedString::from(format!("remove-reasoning-preset-{index}")),
-                                    AppIcon::Trash,
-                                    "Remove reasoning preset",
-                                    cx,
-                                )
-                                .on_click(cx.listener(
-                                    move |this, _, _, cx| {
+                                Compact
+                                    .danger_icon_action(
+                                        SharedString::from(format!(
+                                            "remove-reasoning-preset-{index}"
+                                        )),
+                                        AppIcon::Trash,
+                                        "Remove reasoning preset",
+                                        cx,
+                                    )
+                                    .on_click(cx.listener(move |this, _, _, cx| {
                                         this.remove_custom_reasoning_preset(index, cx)
-                                    },
-                                )),
+                                    })),
                             ),
                     ),
             )

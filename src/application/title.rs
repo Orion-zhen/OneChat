@@ -44,8 +44,8 @@ pub async fn generate_title(
             GenerationEvent::Completed => return normalize_title(&output),
             GenerationEvent::Failed(error) => return Err(error),
             GenerationEvent::Started
-            | GenerationEvent::ProviderOutput
-            | GenerationEvent::ThinkingDelta(_)
+            | GenerationEvent::ThinkingDelta { .. }
+            | GenerationEvent::ToolCallObserved { .. }
             | GenerationEvent::StepStarted { .. }
             | GenerationEvent::UsageUpdated(_)
             | GenerationEvent::ToolExecutionUpdated(_)

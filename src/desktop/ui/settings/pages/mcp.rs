@@ -18,25 +18,27 @@ pub(in crate::desktop::ui::settings) fn mcp_page(
             actions.child(Spinner::new().small().color(cx.theme().primary))
         })
         .child(
-            icon_action(
-                "open-mcp-config",
-                AppIcon::Eye,
-                IconTone::Muted,
-                "Open MCP config",
-                cx,
-            )
-            .on_click(cx.listener(|this, _, _, cx| this.open_mcp_config(cx))),
+            Compact
+                .icon_action(
+                    "open-mcp-config",
+                    AppIcon::Eye,
+                    IconTone::Muted,
+                    "Open MCP config",
+                    cx,
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.open_mcp_config(cx))),
         )
         .child(
-            icon_action(
-                "reload-mcp-servers",
-                AppIcon::Regenerate,
-                IconTone::Muted,
-                "Reload MCP servers",
-                cx,
-            )
-            .disabled(app.mcp.loading)
-            .on_click(cx.listener(|this, _, _, cx| this.reload_mcp(cx))),
+            Compact
+                .icon_action(
+                    "reload-mcp-servers",
+                    AppIcon::Regenerate,
+                    IconTone::Muted,
+                    "Reload MCP servers",
+                    cx,
+                )
+                .disabled(app.mcp.loading)
+                .on_click(cx.listener(|this, _, _, cx| this.reload_mcp(cx))),
         );
 
     let mut configuration = div().w_full().flex().flex_col().child(summary_row(
@@ -113,9 +115,15 @@ pub(in crate::desktop::ui::settings) fn mcp_page(
         .flex()
         .items_center()
         .gap_2()
-        .child(status_pill(server_label, false, cx))
+        .child(status_pill(
+            server_label,
+            false,
+            StatusPillBackground::Muted,
+            cx,
+        ))
         .child(
-            primary_icon_action("add-mcp-server", AppIcon::Plus, "Add MCP server", cx)
+            Compact
+                .primary_icon_action("add-mcp-server", AppIcon::Plus, "Add MCP server", cx)
                 .disabled(app.mcp.loading)
                 .on_click(cx.listener(|this, _, window, cx| this.begin_add_mcp_server(window, cx))),
         );

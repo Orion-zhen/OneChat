@@ -5,70 +5,31 @@ pub(crate) fn sync_controls(app: &mut OneChat, window: &mut Window, cx: &mut Con
     app.settings_ui.theme_color.sync(theme_color, window, cx);
 
     let message_font_size = app.settings().message_font_size();
-    if (app
-        .settings_ui
-        .message_font_size_slider
-        .read(cx)
-        .value()
-        .start()
-        - message_font_size)
-        .abs()
-        > f32::EPSILON
-    {
-        app.settings_ui
-            .message_font_size_slider
-            .update(cx, |slider, cx| {
-                slider.set_value(message_font_size, window, cx)
-            });
-    }
+    sync_slider(
+        &app.settings_ui.message_font_size_slider,
+        message_font_size,
+        window,
+        cx,
+    );
 
     let opacity = app.settings().background_opacity();
-    if (app
-        .settings_ui
-        .background_opacity_slider
-        .read(cx)
-        .value()
-        .start()
-        - opacity)
-        .abs()
-        > f32::EPSILON
-    {
-        app.settings_ui
-            .background_opacity_slider
-            .update(cx, |slider, cx| slider.set_value(opacity, window, cx));
-    }
+    sync_slider(
+        &app.settings_ui.background_opacity_slider,
+        opacity,
+        window,
+        cx,
+    );
 
     let ratio = app.settings().message_width_ratio();
-    if (app
-        .settings_ui
-        .message_width_slider
-        .read(cx)
-        .value()
-        .start()
-        - ratio)
-        .abs()
-        > f32::EPSILON
-    {
-        app.settings_ui
-            .message_width_slider
-            .update(cx, |slider, cx| slider.set_value(ratio, window, cx));
-    }
+    sync_slider(&app.settings_ui.message_width_slider, ratio, window, cx);
 
     let history_limit = app.settings().history_limit.slider_value();
-    if (app
-        .settings_ui
-        .history_limit_slider
-        .read(cx)
-        .value()
-        .start()
-        - history_limit)
-        .abs()
-        > f32::EPSILON
-    {
-        app.settings_ui
-            .history_limit_slider
-            .update(cx, |slider, cx| slider.set_value(history_limit, window, cx));
-    }
+    sync_slider(
+        &app.settings_ui.history_limit_slider,
+        history_limit,
+        window,
+        cx,
+    );
 
     let primary_items = default_model_items(app, DefaultModelRole::Primary);
     let primary_changed = primary_items != app.settings_ui.synced_primary_models;

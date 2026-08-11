@@ -73,16 +73,18 @@ pub(in crate::desktop::ui::settings) fn mcp_server_form(
         fields
     };
     let save = if editor.is_new() && editor.mode == McpServerEditorMode::Import {
-        primary_icon_action(
-            "import-mcp-server",
-            AppIcon::Save,
-            "Import MCP configuration",
-            cx,
-        )
-        .disabled(loading)
-        .on_click(cx.listener(|this, _, _, cx| this.import_mcp_servers(cx)))
+        Compact
+            .primary_icon_action(
+                "import-mcp-server",
+                AppIcon::Save,
+                "Import MCP configuration",
+                cx,
+            )
+            .disabled(loading)
+            .on_click(cx.listener(|this, _, _, cx| this.import_mcp_servers(cx)))
     } else {
-        primary_icon_action("save-mcp-server", AppIcon::Save, "Save MCP server", cx)
+        Compact
+            .primary_icon_action("save-mcp-server", AppIcon::Save, "Save MCP server", cx)
             .disabled(loading)
             .on_click(cx.listener(|this, _, _, cx| this.save_mcp_server(cx)))
     };
@@ -92,38 +94,25 @@ pub(in crate::desktop::ui::settings) fn mcp_server_form(
         .flex()
         .flex_col()
         .gap_4()
-        .child(
+        .child(editor_header(
+            title,
             div()
                 .flex()
                 .items_center()
-                .justify_between()
-                .gap_4()
+                .gap_2()
                 .child(
-                    div()
-                        .text_sm()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(title),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            icon_action(
-                                "cancel-mcp-server",
-                                AppIcon::Close,
-                                IconTone::Muted,
-                                "Cancel",
-                                cx,
-                            )
-                            .on_click(
-                                cx.listener(|this, _, _, cx| this.cancel_mcp_server_editor(cx)),
-                            ),
+                    Compact
+                        .icon_action(
+                            "cancel-mcp-server",
+                            AppIcon::Close,
+                            IconTone::Muted,
+                            "Cancel",
+                            cx,
                         )
-                        .child(save),
-                ),
-        )
+                        .on_click(cx.listener(|this, _, _, cx| this.cancel_mcp_server_editor(cx))),
+                )
+                .child(save),
+        ))
         .children(mode_selector)
         .child(body)
         .into_any_element()
