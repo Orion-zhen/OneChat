@@ -123,8 +123,19 @@ impl ModelEditor {
 
     pub fn sync_combobox(&mut self, window: &mut Window, cx: &mut Context<OneChat>) {
         let remote_id = self.remote_id(cx);
-        if self.synced_models == self.available_models && self.synced_remote_id == remote_id {
+        let models_changed = self.synced_models != self.available_models;
+        if !models_changed && self.synced_remote_id == remote_id {
             return;
+        }
+        if models_changed {
+            let current = self.context_window.read(cx).value().to_string();
+            if let Some(tokens) =
+                context_window_to_sync(&self.available_models, &remote_id, &current)
+            {
+                self.context_window.update(cx, |input, cx| {
+                    input.set_value(tokens.to_string(), window, cx)
+                });
+            }
         }
         self.synced_models.clone_from(&self.available_models);
         self.synced_remote_id.clone_from(&remote_id);
@@ -254,6 +265,18 @@ fn discovered_model_metadata(
         .unwrap_or_default()
 }
 
+fn context_window_to_sync(
+    models: &[AvailableModel],
+    remote_id: &str,
+    current: &str,
+) -> Option<u32> {
+    current
+        .trim()
+        .is_empty()
+        .then(|| discovered_model_metadata(models, remote_id).context_window_tokens)
+        .flatten()
+}
+
 fn parse_context_window_tokens(value: &str) -> Result<Option<u32>, String> {
     let value = value.trim();
     if value.is_empty() {
@@ -279,6 +302,15 @@ mod model_tests {
             audio: false,
             context_window_tokens,
         }
+    }
+
+    #[test]
+    fn synchronizes_discovered_context_window_without_overwriting_manual_value() {
+        let models = [available_model("known", Some(32_768))];
+
+        assert_eq!(context_window_to_sync(&models, "known", ""), Some(32_768));
+        assert_eq!(context_window_to_sync(&models, "known", "65536"), None);
+        assert_eq!(context_window_to_sync(&models, "custom", ""), None);
     }
 
     #[test]

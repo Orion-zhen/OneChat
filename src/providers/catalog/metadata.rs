@@ -202,6 +202,7 @@ fn context_window_from_metadata(value: &Value) -> Option<u32> {
                         | "contextwindow"
                         | "contextwindowsize"
                         | "maxcontextlength"
+                        | "maxmodellen"
                         | "inputtokenlimit"
                         | "maxinputtokens"
                 )
@@ -351,10 +352,16 @@ mod tests {
             ProviderKind::OpenAiCompatible,
         )
         .unwrap();
+        let vllm = available_model(
+            &json!({ "id": "vllm-model", "max_model_len": 32768 }),
+            ProviderKind::OpenAiCompatible,
+        )
+        .unwrap();
 
         assert_eq!(openrouter.context_window_tokens, Some(131_072));
         assert_eq!(gemini.context_window_tokens, Some(1_000_000));
         assert_eq!(nested.context_window_tokens, Some(65_536));
+        assert_eq!(vllm.context_window_tokens, Some(32_768));
     }
 
     #[test]
