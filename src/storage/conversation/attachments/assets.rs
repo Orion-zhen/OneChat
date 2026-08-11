@@ -67,6 +67,7 @@ impl Storage {
                     name: draft.name.clone(),
                     kind: draft.kind,
                     files,
+                    audio: draft.audio.clone(),
                 });
             }
             Ok(stored)

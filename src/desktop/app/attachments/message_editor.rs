@@ -2,7 +2,7 @@ use super::*;
 
 impl OneChat {
     pub(crate) fn add_message_edit_attachments(&mut self, turn_id: String, cx: &mut Context<Self>) {
-        if self.is_current_generating() {
+        if self.is_current_generating() || self.recording_active() {
             return;
         }
         let Some(model) = self.current_model() else {
@@ -32,6 +32,7 @@ impl OneChat {
         }
 
         let vision = model.capabilities.vision;
+        let audio_input = model.capabilities.audio_input;
         let parse_document_images = self.settings().parse_document_images;
         let remaining = MAX_ATTACHMENTS - attachment_count;
         let paths = cx.prompt_for_paths(gpui::PathPromptOptions {
@@ -103,7 +104,9 @@ impl OneChat {
                     }
                     selected
                         .into_iter()
-                        .map(|path| load_attachment(&path, vision, parse_document_images))
+                        .map(|path| {
+                            load_attachment(&path, vision, audio_input, parse_document_images)
+                        })
                         .collect::<Result<Vec<_>, _>>()
                 })
                 .await;
@@ -111,9 +114,14 @@ impl OneChat {
                 if this.current_conversation().map(|value| &value.id) != Some(&conversation_id) {
                     return;
                 }
-                let supports_vision = this
+                let capabilities = this
                     .current_model()
-                    .is_some_and(|model| model.capabilities.vision);
+                    .map(|model| model.capabilities.clone())
+                    .unwrap_or_default();
+                let capability_error = result
+                    .as_ref()
+                    .ok()
+                    .and_then(|attachments| attachment_capability_error(&capabilities, attachments));
                 let Some(editor) = this.chat.message_editor.as_mut().filter(|editor| {
                     matches!(&editor.target, MessageEditorTarget::User(id) if id == &turn_id)
                         && editor.attachment_load_id.as_deref() == Some(&load_id)
@@ -122,16 +130,7 @@ impl OneChat {
                 };
                 editor.attachment_load_id = None;
                 match result {
-                    Ok(attachments)
-                        if !supports_vision
-                            && attachments
-                                .iter()
-                                .any(|attachment| attachment.kind.requires_vision()) =>
-                    {
-                        this.data.error =
-                            Some("The selected model only accepts text attachments.".into());
-                    }
-                    Ok(attachments) => {
+                    Ok(attachments) if capability_error.is_none() => {
                         for attachment in &attachments {
                             if let Some(preview) = attachment_preview(attachment) {
                                 editor
@@ -141,6 +140,7 @@ impl OneChat {
                         }
                         editor.attachment_drafts.extend(attachments);
                     }
+                    Ok(_) => this.data.error = capability_error.map(str::to_owned),
                     Err(error) => this.data.error = Some(error),
                 }
                 cx.notify();
@@ -155,6 +155,7 @@ impl OneChat {
         attachment_id: String,
         cx: &mut Context<Self>,
     ) {
+        self.stop_audio_playback_if(&attachment_id);
         let Some(editor) = self.chat.message_editor.as_mut().filter(
             |editor| matches!(&editor.target, MessageEditorTarget::User(id) if id == &turn_id),
         ) else {

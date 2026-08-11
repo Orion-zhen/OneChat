@@ -64,6 +64,9 @@ impl OneChat {
     }
 
     pub(crate) fn set_page(&mut self, page: Page, cx: &mut Context<Self>) {
+        if page != Page::Chat {
+            self.cancel_voice_recording(cx);
+        }
         if self.navigation.page != page {
             let sidebar_width = match page {
                 Page::Chat if self.settings().sidebar_collapsed => 0.0,
@@ -371,6 +374,7 @@ impl OneChat {
     }
 
     pub(crate) fn select_model(&mut self, model_id: String, cx: &mut Context<Self>) {
+        self.cancel_voice_recording(cx);
         let Some(model) = self
             .data
             .snapshot

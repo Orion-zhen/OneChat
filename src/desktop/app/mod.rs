@@ -8,6 +8,8 @@ mod messages;
 mod motion;
 mod navigation;
 mod overlays;
+mod playback;
+mod recording;
 mod settings;
 mod state;
 

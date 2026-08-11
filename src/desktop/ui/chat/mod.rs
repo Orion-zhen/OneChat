@@ -5,7 +5,7 @@ mod message;
 mod system_prompt;
 mod timeline;
 
-use attachment::attachment_detail;
+use attachment::{attachment_detail, render_audio_attachment_card};
 use composer::render_composer;
 use context_indicator::render_context_indicator;
 use message::{render_assistant_turn, render_user_turn};
@@ -17,7 +17,7 @@ use std::time::Duration;
 use gpui::{
     Animation, AnimationExt as _, AnyElement, App, BoxShadow, Context, ElementId, FontWeight,
     MouseButton, ObjectFit, Role, SharedString, StyledImage as _, div, ease_out_quint, img, point,
-    prelude::*, px,
+    prelude::*, px, relative,
 };
 use gpui_component::{
     ActiveTheme as _, Disableable as _, Selectable as _,

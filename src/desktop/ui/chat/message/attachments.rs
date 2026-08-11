@@ -23,6 +23,15 @@ pub(super) fn render_sent_attachment(
 ) -> AnyElement {
     match attachment.kind {
         crate::domain::AttachmentKind::Image => render_sent_image(app, attachment, max_width, cx),
+        crate::domain::AttachmentKind::Audio => render_audio_attachment_card(
+            app,
+            &attachment.id,
+            &attachment.name,
+            attachment.audio.as_ref(),
+            300.0_f32.min(max_width),
+            None,
+            cx,
+        ),
         crate::domain::AttachmentKind::Text
         | crate::domain::AttachmentKind::Pdf
         | crate::domain::AttachmentKind::Document => {
@@ -174,6 +183,7 @@ fn render_sent_file(
         &attachment.name,
         attachment.kind,
         attachment.files.iter().map(|file| file.kind),
+        attachment.audio.as_ref(),
     );
     let visual = if is_pdf {
         attachment

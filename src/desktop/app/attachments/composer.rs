@@ -62,7 +62,8 @@ impl OneChat {
         &mut self,
         cx: &mut Context<Self>,
     ) -> Option<ComposerAttachmentLoad> {
-        if self.is_current_generating() || self.chat.attachments_loading {
+        if self.is_current_generating() || self.recording_active() || self.chat.attachments_loading
+        {
             return None;
         }
         let Some(model) = self.current_model() else {
@@ -87,6 +88,7 @@ impl OneChat {
         let load = ComposerAttachmentLoad {
             conversation_id,
             vision: model.capabilities.vision,
+            audio_input: model.capabilities.audio_input,
             parse_document_images: self.settings().parse_document_images,
             remaining: MAX_ATTACHMENTS - self.chat.attachments.len(),
             revision: self.chat.attachments_revision.wrapping_add(1),
@@ -122,6 +124,7 @@ impl OneChat {
         let ComposerAttachmentLoad {
             conversation_id,
             vision,
+            audio_input,
             parse_document_images,
             remaining,
             revision,
@@ -144,7 +147,7 @@ impl OneChat {
                                     path.display()
                                 ))
                             } else {
-                                load_attachment(&path, vision, parse_document_images)
+                                load_attachment(&path, vision, audio_input, parse_document_images)
                             }
                         })
                         .collect::<Result<Vec<_>, _>>()
@@ -157,19 +160,19 @@ impl OneChat {
                     return;
                 }
                 this.chat.attachments_loading = false;
+                let capabilities = this
+                    .current_model()
+                    .map(|model| model.capabilities.clone())
+                    .unwrap_or_default();
                 match result {
-                    Ok(attachments)
-                        if this.current_model().is_some_and(|model| {
-                            !model.capabilities.vision
-                                && attachments
-                                    .iter()
-                                    .any(|attachment| attachment.kind.requires_vision())
-                        }) =>
-                    {
-                        this.data.error =
-                            Some("The selected model only accepts text attachments.".into());
-                    }
                     Ok(attachments) => {
+                        if let Some(error) =
+                            attachment_capability_error(&capabilities, &attachments)
+                        {
+                            this.data.error = Some(error.into());
+                            cx.notify();
+                            return;
+                        }
                         for attachment in &attachments {
                             if let Some(preview) = attachment_preview(attachment) {
                                 this.chat
@@ -205,7 +208,8 @@ impl OneChat {
             return;
         }
         cx.stop_propagation();
-        if self.is_current_generating() || self.chat.attachments_loading {
+        if self.is_current_generating() || self.recording_active() || self.chat.attachments_loading
+        {
             return;
         }
         let Some(conversation_id) = self.current_conversation().map(|value| value.id.clone())
@@ -263,6 +267,7 @@ impl OneChat {
     }
 
     pub(crate) fn remove_attachment(&mut self, id: String, cx: &mut Context<Self>) {
+        self.stop_audio_playback_if(&id);
         self.chat
             .attachments
             .retain(|attachment| attachment.id != id);

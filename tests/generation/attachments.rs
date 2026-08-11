@@ -42,6 +42,7 @@ fn document_images_follow_each_generation_target_model() {
                         bytes: b"image".to_vec(),
                     },
                 ],
+                audio: None,
             }],
         )
         .unwrap();

@@ -70,12 +70,10 @@ pub(super) fn prepare_render(
         }
     }
 
-    let animated_title = if app.navigation.page == Page::Chat {
+    if app.navigation.page == Page::Chat {
         app.advance_message_scroll(window);
         app.current_animated_title(window)
     } else {
         None
-    };
-
-    animated_title
+    }
 }

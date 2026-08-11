@@ -99,6 +99,7 @@ async fn agent_loop(
                 estimated_input_tokens: estimate_input_tokens(
                     &request.system_prompt,
                     &request.messages,
+                    request.audio_duration_ms,
                 ),
             })
             .await

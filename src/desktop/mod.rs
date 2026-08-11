@@ -1,4 +1,6 @@
 mod app;
+mod audio_playback;
+mod audio_recording;
 mod ui;
 
 use std::{sync::Arc, time::Duration};
@@ -62,6 +64,10 @@ impl WindowContent {
         let content = cx.weak_entity();
         window.on_window_should_close(cx, move |window, cx| {
             let _ = content.update(cx, |this, cx| {
+                this.one_chat.update(cx, |one_chat, cx| {
+                    one_chat.cancel_voice_recording(cx);
+                    one_chat.stop_audio_playback();
+                });
                 let state = stored_window_state(window, this.last_windowed_bounds, cx);
                 let _ = storage.save_window_state(&state);
             });

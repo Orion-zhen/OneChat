@@ -85,6 +85,7 @@ fn title_request(
         system_prompt,
         config,
         messages: vec![Message::user(transcript)],
+        audio_duration_ms: 0,
         tools: Vec::new(),
     }
 }

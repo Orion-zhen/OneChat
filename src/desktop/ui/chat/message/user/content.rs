@@ -55,6 +55,7 @@ pub(super) fn render_message_content(
                     }))
                     .children(editor.attachment_drafts.iter().map(|attachment| {
                         render_edit_draft_attachment(
+                            app,
                             &turn.id,
                             attachment,
                             editor.attachment_previews.get(&attachment.id).cloned(),

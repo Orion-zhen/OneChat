@@ -20,17 +20,21 @@ use super::{
 };
 use crate::{
     application::generation::GenerationManager,
-    desktop::ui::{
-        inspector::{GenerationConfigEditor, InspectorTab},
-        selectable_text::TextSelection,
-        settings::{
-            DefaultModelItem, FontFamilyItem, McpServerEditor, ModelEditor, PromptPresetEditor,
-            PromptSelectItem, PromptVariableEditor, ProviderEditor, ReasoningPresetSelectItem,
-            SearchableItems, SettingsSection,
-        },
-        shell::{
-            CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate,
-            ReasoningPickerDelegate,
+    desktop::{
+        audio_playback::{AudioPlayback, PlaybackSnapshot},
+        audio_recording::{AudioRecording, RecordingSnapshot},
+        ui::{
+            inspector::{GenerationConfigEditor, InspectorTab},
+            selectable_text::TextSelection,
+            settings::{
+                DefaultModelItem, FontFamilyItem, McpServerEditor, ModelEditor, PromptPresetEditor,
+                PromptSelectItem, PromptVariableEditor, ProviderEditor, ReasoningPresetSelectItem,
+                SearchableItems, SettingsSection,
+            },
+            shell::{
+                CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate,
+                ReasoningPickerDelegate,
+            },
         },
     },
     domain::AttachmentDraft,
@@ -42,6 +46,8 @@ pub(super) struct Services {
     pub(super) storage: Arc<Storage>,
     pub(super) runtime: Arc<Runtime>,
     pub(super) mcp: Arc<McpManager>,
+    pub(super) audio_playback: AudioPlayback,
+    pub(super) audio_recording: AudioRecording,
 }
 
 pub(crate) struct DataState {
@@ -131,6 +137,11 @@ pub(crate) struct ChatState {
     pub(crate) attachment_previews: HashMap<String, Arc<gpui::Image>>,
     pub(crate) attachments_loading: bool,
     pub(crate) attachments_revision: u64,
+    pub(crate) audio_playback: PlaybackSnapshot,
+    pub(super) audio_playback_task: Task<()>,
+    pub(crate) audio_recording: RecordingSnapshot,
+    pub(super) audio_recording_task: Task<()>,
+    pub(super) recording_conversation_id: Option<String>,
     pub(super) generations: GenerationManager,
     pub(super) markdown_documents: HashMap<String, CachedMarkdown>,
     pub(super) pending_title_transitions: HashMap<String, PendingTitleTransition>,

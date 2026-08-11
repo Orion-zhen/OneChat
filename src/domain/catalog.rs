@@ -163,7 +163,7 @@ pub struct ModelCapabilities {
     pub tools: bool,
     pub vision: bool,
     #[serde(default)]
-    pub audio: bool,
+    pub audio_input: bool,
     pub temperature: bool,
     pub top_p: bool,
     pub top_k: bool,
@@ -179,7 +179,7 @@ impl Default for ModelCapabilities {
         Self {
             tools: false,
             vision: false,
-            audio: false,
+            audio_input: false,
             temperature: true,
             top_p: true,
             top_k: false,
@@ -321,9 +321,9 @@ mod tests {
     #[test]
     fn audio_capability_defaults_to_disabled() {
         let mut value = serde_json::to_value(ModelCapabilities::default()).unwrap();
-        value.as_object_mut().unwrap().remove("audio");
+        value.as_object_mut().unwrap().remove("audio_input");
 
         let capabilities: ModelCapabilities = serde_json::from_value(value).unwrap();
-        assert!(!capabilities.audio);
+        assert!(!capabilities.audio_input);
     }
 }

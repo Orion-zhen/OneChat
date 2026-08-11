@@ -252,4 +252,11 @@ impl OneChat {
             limit,
         )
     }
+
+    pub(crate) fn current_context_audio_duration_ms(&self) -> u64 {
+        crate::application::generation::history_audio_duration_ms_for_new_turn(
+            &self.data.snapshot.current_turns,
+            self.displayed_history_limit(),
+        )
+    }
 }

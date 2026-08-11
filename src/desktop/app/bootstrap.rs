@@ -21,17 +21,21 @@ use super::{
 };
 use crate::{
     application::generation::GenerationManager,
-    desktop::ui::{
-        SIDEBAR_WIDTH,
-        inspector::InspectorTab,
-        selectable_text::TextSelection,
-        settings::{
-            DefaultModelItem, FontFamilyItem, PromptSelectItem, ReasoningPresetSelectItem,
-            SearchableItems, SettingsSection, ThemeColorControl,
-        },
-        shell::{
-            CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate,
-            ReasoningPickerDelegate,
+    desktop::{
+        audio_playback::{AudioPlayback, PlaybackSnapshot},
+        audio_recording::{AudioRecording, RecordingSnapshot},
+        ui::{
+            SIDEBAR_WIDTH,
+            inspector::InspectorTab,
+            selectable_text::TextSelection,
+            settings::{
+                DefaultModelItem, FontFamilyItem, PromptSelectItem, ReasoningPresetSelectItem,
+                SearchableItems, SettingsSection, ThemeColorControl,
+            },
+            shell::{
+                CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate,
+                ReasoningPickerDelegate,
+            },
         },
     },
     domain::AppSettings,
@@ -89,6 +93,8 @@ impl OneChat {
                 storage,
                 runtime,
                 mcp,
+                audio_playback: AudioPlayback::new(),
+                audio_recording: AudioRecording::new(),
             },
             data: DataState {
                 snapshot: StorageSnapshot::default(),
@@ -163,6 +169,11 @@ impl OneChat {
                 attachment_previews: HashMap::new(),
                 attachments_loading: false,
                 attachments_revision: 0,
+                audio_playback: PlaybackSnapshot::default(),
+                audio_playback_task: Task::ready(()),
+                audio_recording: RecordingSnapshot::default(),
+                audio_recording_task: Task::ready(()),
+                recording_conversation_id: None,
                 generations: GenerationManager::default(),
                 markdown_documents: HashMap::new(),
                 pending_title_transitions: HashMap::new(),
@@ -210,6 +221,8 @@ impl OneChat {
         };
         this.load_startup_snapshot(cx);
         this.reload_mcp(cx);
+        this.start_audio_playback_observer(cx);
+        this.start_audio_recording_observer(cx);
         this
     }
 }

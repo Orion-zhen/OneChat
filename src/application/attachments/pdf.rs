@@ -74,5 +74,6 @@ pub(super) fn load(
         name,
         kind: AttachmentKind::Pdf,
         files,
+        audio: None,
     })
 }

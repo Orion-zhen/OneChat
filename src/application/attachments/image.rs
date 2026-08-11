@@ -34,6 +34,7 @@ pub(super) fn load(
             media_type: media_type.into(),
             bytes,
         }],
+        audio: None,
     })
 }
 

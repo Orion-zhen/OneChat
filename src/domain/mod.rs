@@ -11,8 +11,9 @@ pub use catalog::{
 };
 pub use conversation::{
     AssistantResponse, Attachment, AttachmentDraft, AttachmentDraftFile, AttachmentFile,
-    AttachmentFileKind, AttachmentKind, AutoTitleState, Conversation, MessageStatus, ToolRef,
-    ToolSelection, Turn, UserMessage, active_turns, user_branches,
+    AttachmentFileKind, AttachmentKind, AudioAttachmentMetadata, AudioAttachmentSource,
+    AutoTitleState, Conversation, MessageStatus, ToolRef, ToolSelection, Turn, UserMessage,
+    active_turns, user_branches,
 };
 pub use generation::{
     GenerationError, GenerationErrorKind, GenerationEvent, GenerationRequest, Message,

@@ -49,6 +49,7 @@ impl OneChat {
     }
 
     pub(crate) fn fork_from_response(&mut self, response_id: String, cx: &mut Context<Self>) {
+        self.cancel_voice_recording(cx);
         if self.chat.message_editor.is_some() {
             return;
         }
@@ -128,7 +129,10 @@ impl OneChat {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.is_current_generating() || self.chat.message_editor.is_some() {
+        if self.is_current_generating()
+            || self.recording_active()
+            || self.chat.message_editor.is_some()
+        {
             return;
         }
         let Some((content, attachments)) = self
@@ -166,7 +170,10 @@ impl OneChat {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.is_current_generating() || self.chat.message_editor.is_some() {
+        if self.is_current_generating()
+            || self.recording_active()
+            || self.chat.message_editor.is_some()
+        {
             return;
         }
         let Some((turn, response)) = self.response(&response_id) else {
@@ -195,6 +202,7 @@ impl OneChat {
     }
 
     pub(crate) fn cancel_message_edit(&mut self, cx: &mut Context<Self>) {
+        self.stop_audio_playback();
         self.chat.message_editor = None;
         self.navigation.pending_focus = Some(PendingFocus::Composer);
         cx.notify();
@@ -242,6 +250,19 @@ impl OneChat {
                 return;
             }
         };
+        if retained_attachments
+            .iter()
+            .map(|attachment| attachment.kind)
+            .chain(attachment_drafts.iter().map(|attachment| attachment.kind))
+            .any(|kind| !Self::attachment_kind_supported(&model, kind))
+        {
+            self.data.error = Some(
+                "The selected model cannot read one or more attachments in the edited message."
+                    .into(),
+            );
+            cx.notify();
+            return;
+        }
         let history_limit = self.effective_history_limit(&conversation);
         let new_attachments = match self
             .services
@@ -286,13 +307,17 @@ impl OneChat {
             }
         }
         .with_new_attachments(new_attachments);
+        self.stop_audio_playback();
         self.chat.message_editor = None;
         self.navigation.pending_focus = Some(PendingFocus::Composer);
         self.begin_prepared_generation(prepared, cx);
     }
 
     pub(crate) fn select_user_branch(&mut self, turn_id: String, cx: &mut Context<Self>) {
-        if self.is_current_generating() || self.chat.message_editor.is_some() {
+        if self.is_current_generating()
+            || self.recording_active()
+            || self.chat.message_editor.is_some()
+        {
             return;
         }
         let Some(conversation_id) = self.current_conversation().map(|value| value.id.clone())

@@ -22,6 +22,7 @@ fn resolve_destructive_action(
 
 impl OneChat {
     pub(crate) fn create_conversation(&mut self, cx: &mut Context<Self>) {
+        self.cancel_voice_recording(cx);
         let model_id = if self.current_conversation().is_none() {
             self.chat.draft_model_id.as_deref()
         } else {

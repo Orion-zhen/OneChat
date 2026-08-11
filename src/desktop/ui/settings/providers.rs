@@ -428,7 +428,7 @@ pub(super) fn model_capability_summary(model: &Model) -> String {
     if capabilities.vision {
         labels.push("Vision".to_string());
     }
-    if capabilities.audio {
+    if capabilities.audio_input {
         labels.push("Audio".to_string());
     }
     if capabilities.tools {

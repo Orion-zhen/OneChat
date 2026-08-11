@@ -107,6 +107,90 @@ fn model_context_window_trims_only_complete_oldest_turns_and_updates_request_inf
     );
 }
 
+#[test]
+fn trimming_audio_history_restores_duration_based_capacity() {
+    let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+    let mut model = Model::new(&provider.id, "audio-model", "Audio Model");
+    model.capabilities.audio_input = true;
+    let conversation = Conversation::new("Chat", Some(&model), "");
+    let mut root = completed_turn(
+        &conversation,
+        None,
+        "old audio",
+        "old answer",
+        &model,
+        &provider,
+    );
+    root.user.attachments.push(Attachment {
+        id: "audio".into(),
+        name: "audio.wav".into(),
+        kind: AttachmentKind::Audio,
+        files: Vec::new(),
+        audio: Some(AudioAttachmentMetadata {
+            duration_ms: 60_000,
+            source: AudioAttachmentSource::Upload,
+        }),
+    });
+    let recent = completed_turn(
+        &conversation,
+        Some(root.responses[0].id.clone()),
+        "recent text",
+        "recent answer",
+        &model,
+        &provider,
+    );
+    let turns = [root, recent.clone()];
+    let loader = |user: &UserMessage| {
+        let mut content = vec![rig_core::message::UserContent::text(user.content.clone())];
+        if user
+            .attachments
+            .iter()
+            .any(|attachment| attachment.kind == AttachmentKind::Audio)
+        {
+            content.push(rig_core::message::UserContent::audio(
+                "YQ==".repeat(100_000),
+                Some(rig_core::message::AudioMediaType::WAV),
+            ));
+        }
+        Ok(Message::User {
+            content: rig_core::OneOrMany::many(content).unwrap(),
+        })
+    };
+    let prepare = |limit| {
+        PreparedGeneration::new(
+            &conversation,
+            &provider,
+            &model,
+            &turns,
+            Some(recent.responses[0].id.clone()),
+            UserMessage::new("current", Vec::new()),
+            ContextPolicy::new(limit, &loader),
+        )
+        .unwrap()
+    };
+
+    let mut full = prepare(HistoryLimit::Unlimited);
+    let recent_only_tokens = prepare(HistoryLimit::Last(1))
+        .request_info
+        .usage
+        .input_tokens
+        .unwrap();
+    assert_eq!(full.provider_request.audio_duration_ms, 60_000);
+    assert!(
+        full.request_info.usage.input_tokens.unwrap() >= recent_only_tokens + 60 * 32,
+        "audio duration should contribute to the full estimate"
+    );
+
+    full.provider_request.model.context_window_tokens = Some(recent_only_tokens as u32);
+    full.finalize_context().unwrap();
+    assert_eq!(full.provider_request.audio_duration_ms, 0);
+    assert_eq!(
+        full.request_info.usage.input_tokens,
+        Some(recent_only_tokens)
+    );
+    assert_eq!(full.request_info.context.unwrap().included_history_turns, 1);
+}
+
 #[tokio::test]
 async fn resolved_system_prompt_is_used_for_context_window_preflight() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
@@ -179,6 +263,7 @@ async fn pre_provider_context_failure_is_persisted_without_removing_attachments(
                     media_type: "text/markdown".into(),
                     bytes: b"retained attachment".to_vec(),
                 }],
+                audio: None,
             }],
         )
         .unwrap();

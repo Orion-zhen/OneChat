@@ -7,12 +7,16 @@ use crate::{
     application::attachments::{
         MAX_ATTACHMENTS, MAX_IMAGE_BYTES, load as load_attachment, validate_image,
     },
-    domain::{AttachmentDraft, AttachmentDraftFile, AttachmentFileKind, AttachmentKind, new_id},
+    domain::{
+        AttachmentDraft, AttachmentDraftFile, AttachmentFileKind, AttachmentKind,
+        ModelCapabilities, new_id,
+    },
 };
 
 struct ComposerAttachmentLoad {
     conversation_id: String,
     vision: bool,
+    audio_input: bool,
     parse_document_images: bool,
     remaining: usize,
     revision: u64,
@@ -31,6 +35,28 @@ impl OneChat {
             .storage
             .attachment_path(conversation_id, &file.path)
             .ok()
+    }
+}
+
+fn attachment_capability_error(
+    capabilities: &ModelCapabilities,
+    attachments: &[AttachmentDraft],
+) -> Option<&'static str> {
+    let vision = !capabilities.vision
+        && attachments
+            .iter()
+            .any(|attachment| attachment.kind.requires_vision());
+    let audio = !capabilities.audio_input
+        && attachments
+            .iter()
+            .any(|attachment| attachment.kind.requires_audio_input());
+    match (vision, audio) {
+        (true, true) => {
+            Some("The selected model does not accept image, PDF, or audio attachments.")
+        }
+        (true, false) => Some("The selected model does not accept image or PDF attachments."),
+        (false, true) => Some("The selected model does not accept audio attachments."),
+        (false, false) => None,
     }
 }
 
@@ -95,5 +121,6 @@ fn clipboard_image_attachment(
             media_type: media_type.into(),
             bytes,
         }],
+        audio: None,
     })
 }

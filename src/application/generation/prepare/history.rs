@@ -44,7 +44,8 @@ impl<'a> HistorySelection<'a> {
 pub(super) struct PreparedContext {
     pub(super) messages: Vec<Message>,
     pub(super) history_groups: Vec<PreparedHistoryGroup>,
-    pub(super) current_message_requires_vision: bool,
+    pub(super) current_message_requirements: InputRequirements,
+    pub(super) audio_duration_ms: u64,
     pub(super) request_context: RequestContextInfo,
 }
 
@@ -56,7 +57,7 @@ pub(super) fn prepare_context(
     user_message: &dyn Fn(&UserMessage) -> Result<Message, String>,
 ) -> Result<PreparedContext, String> {
     let selection = HistorySelection::new(turns, parent_response_id, history_limit);
-    let current_message_requires_vision = user_requires_vision(current_user);
+    let current_message_requirements = user_input_requirements(current_user);
 
     let mut messages = Vec::new();
     let mut history_groups = Vec::with_capacity(selection.ancestors.len());
@@ -65,21 +66,35 @@ pub(super) fn prepare_context(
         expand_ancestor(*ancestor, user_message, &mut messages)?;
         history_groups.push(PreparedHistoryGroup {
             message_count: messages.len() - start,
-            requires_vision: user_requires_vision(&ancestor.turn.user),
+            audio_duration_ms: user_audio_duration_ms(&ancestor.turn.user),
+            requirements: user_input_requirements(&ancestor.turn.user),
         });
     }
     messages.push(user_message(current_user)?);
 
+    let audio_duration_ms = history_groups
+        .iter()
+        .fold(0_u64, |duration_ms, group| {
+            duration_ms.saturating_add(group.audio_duration_ms)
+        })
+        .saturating_add(user_audio_duration_ms(current_user));
+
     Ok(PreparedContext {
         messages,
         history_groups,
-        current_message_requires_vision,
+        current_message_requirements,
+        audio_duration_ms,
         request_context: selection.request_context(),
     })
 }
 
 pub fn history_for_turn(turns: &[Turn], turn: &Turn, limit: HistoryLimit) -> Vec<Message> {
     history_for_turn_with(turns, turn, limit, &plain_user_message).unwrap_or_default()
+}
+
+pub fn history_audio_duration_ms_for_turn(turns: &[Turn], turn: &Turn, limit: HistoryLimit) -> u64 {
+    let selection = HistorySelection::new(turns, turn.parent_response_id.as_deref(), limit);
+    selection_audio_duration_ms(&selection).saturating_add(user_audio_duration_ms(&turn.user))
 }
 
 fn history_for_turn_with(
@@ -103,6 +118,10 @@ pub struct HistoryPreview {
 pub fn history_for_new_turn(turns: &[Turn], limit: HistoryLimit) -> Vec<Message> {
     let selection = history_selection_for_new_turn(turns, limit);
     expand_selection(&selection, &plain_user_message).unwrap_or_default()
+}
+
+pub fn history_audio_duration_ms_for_new_turn(turns: &[Turn], limit: HistoryLimit) -> u64 {
+    selection_audio_duration_ms(&history_selection_for_new_turn(turns, limit))
 }
 
 pub fn history_preview_for_new_turn(turns: &[Turn], limit: HistoryLimit) -> HistoryPreview {
@@ -174,10 +193,34 @@ fn expand_ancestor(
     Ok(())
 }
 
-fn user_requires_vision(user: &UserMessage) -> bool {
-    user.attachments
-        .iter()
-        .any(|attachment| attachment.kind.requires_vision())
+fn selection_audio_duration_ms(selection: &HistorySelection<'_>) -> u64 {
+    selection.ancestors.iter().fold(0, |duration_ms, ancestor| {
+        duration_ms.saturating_add(user_audio_duration_ms(&ancestor.turn.user))
+    })
+}
+
+fn user_audio_duration_ms(user: &UserMessage) -> u64 {
+    user.attachments.iter().fold(0, |duration_ms, attachment| {
+        duration_ms.saturating_add(
+            attachment
+                .audio
+                .as_ref()
+                .map_or(0, |audio| audio.duration_ms),
+        )
+    })
+}
+
+fn user_input_requirements(user: &UserMessage) -> InputRequirements {
+    InputRequirements {
+        vision: user
+            .attachments
+            .iter()
+            .any(|attachment| attachment.kind.requires_vision()),
+        audio: user
+            .attachments
+            .iter()
+            .any(|attachment| attachment.kind.requires_audio_input()),
+    }
 }
 
 pub(super) fn turn_count(count: usize) -> u32 {

@@ -250,7 +250,7 @@ fn render_model_capability_icon(capabilities: Option<&ModelCapabilities>, cx: &A
         return render_icon(AppIcon::Bot, IconTone::Muted, 14.0, cx);
     };
 
-    match (capabilities.vision, capabilities.audio) {
+    match (capabilities.vision, capabilities.audio_input) {
         (false, false) => render_icon(AppIcon::MessageText, IconTone::Muted, 14.0, cx),
         (true, false) => render_icon(AppIcon::Eye, IconTone::Muted, 14.0, cx),
         (false, true) => render_icon(AppIcon::AudioLines, IconTone::Muted, 14.0, cx),

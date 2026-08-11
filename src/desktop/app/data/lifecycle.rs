@@ -246,7 +246,9 @@ impl OneChat {
         }
     }
 
-    pub(in crate::desktop::app) fn reset_conversation_ui(&mut self, _cx: &mut Context<Self>) {
+    pub(in crate::desktop::app) fn reset_conversation_ui(&mut self, cx: &mut Context<Self>) {
+        self.cancel_voice_recording(cx);
+        self.stop_audio_playback();
         self.chat.draft_model_id = None;
         self.chat.system_prompt_mode = SystemPromptMode::Compact;
         self.chat.system_prompt_editor = None;

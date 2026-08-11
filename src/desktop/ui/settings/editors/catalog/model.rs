@@ -164,7 +164,7 @@ impl ModelEditor {
                 .update(cx, |input, cx| input.set_value(display_name, window, cx));
         }
         self.capabilities.vision = synchronized.metadata.vision;
-        self.capabilities.audio = synchronized.metadata.audio;
+        self.capabilities.audio_input = synchronized.metadata.audio_input;
         self.capabilities.tools = synchronized.metadata.tools;
         if remote_id_changed {
             let context_window = synchronized
@@ -180,14 +180,14 @@ impl ModelEditor {
     fn update_capabilities_for_remote_id(&mut self, remote_id: &str) {
         let metadata = discovered_model_metadata(&self.available_models, remote_id);
         self.capabilities.vision = metadata.vision;
-        self.capabilities.audio = metadata.audio;
+        self.capabilities.audio_input = metadata.audio_input;
         self.capabilities.tools = metadata.tools;
     }
 
     pub fn set_capability(&mut self, capability: Capability, enabled: bool) {
         let value = match capability {
             Capability::Vision => &mut self.capabilities.vision,
-            Capability::Audio => &mut self.capabilities.audio,
+            Capability::Audio => &mut self.capabilities.audio_input,
             Capability::Tools => &mut self.capabilities.tools,
         };
         *value = enabled;
@@ -196,7 +196,7 @@ impl ModelEditor {
     pub fn capability(&self, capability: Capability) -> bool {
         match capability {
             Capability::Vision => self.capabilities.vision,
-            Capability::Audio => self.capabilities.audio,
+            Capability::Audio => self.capabilities.audio_input,
             Capability::Tools => self.capabilities.tools,
         }
     }
@@ -225,7 +225,7 @@ impl Capability {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct DiscoveredModelMetadata {
     vision: bool,
-    audio: bool,
+    audio_input: bool,
     tools: bool,
     context_window_tokens: Option<u32>,
 }
@@ -258,7 +258,7 @@ fn discovered_model_metadata(
         .find(|model| model.id == remote_id.trim())
         .map(|model| DiscoveredModelMetadata {
             vision: model.vision,
-            audio: model.audio,
+            audio_input: model.audio_input,
             tools: model.tools,
             context_window_tokens: model.context_window_tokens,
         })
@@ -299,7 +299,7 @@ mod model_tests {
             id: id.into(),
             tools: true,
             vision: true,
-            audio: false,
+            audio_input: false,
             context_window_tokens,
         }
     }
@@ -331,7 +331,7 @@ mod model_tests {
             synchronized.metadata,
             DiscoveredModelMetadata {
                 vision: true,
-                audio: false,
+                audio_input: false,
                 tools: true,
                 context_window_tokens: Some(128_000),
             }

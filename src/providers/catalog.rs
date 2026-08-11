@@ -12,7 +12,7 @@ pub struct AvailableModel {
     pub id: String,
     pub tools: bool,
     pub vision: bool,
-    pub audio: bool,
+    pub audio_input: bool,
     pub context_window_tokens: Option<u32>,
 }
 

@@ -23,5 +23,6 @@ pub(super) fn load(path: &Path, name: String, size: u64) -> Result<AttachmentDra
             media_type: "text/plain".into(),
             bytes,
         }],
+        audio: None,
     })
 }

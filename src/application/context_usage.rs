@@ -1,4 +1,10 @@
-use rig_core::completion::{AssistantContent, Message};
+use rig_core::{
+    OneOrMany,
+    completion::{AssistantContent, Message},
+    message::{Audio, DocumentSourceKind, UserContent},
+};
+
+const AUDIO_INPUT_TOKENS_PER_SECOND: u64 = 32;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ContextUsageSource {
@@ -22,21 +28,62 @@ pub struct ContextUsage {
     pub replays_reasoning: bool,
 }
 
-pub fn estimate_input_tokens(system_prompt: &str, messages: &[Message]) -> u64 {
+pub fn estimate_input_tokens(
+    system_prompt: &str,
+    messages: &[Message],
+    audio_duration_ms: u64,
+) -> u64 {
     let characters = system_prompt.chars().count()
         + messages
             .iter()
-            .map(|message| serde_json::to_string(message).map_or(0, |value| value.chars().count()))
+            .map(message_characters_without_audio_data)
             .sum::<usize>();
-    characters.div_ceil(4) as u64
+    let text_tokens = characters.div_ceil(4) as u64;
+    let audio_tokens = audio_duration_ms
+        .saturating_mul(AUDIO_INPUT_TOKENS_PER_SECOND)
+        .div_ceil(1_000);
+    text_tokens.saturating_add(audio_tokens)
+}
+
+fn message_characters_without_audio_data(message: &Message) -> usize {
+    let Message::User { content } = message else {
+        return serialized_characters(message);
+    };
+    if !content
+        .iter()
+        .any(|content| matches!(content, UserContent::Audio(_)))
+    {
+        return serialized_characters(message);
+    }
+
+    let content = content
+        .iter()
+        .map(|content| match content {
+            UserContent::Audio(audio) => UserContent::Audio(Audio {
+                data: DocumentSourceKind::Unknown,
+                media_type: audio.media_type.clone(),
+                additional_params: audio.additional_params.clone(),
+            }),
+            content => content.clone(),
+        })
+        .collect::<Vec<_>>();
+    let message = Message::User {
+        content: OneOrMany::many(content).expect("user messages have content"),
+    };
+    serialized_characters(&message)
+}
+
+fn serialized_characters(value: &impl serde::Serialize) -> usize {
+    serde_json::to_string(value).map_or(0, |value| value.chars().count())
 }
 
 pub fn provider_usage_reference(
     input_tokens: u64,
     system_prompt: &str,
     messages: &[Message],
+    audio_duration_ms: u64,
 ) -> Option<ContextUsageReference> {
-    let estimated_input_tokens = estimate_input_tokens(system_prompt, messages);
+    let estimated_input_tokens = estimate_input_tokens(system_prompt, messages, audio_duration_ms);
     (input_tokens > 0 && estimated_input_tokens > 0).then_some(ContextUsageReference {
         input_tokens,
         estimated_input_tokens,
@@ -46,10 +93,11 @@ pub fn provider_usage_reference(
 pub fn project_context_usage(
     system_prompt: &str,
     messages: &[Message],
+    audio_duration_ms: u64,
     context_window_tokens: Option<u32>,
     reference: Option<ContextUsageReference>,
 ) -> ContextUsage {
-    let estimated_input_tokens = estimate_input_tokens(system_prompt, messages);
+    let estimated_input_tokens = estimate_input_tokens(system_prompt, messages, audio_duration_ms);
     let (input_tokens, source) = reference
         .filter(|reference| reference.input_tokens > 0 && reference.estimated_input_tokens > 0)
         .map_or(
@@ -95,7 +143,11 @@ fn message_replays_reasoning(message: &Message) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use rig_core::{OneOrMany, completion::AssistantContent, message::Reasoning};
+    use rig_core::{
+        OneOrMany,
+        completion::AssistantContent,
+        message::{AudioMediaType, Reasoning, UserContent},
+    };
 
     use super::*;
 
@@ -104,12 +156,13 @@ mod tests {
         let previous = vec![Message::user("a".repeat(400))];
         let mut current = previous.clone();
         current.push(Message::user("b".repeat(200)));
-        let previous_estimate = estimate_input_tokens("", &previous);
-        let current_estimate = estimate_input_tokens("", &current);
+        let previous_estimate = estimate_input_tokens("", &previous, 0);
+        let current_estimate = estimate_input_tokens("", &current, 0);
 
         let usage = project_context_usage(
             "",
             &current,
+            0,
             Some(1_000),
             Some(ContextUsageReference {
                 input_tokens: 300,
@@ -127,13 +180,13 @@ mod tests {
     #[test]
     fn legacy_single_step_usage_can_build_a_provider_reference() {
         let messages = vec![Message::user("hello")];
-        let reference = provider_usage_reference(12, "", &messages).unwrap();
+        let reference = provider_usage_reference(12, "", &messages, 0).unwrap();
         assert_eq!(reference.input_tokens, 12);
         assert_eq!(
             reference.estimated_input_tokens,
-            estimate_input_tokens("", &messages)
+            estimate_input_tokens("", &messages, 0)
         );
-        assert!(provider_usage_reference(0, "", &messages).is_none());
+        assert!(provider_usage_reference(0, "", &messages, 0).is_none());
     }
 
     #[test]
@@ -142,16 +195,17 @@ mod tests {
             id: None,
             content: OneOrMany::one(AssistantContent::Reasoning(Reasoning::new("thinking"))),
         };
-        let usage = project_context_usage("", &[reasoning], None, None);
+        let usage = project_context_usage("", &[reasoning], 0, None, None);
         assert!(usage.replays_reasoning);
 
-        let visible_only = project_context_usage("", &[Message::assistant("answer")], None, None);
+        let visible_only =
+            project_context_usage("", &[Message::assistant("answer")], 0, None, None);
         assert!(!visible_only.replays_reasoning);
     }
 
     #[test]
     fn unknown_window_keeps_absolute_usage_without_inventing_a_ratio() {
-        let usage = project_context_usage("system", &[Message::user("hello")], None, None);
+        let usage = project_context_usage("system", &[Message::user("hello")], 0, None, None);
         assert!(usage.input_tokens > 0);
         assert_eq!(usage.remaining_tokens, None);
         assert_eq!(usage.remaining_ratio, None);
@@ -160,8 +214,55 @@ mod tests {
 
     #[test]
     fn usage_over_the_window_saturates_remaining_capacity_at_zero() {
-        let usage = project_context_usage("", &[Message::user("x".repeat(1_000))], Some(10), None);
+        let usage =
+            project_context_usage("", &[Message::user("x".repeat(1_000))], 0, Some(10), None);
         assert_eq!(usage.remaining_tokens, Some(0));
         assert_eq!(usage.remaining_ratio, Some(0.0));
+    }
+
+    #[test]
+    fn audio_estimate_uses_duration_instead_of_base64_size() {
+        let message = |data: String| Message::User {
+            content: OneOrMany::one(UserContent::audio(data, Some(AudioMediaType::WAV))),
+        };
+        let small = message("YQ==".into());
+        let large = message("YQ==".repeat(100_000));
+
+        assert_eq!(
+            estimate_input_tokens("", &[small], 10_000),
+            estimate_input_tokens("", &[large], 10_000)
+        );
+    }
+
+    #[test]
+    fn audio_estimate_grows_at_thirty_two_tokens_per_second() {
+        let message = Message::User {
+            content: OneOrMany::one(UserContent::audio("YQ==", Some(AudioMediaType::WAV))),
+        };
+        let baseline = estimate_input_tokens("", std::slice::from_ref(&message), 0);
+        assert_eq!(
+            estimate_input_tokens("", std::slice::from_ref(&message), 1_000) - baseline,
+            32
+        );
+        assert_eq!(estimate_input_tokens("", &[message], 2_500) - baseline, 80);
+    }
+
+    #[test]
+    fn provider_anchor_projects_audio_duration_delta() {
+        let messages = vec![Message::user("same text")];
+        let previous_estimate = estimate_input_tokens("", &messages, 1_000);
+        let usage = project_context_usage(
+            "",
+            &messages,
+            3_000,
+            None,
+            Some(ContextUsageReference {
+                input_tokens: 100,
+                estimated_input_tokens: previous_estimate,
+            }),
+        );
+
+        assert_eq!(usage.input_tokens, 164);
+        assert_eq!(usage.source, ContextUsageSource::ProviderAnchored);
     }
 }

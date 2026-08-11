@@ -185,5 +185,6 @@ fn estimate_context_tokens(app: &OneChat) -> u64 {
         app.current_conversation()
             .map_or("", |conversation| conversation.system_prompt.as_str()),
         &app.current_context_messages(),
+        app.current_context_audio_duration_ms(),
     )
 }

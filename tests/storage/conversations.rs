@@ -27,6 +27,7 @@ fn conversations_branch_fork_and_keep_attachment_content() {
                         media_type: "text/plain".into(),
                         bytes: b"important context".to_vec(),
                     }],
+                    audio: None,
                 },
                 AttachmentDraft {
                     id: "report".into(),
@@ -46,6 +47,7 @@ fn conversations_branch_fork_and_keep_attachment_content() {
                             bytes: b"chart".to_vec(),
                         },
                     ],
+                    audio: None,
                 },
             ],
         )

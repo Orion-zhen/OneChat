@@ -11,6 +11,7 @@ pub struct GenerationRequest {
     pub system_prompt: String,
     pub config: GenerationConfig,
     pub messages: Vec<Message>,
+    pub audio_duration_ms: u64,
     pub tools: Vec<ToolDefinition>,
 }
 

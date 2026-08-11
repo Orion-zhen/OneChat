@@ -63,6 +63,7 @@ pub(super) fn load(
         name,
         kind: AttachmentKind::Document,
         files,
+        audio: None,
     })
 }
 

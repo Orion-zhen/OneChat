@@ -19,6 +19,7 @@ impl OneChat {
         mut prepared: PreparedGeneration,
         cx: &mut Context<Self>,
     ) {
+        self.cancel_voice_recording(cx);
         let conversation_id = prepared.request_info.conversation_id.clone();
         let prompt_context = PromptContext {
             conversation_id: conversation_id.clone(),

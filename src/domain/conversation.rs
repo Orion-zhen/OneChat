@@ -121,6 +121,7 @@ impl MessageStatus {
 pub enum AttachmentKind {
     Text,
     Image,
+    Audio,
     Pdf,
     Document,
 }
@@ -129,6 +130,10 @@ impl AttachmentKind {
     pub fn requires_vision(self) -> bool {
         matches!(self, Self::Image | Self::Pdf)
     }
+
+    pub fn requires_audio_input(self) -> bool {
+        self == Self::Audio
+    }
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -136,6 +141,20 @@ impl AttachmentKind {
 pub enum AttachmentFileKind {
     Text,
     Image,
+    Audio,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AudioAttachmentSource {
+    Upload,
+    Voice,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct AudioAttachmentMetadata {
+    pub duration_ms: u64,
+    pub source: AudioAttachmentSource,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -152,6 +171,7 @@ pub struct Attachment {
     pub name: String,
     pub kind: AttachmentKind,
     pub files: Vec<AttachmentFile>,
+    pub audio: Option<AudioAttachmentMetadata>,
 }
 
 impl Attachment {
@@ -161,6 +181,7 @@ impl Attachment {
             self.files
                 .iter()
                 .map(|file| (file.name.as_str(), file.kind, file.media_type.as_str())),
+            self.audio.as_ref(),
         )
     }
 }
@@ -179,6 +200,7 @@ pub struct AttachmentDraft {
     pub name: String,
     pub kind: AttachmentKind,
     pub files: Vec<AttachmentDraftFile>,
+    pub audio: Option<AudioAttachmentMetadata>,
 }
 
 impl AttachmentDraft {
@@ -188,6 +210,7 @@ impl AttachmentDraft {
             self.files
                 .iter()
                 .map(|file| (file.name.as_str(), file.kind, file.media_type.as_str())),
+            self.audio.as_ref(),
         )
     }
 }
@@ -195,7 +218,18 @@ impl AttachmentDraft {
 fn validate_attachment_files<'a>(
     kind: AttachmentKind,
     files: impl Iterator<Item = (&'a str, AttachmentFileKind, &'a str)>,
+    audio: Option<&AudioAttachmentMetadata>,
 ) -> Result<(), &'static str> {
+    match (kind, audio) {
+        (AttachmentKind::Audio, Some(audio)) if audio.duration_ms > 0 => {}
+        (AttachmentKind::Audio, Some(_)) => return Err("audio duration must be greater than zero"),
+        (AttachmentKind::Audio, None) => {
+            return Err("audio attachment must contain audio metadata");
+        }
+        (_, Some(_)) => return Err("only audio attachments may contain audio metadata"),
+        (_, None) => {}
+    }
+
     let files = files.collect::<Vec<_>>();
     match kind {
         AttachmentKind::Text if matches!(files.as_slice(), [(_, AttachmentFileKind::Text, _)]) => {
@@ -203,6 +237,14 @@ fn validate_attachment_files<'a>(
         }
         AttachmentKind::Image
             if matches!(files.as_slice(), [(_, AttachmentFileKind::Image, _)]) =>
+        {
+            Ok(())
+        }
+        AttachmentKind::Audio
+            if matches!(
+                files.as_slice(),
+                [(_, AttachmentFileKind::Audio, "audio/wav" | "audio/mpeg")]
+            ) =>
         {
             Ok(())
         }
@@ -215,6 +257,12 @@ fn validate_attachment_files<'a>(
             Ok(())
         }
         AttachmentKind::Document => {
+            if files
+                .iter()
+                .any(|(_, kind, _)| *kind == AttachmentFileKind::Audio)
+            {
+                return Err("document attachment may only contain text and image files");
+            }
             let mut text = files
                 .iter()
                 .filter(|(_, kind, _)| *kind == AttachmentFileKind::Text);
@@ -231,6 +279,9 @@ fn validate_attachment_files<'a>(
         }
         AttachmentKind::Text => Err("text attachment must contain exactly one text file"),
         AttachmentKind::Image => Err("image attachment must contain exactly one image file"),
+        AttachmentKind::Audio => {
+            Err("audio attachment must contain exactly one WAV or MP3 audio file")
+        }
         AttachmentKind::Pdf => Err("PDF attachment must contain one or more image files"),
     }
 }

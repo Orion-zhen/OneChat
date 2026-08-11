@@ -41,9 +41,18 @@ fn current_context_usage(app: &OneChat, cx: &App) -> Option<ContextUsage> {
     let conversation = app.current_conversation()?;
     let model = app.current_model()?;
     let mut messages = app.current_context_messages();
+    let mut audio_duration_ms = app.current_context_audio_duration_ms();
     let draft = app.chat.composer.read(cx).value();
     if !draft.is_empty() || !app.chat.attachments.is_empty() {
         messages.push(crate::domain::Message::user(draft.to_string()));
+        audio_duration_ms = app
+            .chat
+            .attachments
+            .iter()
+            .filter_map(|attachment| attachment.audio.as_ref())
+            .fold(audio_duration_ms, |duration_ms, audio| {
+                duration_ms.saturating_add(audio.duration_ms)
+            });
     }
     let reference_request = app.current_request().filter(|request| {
         request.status == crate::domain::RequestStatus::Completed
@@ -62,6 +71,7 @@ fn current_context_usage(app: &OneChat, cx: &App) -> Option<ContextUsage> {
     Some(project_context_usage(
         system_prompt,
         &messages,
+        audio_duration_ms,
         model.context_window_tokens,
         reference,
     ))
@@ -102,7 +112,17 @@ fn request_usage_reference(
         turn,
         history_limit,
     );
-    provider_usage_reference(request.usage.input_tokens?, system_prompt, &messages)
+    let audio_duration_ms = crate::application::generation::history_audio_duration_ms_for_turn(
+        &app.data.snapshot.current_turns,
+        turn,
+        history_limit,
+    );
+    provider_usage_reference(
+        request.usage.input_tokens?,
+        system_prompt,
+        &messages,
+        audio_duration_ms,
+    )
 }
 
 fn indicator_color(remaining_ratio: Option<f32>, cx: &App) -> Hsla {

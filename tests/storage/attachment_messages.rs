@@ -1,6 +1,71 @@
 use super::*;
 
 #[test]
+fn wav_and_mp3_assets_become_named_base64_audio_content() {
+    let (_directory, storage) = open_storage();
+    let (_provider, model) = catalog(&storage);
+    let conversation = Conversation::new("Audio attachments", Some(&model), "");
+    storage.insert_conversation(&conversation).unwrap();
+
+    let attachments = storage
+        .store_attachments(
+            &conversation.id,
+            &[
+                AttachmentDraft {
+                    id: "wav".into(),
+                    name: "voice.wav".into(),
+                    kind: AttachmentKind::Audio,
+                    files: vec![AttachmentDraftFile {
+                        name: "content.wav".into(),
+                        kind: AttachmentFileKind::Audio,
+                        media_type: "audio/wav".into(),
+                        bytes: b"wav bytes".to_vec(),
+                    }],
+                    audio: Some(AudioAttachmentMetadata {
+                        duration_ms: 1_000,
+                        source: AudioAttachmentSource::Upload,
+                    }),
+                },
+                AttachmentDraft {
+                    id: "mp3".into(),
+                    name: "recording.mp3".into(),
+                    kind: AttachmentKind::Audio,
+                    files: vec![AttachmentDraftFile {
+                        name: "content.mp3".into(),
+                        kind: AttachmentFileKind::Audio,
+                        media_type: "audio/mpeg".into(),
+                        bytes: b"mp3 bytes".to_vec(),
+                    }],
+                    audio: Some(AudioAttachmentMetadata {
+                        duration_ms: 2_000,
+                        source: AudioAttachmentSource::Upload,
+                    }),
+                },
+            ],
+        )
+        .unwrap();
+
+    let message = storage
+        .message_for_user(
+            &conversation.id,
+            &UserMessage::new("Compare", attachments),
+            false,
+        )
+        .unwrap();
+    let json = serde_json::to_string(&message).unwrap();
+    let text = json.find("Compare").unwrap();
+    let wav_name = json.find("Audio attachment: voice.wav").unwrap();
+    let wav_audio = json.find("d2F2IGJ5dGVz").unwrap();
+    let mp3_name = json.find("Audio attachment: recording.mp3").unwrap();
+    let mp3_audio = json.find("bXAzIGJ5dGVz").unwrap();
+    assert!(
+        text < wav_name && wav_name < wav_audio && wav_audio < mp3_name && mp3_name < mp3_audio
+    );
+    assert!(json.contains("\"media_type\":\"wav\""));
+    assert!(json.contains("\"media_type\":\"mp3\""));
+}
+
+#[test]
 fn image_and_pdf_assets_keep_names_roles_and_message_content() {
     let (_directory, storage) = open_storage();
     let (_provider, model) = catalog(&storage);
@@ -22,12 +87,14 @@ fn image_and_pdf_assets_keep_names_roles_and_message_content() {
                     name: "photo.png".into(),
                     kind: AttachmentKind::Image,
                     files: vec![image_file("content.png")],
+                    audio: None,
                 },
                 AttachmentDraft {
                     id: "pdf".into(),
                     name: "document.pdf".into(),
                     kind: AttachmentKind::Pdf,
                     files: vec![image_file("page-001.png"), image_file("page-002.png")],
+                    audio: None,
                 },
             ],
         )
@@ -83,6 +150,7 @@ fn documents_send_markdown_and_conditionally_include_named_images() {
                         bytes: b"first image".to_vec(),
                     },
                 ],
+                audio: None,
             }],
         )
         .unwrap();
@@ -100,6 +168,7 @@ fn documents_send_markdown_and_conditionally_include_named_images() {
                     media_type: "text/markdown".into(),
                     bytes: b"No images".to_vec(),
                 }],
+                audio: None,
             }],
         )
         .unwrap();
@@ -195,6 +264,7 @@ fn documents_reject_invalid_shapes_and_only_require_present_included_resources()
                     name: "invalid.docx".into(),
                     kind: AttachmentKind::Document,
                     files,
+                    audio: None,
                 }],
             )
             .unwrap_err();
@@ -212,6 +282,7 @@ fn documents_reject_invalid_shapes_and_only_require_present_included_resources()
                     markdown("content.md", "text/markdown"),
                     image("image-001.png"),
                 ],
+                audio: None,
             }],
         )
         .unwrap();

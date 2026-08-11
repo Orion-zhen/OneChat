@@ -3,9 +3,10 @@ use std::fs;
 use onechat::{
     application::generation::{ContextPolicy, GenerationStart, PreparedGeneration},
     domain::{
-        AppSettings, AttachmentDraft, AttachmentDraftFile, AttachmentFileKind, AttachmentKind,
-        AutoTitleState, Conversation, HistoryLimit, MessageStatus, Model, PromptVariableSource,
-        Provider, ProviderKind, RequestContextInfo, RequestInfo, RequestStatus, SystemPromptPreset,
+        AppSettings, AssistantResponse, AttachmentDraft, AttachmentDraftFile, AttachmentFileKind,
+        AttachmentKind, AudioAttachmentMetadata, AudioAttachmentSource, AutoTitleState,
+        Conversation, HistoryLimit, MessageStatus, Model, PromptVariableSource, Provider,
+        ProviderKind, RequestContextInfo, RequestInfo, RequestStatus, SystemPromptPreset,
         ToolExecution, ToolExecutionStatus, Turn, UserMessage, active_turns,
     },
     storage::{Storage, WindowMode, WindowState},

@@ -106,6 +106,8 @@ fn additional_parameters(
             "presencePenalty",
             "seed",
             "stopSequences",
+            "responseModalities",
+            "response_modalities",
         ],
     );
     insert_optional(
@@ -157,4 +159,75 @@ fn build_client(provider: &Provider) -> Result<rig_gemini::Client, GenerationErr
             )
             .with_detail(error.to_string())
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rig_core::{
+        OneOrMany,
+        message::{AudioMediaType, UserContent},
+        providers::gemini::completion::gemini_api_types::Content,
+    };
+
+    #[test]
+    fn strips_audio_output_modalities() {
+        let provider = Provider::new("Gemini", crate::domain::ProviderKind::Gemini);
+        let model = crate::domain::Model::new(&provider.id, "model", "Model");
+        let mut config = crate::domain::GenerationConfig::default();
+        config.extra.insert(
+            "generationConfig".into(),
+            json!({ "responseModalities": ["TEXT", "AUDIO"] }),
+        );
+        let request = GenerationRequest {
+            provider,
+            model,
+            system_prompt: String::new(),
+            config,
+            messages: vec![Message::user("Hello")],
+            audio_duration_ms: 0,
+            tools: Vec::new(),
+        };
+
+        let parameters = additional_parameters(&request).unwrap();
+        assert!(parameters.get("generationConfig").is_none());
+    }
+
+    #[test]
+    fn serializes_ordered_wav_and_mp3_inline_audio_without_audio_output() {
+        let message = Message::User {
+            content: OneOrMany::many(vec![
+                UserContent::text("First"),
+                UserContent::audio("d2F2", Some(AudioMediaType::WAV)),
+                UserContent::text("Second"),
+                UserContent::audio("bXAz", Some(AudioMediaType::MP3)),
+            ])
+            .unwrap(),
+        };
+        let value = serde_json::to_value(Content::try_from(message).unwrap()).unwrap();
+
+        assert_eq!(
+            value["parts"][0],
+            json!({ "thought": false, "text": "First" })
+        );
+        assert_eq!(
+            value["parts"][1],
+            json!({
+                "thought": false,
+                "inlineData": { "mimeType": "audio/wav", "data": "d2F2" }
+            })
+        );
+        assert_eq!(
+            value["parts"][2],
+            json!({ "thought": false, "text": "Second" })
+        );
+        assert_eq!(
+            value["parts"][3],
+            json!({
+                "thought": false,
+                "inlineData": { "mimeType": "audio/mp3", "data": "bXAz" }
+            })
+        );
+        assert!(!value.to_string().contains("responseModalities"));
+    }
 }

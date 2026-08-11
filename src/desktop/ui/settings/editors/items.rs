@@ -265,7 +265,7 @@ pub(crate) struct ModelIdItem {
     id: String,
     tools: bool,
     vision: bool,
-    audio: bool,
+    audio_input: bool,
     custom: bool,
 }
 
@@ -275,7 +275,7 @@ impl ModelIdItem {
             id: model.id.clone(),
             tools: model.tools,
             vision: model.vision,
-            audio: model.audio,
+            audio_input: model.audio_input,
             custom: false,
         }
     }
@@ -285,7 +285,7 @@ impl ModelIdItem {
             id: id.into(),
             tools: false,
             vision: false,
-            audio: false,
+            audio_input: false,
             custom: true,
         }
     }
@@ -311,7 +311,7 @@ impl SearchableListItem for ModelIdItem {
     fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
         let capabilities = [
             self.vision.then_some("Vision"),
-            self.audio.then_some("Audio"),
+            self.audio_input.then_some("Audio"),
             self.tools.then_some("Tools"),
         ]
         .into_iter()

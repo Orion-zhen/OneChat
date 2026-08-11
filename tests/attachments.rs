@@ -6,16 +6,25 @@ use std::{
 };
 
 use onechat::{
-    application::attachments::{load as load_attachment, validate_image},
-    domain::{AttachmentDraft, AttachmentFileKind, AttachmentKind, Conversation, UserMessage},
+    application::attachments::{MAX_AUDIO_BYTES, load as load_attachment, validate_image},
+    domain::{
+        AttachmentDraft, AttachmentFileKind, AttachmentKind, AudioAttachmentSource, Conversation,
+        UserMessage,
+    },
     storage::Storage,
 };
 use tempfile::tempdir;
 
 fn load(path: &Path, vision: bool) -> Result<AttachmentDraft, String> {
-    load_attachment(path, vision, true)
+    load_attachment(path, vision, false, true)
 }
 
+fn load_audio(path: &Path, audio_input: bool) -> Result<AttachmentDraft, String> {
+    load_attachment(path, false, audio_input, true)
+}
+
+#[path = "attachments/audio.rs"]
+mod audio;
 #[path = "attachments/basic.rs"]
 mod basic;
 #[path = "attachments/docx.rs"]

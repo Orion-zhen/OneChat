@@ -17,6 +17,7 @@ icons = [
 
 [package.metadata.packager.macos]
 signing-identity = "-"
+info-plist-path = "assets/macos/Info.plist"
 
 [package.metadata.packager.dmg]
 window-size = { width = 600, height = 400 }
@@ -31,9 +32,11 @@ async-channel = "*"
 async-trait = "*"
 base64 = "*"
 chrono = "*"
+cpal = "*"
 comrak = { version = "*", default-features = false }
 futures-util = "*"
 hayro = "*"
+hound = "*"
 image = { version = "*", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "pnm", "tiff", "webp"] }
 gpui = { git = "https://github.com/zed-industries/zed" }
 gpui_platform = { git = "https://github.com/zed-industries/zed", features = ["font-kit", "runtime_shaders", "wayland", "x11"] }
@@ -44,6 +47,7 @@ jsonc-parser = { version = "*", features = ["cst", "serde_json"] }
 lucide-icons = "*"
 reqwest = { version = "*", features = ["socks"] }
 rig-core = "*"
+rodio = { version = "*", default-features = false, features = ["mp3", "playback", "wav"] }
 rmcp = { version = "*", default-features = false, features = ["auth", "client", "transport-child-process", "transport-streamable-http-client-reqwest"] }
 ratex-layout = "*"
 ratex-parser = "*"
@@ -51,6 +55,7 @@ ratex-svg = { version = "*", features = ["embed-fonts"] }
 ratex-types = "*"
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"
+symphonia = { version = "*", default-features = false, features = ["id3v2", "mp3", "wav"] }
 tokio = { version = "*", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }
 tokio-util = { version = "*", features = ["rt"] }
 two-face = "*"

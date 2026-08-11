@@ -18,10 +18,11 @@ mod history;
 mod request;
 
 pub use history::{
-    HistoryPreview, history_for_new_turn, history_for_turn, history_preview_for_new_turn,
+    HistoryPreview, history_audio_duration_ms_for_new_turn, history_audio_duration_ms_for_turn,
+    history_for_new_turn, history_for_turn, history_preview_for_new_turn,
 };
 use history::{prepare_context, turn_count};
-use request::{prepare_response, provider_request, update_input_token_estimate};
+use request::{RequestInput, prepare_response, provider_request, update_input_token_estimate};
 
 #[derive(Clone, Copy)]
 pub struct ContextPolicy<'a> {
@@ -48,10 +49,17 @@ pub enum GenerationStart {
     RetryResponse { turn_id: String },
 }
 
+#[derive(Clone, Copy, Default)]
+pub(super) struct InputRequirements {
+    pub(super) vision: bool,
+    pub(super) audio: bool,
+}
+
 #[derive(Clone)]
 pub(super) struct PreparedHistoryGroup {
     pub(super) message_count: usize,
-    pub(super) requires_vision: bool,
+    pub(super) audio_duration_ms: u64,
+    pub(super) requirements: InputRequirements,
 }
 
 #[derive(Clone)]
@@ -63,7 +71,7 @@ pub struct PreparedGeneration {
     pub tool_selection: ToolSelection,
     pub new_attachments: Vec<Attachment>,
     pub(super) history_groups: Vec<PreparedHistoryGroup>,
-    pub(super) current_message_requires_vision: bool,
+    pub(super) current_message_requirements: InputRequirements,
     prompt_variables: BTreeMap<String, PromptVariableSource>,
     prompt_context: PromptContext,
 }
@@ -94,8 +102,11 @@ impl PreparedGeneration {
             response,
             provider,
             model,
-            &conversation.system_prompt,
-            &context.messages,
+            RequestInput::new(
+                &conversation.system_prompt,
+                &context.messages,
+                context.audio_duration_ms,
+            ),
         );
         request_info.context = Some(context.request_context);
         let response = response.clone();
@@ -105,6 +116,7 @@ impl PreparedGeneration {
             &conversation.system_prompt,
             &conversation.generation_config,
             context.messages,
+            context.audio_duration_ms,
         );
         Ok(Self {
             start: GenerationStart::NewTurn(Box::new(turn)),
@@ -114,7 +126,7 @@ impl PreparedGeneration {
             tool_selection: conversation.tool_selection.clone(),
             new_attachments: Vec::new(),
             history_groups: context.history_groups,
-            current_message_requires_vision: context.current_message_requires_vision,
+            current_message_requirements: context.current_message_requirements,
             prompt_variables: BTreeMap::new(),
             prompt_context: PromptContext::default(),
         }
@@ -172,6 +184,10 @@ impl PreparedGeneration {
             {
                 let group = self.history_groups.remove(0);
                 self.provider_request.messages.drain(..group.message_count);
+                self.provider_request.audio_duration_ms = self
+                    .provider_request
+                    .audio_duration_ms
+                    .saturating_sub(group.audio_duration_ms);
                 if let Some(context) = &mut self.request_info.context {
                     context.included_history_turns = turn_count(self.history_groups.len());
                     context.limited_by_context_window = true;
@@ -192,23 +208,17 @@ impl PreparedGeneration {
             }
         }
 
-        if !self.provider_request.model.capabilities.vision {
-            let retained_history_requires_vision = self
-                .history_groups
-                .iter()
-                .any(|group| group.requires_vision);
-            if self.current_message_requires_vision || retained_history_requires_vision {
-                let message = if self.current_message_requires_vision {
-                    "The selected model cannot read an image or PDF in the current message"
-                } else {
-                    "The selected model cannot read an image or PDF in the retained conversation context"
-                };
-                return Err(GenerationError::new(
-                    GenerationErrorKind::UnsupportedParameter,
-                    message,
-                ));
-            }
-        }
+        let capabilities = &self.provider_request.model.capabilities;
+        self.check_input_requirement(
+            capabilities.vision,
+            |requirements| requirements.vision,
+            "an image or PDF",
+        )?;
+        self.check_input_requirement(
+            capabilities.audio_input,
+            |requirements| requirements.audio,
+            "audio",
+        )?;
 
         debug_assert_eq!(
             self.history_groups
@@ -219,6 +229,34 @@ impl PreparedGeneration {
             self.provider_request.messages.len()
         );
         Ok(())
+    }
+
+    fn check_input_requirement(
+        &self,
+        supported: bool,
+        required: impl Fn(InputRequirements) -> bool,
+        content: &str,
+    ) -> Result<(), GenerationError> {
+        if supported {
+            return Ok(());
+        }
+        let current = required(self.current_message_requirements);
+        let retained_history = self
+            .history_groups
+            .iter()
+            .any(|group| required(group.requirements));
+        if !current && !retained_history {
+            return Ok(());
+        }
+        let location = if current {
+            "the current message"
+        } else {
+            "the retained conversation context"
+        };
+        Err(GenerationError::new(
+            GenerationErrorKind::UnsupportedParameter,
+            format!("The selected model cannot read {content} in {location}"),
+        ))
     }
 
     fn estimated_input_tokens(&self) -> u64 {
@@ -247,8 +285,11 @@ impl PreparedGeneration {
             &mut response,
             provider,
             model,
-            &conversation.system_prompt,
-            &context.messages,
+            RequestInput::new(
+                &conversation.system_prompt,
+                &context.messages,
+                context.audio_duration_ms,
+            ),
         );
         request_info.context = Some(context.request_context);
         let provider_request = provider_request(
@@ -257,6 +298,7 @@ impl PreparedGeneration {
             &conversation.system_prompt,
             &turn.generation_config,
             context.messages,
+            context.audio_duration_ms,
         );
         Ok(Self {
             start: GenerationStart::AddResponse {
@@ -268,7 +310,7 @@ impl PreparedGeneration {
             tool_selection: conversation.tool_selection.clone(),
             new_attachments: Vec::new(),
             history_groups: context.history_groups,
-            current_message_requires_vision: context.current_message_requires_vision,
+            current_message_requirements: context.current_message_requirements,
             prompt_variables: BTreeMap::new(),
             prompt_context: PromptContext::default(),
         }
@@ -298,8 +340,11 @@ impl PreparedGeneration {
             &mut response,
             provider,
             model,
-            &conversation.system_prompt,
-            &context.messages,
+            RequestInput::new(
+                &conversation.system_prompt,
+                &context.messages,
+                context.audio_duration_ms,
+            ),
         );
         request_info.context = Some(context.request_context);
         let mut config = turn.generation_config.clone();
@@ -312,6 +357,7 @@ impl PreparedGeneration {
             &conversation.system_prompt,
             &config,
             context.messages,
+            context.audio_duration_ms,
         );
         Ok(Self {
             start: GenerationStart::RetryResponse {
@@ -323,7 +369,7 @@ impl PreparedGeneration {
             tool_selection: conversation.tool_selection.clone(),
             new_attachments: Vec::new(),
             history_groups: context.history_groups,
-            current_message_requires_vision: context.current_message_requires_vision,
+            current_message_requirements: context.current_message_requirements,
             prompt_variables: BTreeMap::new(),
             prompt_context: PromptContext::default(),
         }

@@ -28,7 +28,7 @@ pub(super) fn available_model(metadata: &Value, kind: ProviderKind) -> Option<Av
         id: id.to_string(),
         tools: tools_from_metadata(metadata),
         vision: vision_from_metadata(metadata),
-        audio: audio_from_metadata(metadata),
+        audio_input: audio_input_from_metadata(metadata),
         context_window_tokens: context_window_from_metadata(metadata),
     })
 }
@@ -152,11 +152,11 @@ fn vision_evidence(value: &Value) -> Option<bool> {
     evidence
 }
 
-fn audio_from_metadata(metadata: &Value) -> bool {
-    audio_evidence(metadata).unwrap_or(false)
+fn audio_input_from_metadata(metadata: &Value) -> bool {
+    audio_input_evidence(metadata).unwrap_or(false)
 }
 
-fn audio_evidence(value: &Value) -> Option<bool> {
+fn audio_input_evidence(value: &Value) -> Option<bool> {
     let Value::Object(object) = value else {
         return None;
     };
@@ -165,28 +165,19 @@ fn audio_evidence(value: &Value) -> Option<bool> {
         let key = normalized_key(key);
         let direct = if matches!(
             key.as_str(),
-            "audio" | "supportsaudio" | "audioinput" | "inputaudio" | "supportsaudioinput"
+            "audioinput" | "inputaudio" | "supportsaudioinput"
         ) {
             value.as_bool()
         } else if matches!(
             key.as_str(),
-            "modality"
-                | "modalities"
-                | "inputmodality"
-                | "inputmodalities"
-                | "supportedmodalities"
-                | "supportedinputmodalities"
-        ) || (matches!(
-            key.as_str(),
-            "capabilities" | "features" | "supportedfeatures"
-        ) && value.is_array())
-        {
+            "inputmodality" | "inputmodalities" | "supportedinputmodalities"
+        ) {
             Some(contains_audio_label(value))
         } else {
             None
         };
         evidence = merge_evidence(evidence, direct);
-        evidence = merge_evidence(evidence, audio_evidence(value));
+        evidence = merge_evidence(evidence, audio_input_evidence(value));
     }
     evidence
 }
@@ -281,7 +272,7 @@ pub(super) fn sorted_unique(models: Vec<AvailableModel>) -> Vec<AvailableModel> 
                 .and_modify(|stored: &mut AvailableModel| {
                     stored.tools |= model.tools;
                     stored.vision |= model.vision;
-                    stored.audio |= model.audio;
+                    stored.audio_input |= model.audio_input;
                     stored.context_window_tokens = stored
                         .context_window_tokens
                         .max(model.context_window_tokens);
@@ -321,18 +312,40 @@ mod tests {
         .unwrap();
 
         assert!(model.vision);
-        assert!(model.audio);
+        assert!(model.audio_input);
         assert!(model.tools);
     }
 
     #[test]
-    fn parses_nested_audio_flags() {
-        assert!(audio_from_metadata(&json!({
+    fn parses_nested_audio_input_evidence() {
+        assert!(audio_input_from_metadata(&json!({
             "capabilities": { "supportsAudioInput": true }
         })));
-        assert!(!audio_from_metadata(&json!({
+        assert!(audio_input_from_metadata(&json!({
+            "architecture": {
+                "input_modalities": ["text", "image", "audio"],
+                "output_modalities": ["text"]
+            }
+        })));
+        assert!(!audio_input_from_metadata(&json!({
             "capabilities": { "audioInput": false }
         })));
+    }
+
+    #[test]
+    fn ignores_output_only_and_ambiguous_audio_metadata() {
+        for metadata in [
+            json!({ "audio": true }),
+            json!({ "supportsAudio": true }),
+            json!({ "modalities": ["text", "audio"] }),
+            json!({ "supportedModalities": ["audio"] }),
+            json!({ "features": ["audio"] }),
+            json!({ "outputModalities": ["audio"] }),
+            json!({ "capabilities": { "audioTranscriptions": true } }),
+            json!({ "modality": "text+image+audio->text" }),
+        ] {
+            assert!(!audio_input_from_metadata(&metadata), "{metadata}");
+        }
     }
 
     #[test]
@@ -386,14 +399,14 @@ mod tests {
                 id: "model".into(),
                 tools: true,
                 vision: false,
-                audio: false,
+                audio_input: false,
                 context_window_tokens: Some(32_000),
             },
             AvailableModel {
                 id: "model".into(),
                 tools: false,
                 vision: true,
-                audio: true,
+                audio_input: true,
                 context_window_tokens: Some(128_000),
             },
         ]);
@@ -404,7 +417,7 @@ mod tests {
                 id: "model".into(),
                 tools: true,
                 vision: true,
-                audio: true,
+                audio_input: true,
                 context_window_tokens: Some(128_000),
             }]
         );

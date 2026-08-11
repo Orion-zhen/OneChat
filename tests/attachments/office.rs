@@ -23,7 +23,7 @@ fn office_images_can_be_excluded_from_parsed_documents() {
         (xlsx_path, "中文项目"),
         (pptx_path, "Quarterly Review"),
     ] {
-        let draft = load_attachment(&path, false, false).unwrap();
+        let draft = load_attachment(&path, false, false, false).unwrap();
 
         assert_eq!(draft.files.len(), 1);
         assert_eq!(draft.files[0].name, "content.md");

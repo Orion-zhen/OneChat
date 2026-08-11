@@ -3,7 +3,7 @@ use gpui::{Context, Window};
 use super::super::OneChat;
 use crate::{
     application::generation::{ContextPolicy, PreparedGeneration},
-    domain::{Conversation, MessageStatus, Model, Provider},
+    domain::{AttachmentKind, Conversation, MessageStatus, Model, Provider},
 };
 
 fn attempt_composer_submission(
@@ -22,16 +22,25 @@ impl OneChat {
 
     pub(crate) fn attachment_context_supported(&self) -> bool {
         self.current_model().is_none_or(|model| {
-            model.capabilities.vision
-                || self
-                    .chat
-                    .attachments
-                    .iter()
-                    .all(|attachment| !attachment.kind.requires_vision())
+            self.chat
+                .attachments
+                .iter()
+                .all(|attachment| Self::attachment_kind_supported(model, attachment.kind))
         })
     }
 
+    pub(in crate::desktop::app) fn attachment_kind_supported(
+        model: &Model,
+        kind: AttachmentKind,
+    ) -> bool {
+        (!kind.requires_vision() || model.capabilities.vision)
+            && (!kind.requires_audio_input() || model.capabilities.audio_input)
+    }
+
     pub(crate) fn send_composer(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.recording_active() {
+            return;
+        }
         let prompt = self.chat.composer.read(cx).value().to_string();
         if self.chat.attachments_loading {
             return;
@@ -45,6 +54,7 @@ impl OneChat {
         self.chat.composer.update(cx, |composer, cx| {
             composer.set_value("", window, cx);
         });
+        self.stop_audio_playback();
         self.chat.attachments.clear();
         self.chat.attachment_previews.clear();
     }
@@ -68,6 +78,19 @@ impl OneChat {
                 return false;
             }
         };
+        if self
+            .chat
+            .attachments
+            .iter()
+            .any(|attachment| !Self::attachment_kind_supported(&model, attachment.kind))
+        {
+            self.data.error = Some(
+                "The selected model cannot read one or more attachments in the current message."
+                    .into(),
+            );
+            cx.notify();
+            return false;
+        }
         let parent_response_id = self
             .active_leaf_turn()
             .and_then(|turn| turn.continuation_response_id.clone());

@@ -26,6 +26,20 @@ pub(crate) fn image_attachment() -> Attachment {
         name: "image.png".into(),
         kind: AttachmentKind::Image,
         files: Vec::new(),
+        audio: None,
+    }
+}
+
+pub(crate) fn audio_attachment() -> Attachment {
+    Attachment {
+        id: "audio".into(),
+        name: "audio.wav".into(),
+        kind: AttachmentKind::Audio,
+        files: Vec::new(),
+        audio: Some(AudioAttachmentMetadata {
+            duration_ms: 1_000,
+            source: AudioAttachmentSource::Upload,
+        }),
     }
 }
 

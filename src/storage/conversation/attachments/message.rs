@@ -4,7 +4,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use rig_core::{
     OneOrMany,
     completion::Message,
-    message::{ImageMediaType, UserContent},
+    message::{AudioMediaType, ImageMediaType, UserContent},
 };
 
 use crate::{
@@ -58,6 +58,18 @@ impl Storage {
                     )));
                     content.push(self.image_content(conversation_id, file)?);
                 }
+                AttachmentKind::Audio => {
+                    let file = attachment
+                        .files
+                        .iter()
+                        .find(|file| file.kind == AttachmentFileKind::Audio)
+                        .expect("validated audio attachment");
+                    content.push(UserContent::text(format!(
+                        "Audio attachment: {}",
+                        attachment.name
+                    )));
+                    content.push(self.audio_content(conversation_id, file)?);
+                }
                 AttachmentKind::Pdf => {
                     let mut files = attachment.files.iter().collect::<Vec<_>>();
                     files.sort_by(|left, right| left.name.cmp(&right.name));
@@ -105,6 +117,26 @@ impl Storage {
             StorageError::InvalidData("a user message must contain text or an attachment".into())
         })?;
         Ok(Message::User { content })
+    }
+
+    fn audio_content(&self, conversation_id: &str, file: &AttachmentFile) -> Result<UserContent> {
+        if file.kind != AttachmentFileKind::Audio {
+            return Err(StorageError::InvalidData(format!(
+                "attachment file is not audio: {}",
+                file.name
+            )));
+        }
+        let media_type = match file.media_type.as_str() {
+            "audio/wav" => AudioMediaType::WAV,
+            "audio/mpeg" => AudioMediaType::MP3,
+            value => {
+                return Err(StorageError::InvalidData(format!(
+                    "unsupported audio media type: {value}"
+                )));
+            }
+        };
+        let bytes = fs::read(self.attachment_path(conversation_id, &file.path)?)?;
+        Ok(UserContent::audio(BASE64.encode(bytes), Some(media_type)))
     }
 
     fn image_content(&self, conversation_id: &str, file: &AttachmentFile) -> Result<UserContent> {
