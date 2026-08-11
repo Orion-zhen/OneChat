@@ -75,7 +75,41 @@ pub(crate) struct SidebarState {
     pub(crate) width: f32,
     pub(crate) search_input: Entity<InputState>,
     pub(crate) hovered_conversation_id: Option<String>,
+    pub(crate) generation_border_epoch: Instant,
+    pub(crate) unseen_generations: HashMap<String, UnseenGeneration>,
     pub(super) rename_editor: Option<RenameEditor>,
+}
+
+#[derive(Clone)]
+pub(crate) struct UnseenGeneration {
+    pub(crate) request_id: String,
+    pub(crate) completion_phase: f32,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct GenerationBorderClock {
+    epoch: Instant,
+    offset: f32,
+}
+
+impl GenerationBorderClock {
+    pub(crate) fn phase(self) -> f32 {
+        (self.epoch.elapsed().as_secs_f32() / 1.8 + self.offset).fract()
+    }
+}
+
+impl SidebarState {
+    pub(crate) fn generation_border_clock(&self, conversation_id: &str) -> GenerationBorderClock {
+        let hash = conversation_id
+            .bytes()
+            .fold(2_166_136_261_u32, |hash, byte| {
+                (hash ^ u32::from(byte)).wrapping_mul(16_777_619)
+            });
+        GenerationBorderClock {
+            epoch: self.generation_border_epoch,
+            offset: hash as f32 / u32::MAX as f32,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

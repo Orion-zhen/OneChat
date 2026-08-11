@@ -81,6 +81,7 @@ impl OneChat {
     }
 
     pub(crate) fn select_conversation(&mut self, id: String, cx: &mut Context<Self>) {
+        self.sidebar.unseen_generations.remove(&id);
         if self
             .data
             .snapshot
@@ -366,6 +367,7 @@ impl OneChat {
 
     pub(crate) fn delete_conversation(&mut self, id: String, cx: &mut Context<Self>) {
         self.chat.generations.stop(&id);
+        self.sidebar.unseen_generations.remove(&id);
         let mut settings = self.data.snapshot.settings.clone();
         if settings.current_conversation_id.as_deref() == Some(&id) {
             settings.current_conversation_id = self

@@ -2,6 +2,7 @@ use std::{
     cell::Cell,
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
+    time::Instant,
 };
 
 use gpui::{Context, Entity, ScrollHandle, Task, Window, prelude::*};
@@ -118,6 +119,8 @@ impl OneChat {
                 width: SIDEBAR_WIDTH,
                 search_input,
                 hovered_conversation_id: None,
+                generation_border_epoch: Instant::now(),
+                unseen_generations: HashMap::new(),
                 rename_editor: None,
             },
             overlays: OverlayState {

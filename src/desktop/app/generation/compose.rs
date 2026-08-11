@@ -15,9 +15,13 @@ fn attempt_composer_submission(
 }
 
 impl OneChat {
+    pub(crate) fn is_conversation_generating(&self, conversation_id: &str) -> bool {
+        self.chat.generations.is_active(conversation_id)
+    }
+
     pub(crate) fn is_current_generating(&self) -> bool {
         self.current_conversation()
-            .is_some_and(|conversation| self.chat.generations.is_active(&conversation.id))
+            .is_some_and(|conversation| self.is_conversation_generating(&conversation.id))
     }
 
     pub(crate) fn attachment_context_supported(&self) -> bool {

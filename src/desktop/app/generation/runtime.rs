@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use gpui::{Context, ScrollHandle, Task, prelude::*};
 use tokio_util::sync::CancellationToken;
 
-use super::super::{CachedMarkdown, OneChat};
+use super::super::{CachedMarkdown, OneChat, UnseenGeneration};
 use crate::{
     application::{
         generation::{GenerationStart, GenerationUpdate, PreparedGeneration, run_generation},
@@ -51,6 +51,7 @@ impl OneChat {
         ) {
             return;
         }
+        self.sidebar.unseen_generations.remove(&conversation_id);
 
         self.chat.history_limit_preview = None;
         let turn_id = prepared.request_info.turn_id.clone();
@@ -233,6 +234,28 @@ impl OneChat {
                             }
                             if terminal {
                                 this.chat.generations.finish(&conversation_id, &request_id);
+                                let completed_in_background = response.status
+                                    == MessageStatus::Completed
+                                    && this
+                                        .data
+                                        .snapshot
+                                        .settings
+                                        .current_conversation_id
+                                        .as_deref()
+                                        != Some(conversation_id.as_str());
+                                if completed_in_background {
+                                    let completion_phase = this
+                                        .sidebar
+                                        .generation_border_clock(&conversation_id)
+                                        .phase();
+                                    this.sidebar.unseen_generations.insert(
+                                        conversation_id.clone(),
+                                        UnseenGeneration {
+                                            request_id: request_id.clone(),
+                                            completion_phase,
+                                        },
+                                    );
+                                }
                                 if let Some(user_message) = root_user_message.clone() {
                                     this.start_auto_title(
                                         conversation_id.clone(),

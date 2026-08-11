@@ -15,8 +15,8 @@ mod state;
 
 use motion::*;
 pub use navigation::{ConversationGroup, Page};
-pub(crate) use state::PickerOverlay;
 use state::*;
+pub(crate) use state::{GenerationBorderClock, PickerOverlay};
 
 use std::{
     collections::HashMap,
