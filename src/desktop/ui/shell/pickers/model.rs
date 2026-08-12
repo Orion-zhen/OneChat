@@ -30,7 +30,7 @@ impl ModelPickerDelegate {
             .iter()
             .map(|section| section.items.len())
             .sum::<usize>();
-        self.sections.len() as f32 * 32.0 + rows as f32 * 84.0
+        self.sections.len() as f32 * 28.0 + rows as f32 * 60.0
     }
 
     pub(crate) fn empty() -> Self {
@@ -211,10 +211,16 @@ impl ListDelegate for ModelPickerDelegate {
         let provider = self.sections.get(section)?.provider.clone();
         Some(
             div()
-                .h(px(32.0))
-                .px_4()
+                .h(px(28.0))
+                .px_3()
+                .when(section > 0, |this| {
+                    this.border_t_1().border_color(cx.theme().border)
+                })
                 .flex()
                 .items_center()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_ellipsis()
                 .text_size(px(11.0))
                 .font_weight(FontWeight::SEMIBOLD)
                 .text_color(cx.theme().muted_foreground)
@@ -236,14 +242,23 @@ impl ListDelegate for ModelPickerDelegate {
         } else {
             cx.theme().danger
         };
+        let capabilities = model_capability_summary(&item.model, " · ");
+        let metadata = match (
+            item.model.remote_id == item.model.display_name,
+            capabilities.is_empty(),
+        ) {
+            (true, _) => capabilities,
+            (false, true) => item.model.remote_id.clone(),
+            (false, false) => format!("{} · {capabilities}", item.model.remote_id),
+        };
         Some(
             ListItem::new(SharedString::from(format!("pick-model-{}", item.model.id)))
                 .selected(self.selected == Some(index))
                 .disabled(!item.available)
-                .h(px(80.0))
+                .h(px(56.0))
                 .my_0p5()
-                .rounded(px(12.0))
-                .px_4()
+                .rounded(px(10.0))
+                .px_3()
                 .child(
                     div()
                         .w_full()
@@ -261,28 +276,39 @@ impl ListDelegate for ModelPickerDelegate {
                                         .overflow_hidden()
                                         .whitespace_nowrap()
                                         .text_ellipsis()
-                                        .text_size(px(15.0))
+                                        .text_size(px(14.0))
+                                        .line_height(px(20.0))
                                         .font_weight(FontWeight::SEMIBOLD)
                                         .child(item.model.display_name.clone()),
                                 )
-                                .child(
-                                    div()
-                                        .overflow_hidden()
-                                        .whitespace_nowrap()
-                                        .text_ellipsis()
-                                        .text_size(px(12.0))
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(item.model.remote_id.clone()),
-                                )
-                                .child(
-                                    div()
-                                        .text_size(px(11.0))
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(model_capability_summary(&item.model, " · ")),
-                                ),
+                                .when(!metadata.is_empty(), |this| {
+                                    this.child(
+                                        div()
+                                            .overflow_hidden()
+                                            .whitespace_nowrap()
+                                            .text_ellipsis()
+                                            .text_size(px(11.0))
+                                            .line_height(px(16.0))
+                                            .text_color(cx.theme().muted_foreground)
+                                            .child(metadata),
+                                    )
+                                }),
                         )
                         .children(if item.current {
-                            Some(selected_check_badge(cx))
+                            Some(
+                                div()
+                                    .flex_none()
+                                    .size(px(28.0))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .child(
+                                        Icon::new(IconName::Check)
+                                            .size(px(18.0))
+                                            .text_color(cx.theme().primary),
+                                    )
+                                    .into_any_element(),
+                            )
                         } else if !item.available {
                             Some(
                                 div()
