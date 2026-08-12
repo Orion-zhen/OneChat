@@ -123,10 +123,12 @@ impl OneChat {
             phase,
             neighbors.availability(),
         );
+        if self.chat.branch_swipe.captures_parent_scroll() {
+            cx.stop_propagation();
+        }
         let Some(action) = action else {
             return;
         };
-        cx.stop_propagation();
         if let Some(destination) = neighbors.destination(action) {
             pressure_touch::feedback(Feedback::SelectionChanged);
             self.select_user_branch(destination, cx);
@@ -184,10 +186,12 @@ impl OneChat {
             phase,
             neighbors.availability(),
         );
+        if self.chat.branch_swipe.captures_parent_scroll() {
+            cx.stop_propagation();
+        }
         let Some(action) = action else {
             return;
         };
-        cx.stop_propagation();
         if let Some(destination) = neighbors.destination(action) {
             pressure_touch::feedback(Feedback::SelectionChanged);
             self.show_response(turn_id.to_string(), destination, cx);

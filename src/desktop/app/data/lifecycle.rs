@@ -250,9 +250,6 @@ impl OneChat {
         self.chat.timeline.hovered = false;
         self.chat.timeline.pointer_y = None;
         self.chat.timeline.active_item = None;
-        self.chat.timeline.xray_item = None;
-        self.chat.timeline.force_click.cancel();
-        self.chat.timeline.suppress_next_click = false;
         self.chat.timeline.expansion_motion.set_visible(false);
         self.chat.thinking_scrolls.clear();
         self.chat.thinking_motions.clear();

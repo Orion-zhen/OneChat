@@ -102,7 +102,7 @@ fn attributed_word(
     window: &Window,
 ) -> Retained<NSAttributedString> {
     let string = NSString::from_str(word);
-    let Some(font) = native_font(region, source_offset, window) else {
+    let Some(font) = native_font(word, region, source_offset, window) else {
         return NSAttributedString::from_nsstring(&string);
     };
     // SAFETY: AppKit exports NSFontAttributeName for the lifetime of the process.
@@ -122,42 +122,89 @@ fn attributed_word(
 }
 
 fn native_font(
+    word: &str,
     region: &TextRegion,
     source_offset: usize,
     window: &Window,
 ) -> Option<Retained<NSFont>> {
     let local_offset = source_offset.checked_sub(region.source_range.start)?;
     let (line, line_offset) = line_for_offset(&region.layout, local_offset)?;
-    let font_id = line.unwrapped_layout.font_id_for_index(line_offset)?;
-    let font = window.text_system().get_font_for_id(font_id)?;
     let size = f32::from(line.font_size()) as f64;
     let manager = NSFontManager::sharedFontManager(MainThreadMarker::new()?);
+
+    if let Some(font) = line
+        .unwrapped_layout
+        .font_id_for_index(line_offset)
+        .and_then(|font_id| window.text_system().get_font_for_id(font_id))
+        && let Some(native) = native_font_for_family(&font, &font.family, size, &manager)
+    {
+        return Some(native);
+    }
+
+    Some(native_font_from_stack(&region.font, word, size, &manager))
+}
+
+fn native_font_from_stack(
+    font: &Font,
+    word: &str,
+    size: f64,
+    manager: &NSFontManager,
+) -> Retained<NSFont> {
+    let mut families = vec![font.family.to_string()];
+    if let Some(fallbacks) = &font.fallbacks {
+        families.extend(fallbacks.fallback_list().iter().cloned());
+    }
+
+    let mut first = None;
+    for family in families {
+        let Some(native) = native_font_for_family(font, &family, size, manager) else {
+            continue;
+        };
+        if first.is_none() {
+            first = Some(native.clone());
+        }
+        if font_covers_word(&native, word) {
+            return native;
+        }
+    }
+
+    first.unwrap_or_else(|| NSFont::systemFontOfSize_weight(size, native_font_weight(font.weight)))
+}
+
+fn native_font_for_family(
+    font: &Font,
+    family: &str,
+    size: f64,
+    manager: &NSFontManager,
+) -> Option<Retained<NSFont>> {
     let traits = if font.style == gpui::FontStyle::Normal {
         NSFontTraitMask::empty()
     } else {
         NSFontTraitMask::ItalicFontMask
     };
-    let native = if font.family.as_ref() == ".SystemUIFont" {
+    if family == ".SystemUIFont" {
         let native = NSFont::systemFontOfSize_weight(size, native_font_weight(font.weight));
-        if traits.is_empty() {
+        return Some(if traits.is_empty() {
             native
         } else {
             manager.convertFont_toHaveTrait(&native, traits)
-        }
-    } else {
-        let family = NSString::from_str(&font.family);
-        manager
-            .fontWithFamily_traits_weight_size(
-                &family,
-                traits,
-                native_font_manager_weight(font.weight),
-                size,
-            )
-            .unwrap_or_else(|| {
-                NSFont::systemFontOfSize_weight(size, native_font_weight(font.weight))
-            })
-    };
-    Some(native)
+        });
+    }
+
+    let family = NSString::from_str(family);
+    manager.fontWithFamily_traits_weight_size(
+        &family,
+        traits,
+        native_font_manager_weight(font.weight),
+        size,
+    )
+}
+
+fn font_covers_word(font: &NSFont, word: &str) -> bool {
+    let characters = font.coveredCharacterSet();
+    word.chars()
+        .filter(|character| !character.is_whitespace())
+        .all(|character| characters.longCharacterIsMember(character as u32))
 }
 
 fn line_for_offset(

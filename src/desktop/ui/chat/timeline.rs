@@ -1,11 +1,7 @@
 use chrono::{Local, TimeZone as _};
-#[cfg(target_os = "macos")]
-use gpui::MousePressureEvent;
 use gpui::{KeyDownEvent, MouseMoveEvent, Role};
 
 use super::*;
-#[cfg(target_os = "macos")]
-use crate::desktop::pressure_touch::ForceClickChange;
 
 const MARKER_SPACING: f32 = 20.0;
 const TRACK_VERTICAL_MARGIN: f32 = 24.0;
@@ -113,23 +109,14 @@ pub(super) fn render(
         transition_progress
     };
     let active_item = app.chat.timeline.active_item;
-    let xray_item = app.chat.timeline.xray_item;
-    let pointer_y = xray_item
-        .and_then(|item| {
+    let pointer_y = app.chat.timeline.pointer_y.or_else(|| {
+        active_item.and_then(|active| {
             markers
                 .iter()
-                .find(|marker| marker.entry.item == item)
+                .find(|marker| marker.entry.item == active)
                 .map(|marker| marker.y)
         })
-        .or(app.chat.timeline.pointer_y)
-        .or_else(|| {
-            active_item.and_then(|active| {
-                markers
-                    .iter()
-                    .find(|marker| marker.entry.item == active)
-                    .map(|marker| marker.y)
-            })
-        });
+    });
     let marker_targets = markers
         .iter()
         .map(|marker| (marker.entry.item, marker.y))
@@ -140,8 +127,11 @@ pub(super) fn render(
         .collect::<Vec<_>>();
     let active_marker =
         active_item.and_then(|active| markers.iter().find(|marker| marker.entry.item == active));
-    let xray_marker =
-        xray_item.and_then(|item| markers.iter().find(|marker| marker.entry.item == item));
+    let xray_marker = if app.chat.timeline.hovered && app.chat.timeline.pointer_y.is_some() {
+        active_marker
+    } else {
+        None
+    };
 
     let track_color = cx.theme().muted_foreground;
     let active_color = cx.theme().foreground;
@@ -174,16 +164,9 @@ pub(super) fn render(
         })
         .on_mouse_down(
             MouseButton::Left,
-            cx.listener(|this, _, _, cx| {
-                this.chat.timeline.suppress_next_click = false;
-                cx.stop_propagation();
-            }),
+            cx.listener(|_, _, _, cx| cx.stop_propagation()),
         )
         .on_click(cx.listener(|this, _, _, cx| {
-            if std::mem::take(&mut this.chat.timeline.suppress_next_click) {
-                cx.stop_propagation();
-                return;
-            }
             if let Some(item) = this.chat.timeline.active_item {
                 this.jump_to_timeline_item(item, cx);
             }
@@ -211,7 +194,6 @@ pub(super) fn render(
                         cx.stop_propagation();
                     }
                     "escape" => {
-                        this.close_timeline_xray(cx);
                         this.chat.timeline.active_item = None;
                         this.chat.timeline.pointer_y = None;
                         window.focus(&this.root_focus, cx);
@@ -224,40 +206,10 @@ pub(super) fn render(
         })
         .when(active_item.is_some(), |timeline| timeline.cursor_pointer());
 
-    #[cfg(target_os = "macos")]
-    {
-        let targets = marker_targets.clone();
-        timeline = timeline.on_mouse_pressure(cx.listener(
-            move |this, event: &MousePressureEvent, _, cx| {
-                match this.chat.timeline.force_click.update(event) {
-                    ForceClickChange::Triggered => {
-                        let viewport_top = f32::from(this.chat.message_scroll.bounds().top());
-                        let pointer_y = f32::from(event.position.y) - viewport_top;
-                        if let Some(item) = nearest_marker(&targets, pointer_y, MAX_HIT_DISTANCE) {
-                            this.chat.timeline.xray_item = Some(item);
-                            this.chat.timeline.suppress_next_click = true;
-                            cx.notify();
-                            cx.stop_propagation();
-                        }
-                    }
-                    ForceClickChange::Released => {
-                        if this.chat.timeline.xray_item.take().is_some() {
-                            cx.notify();
-                            cx.stop_propagation();
-                        }
-                    }
-                    ForceClickChange::None => {}
-                }
-            },
-        ));
-    }
-
     for marker in &markers {
         let distance = pointer_y.map_or(f32::INFINITY, |pointer| marker.y - pointer);
         let influence = influence(distance.abs(), INFLUENCE_RADIUS) * interaction_progress;
-        let active = (active_item == Some(marker.entry.item)
-            || xray_item == Some(marker.entry.item))
-            && interaction_progress > 0.01;
+        let active = active_item == Some(marker.entry.item) && interaction_progress > 0.01;
         let scale = if reduce_motion {
             1.0 + 0.25 * influence
         } else {

@@ -24,7 +24,6 @@ use crate::{
         audio_playback::{AudioPlayback, PlaybackSnapshot},
         audio_recording::{AudioRecording, RecordingSnapshot},
         branch_swipe::{BranchSwipeState, BranchSwipeTarget},
-        pressure_touch::ForceClickState,
         ui::{
             inspector::{GenerationConfigEditor, InspectorTab},
             selectable_text::TextSelection,
@@ -139,9 +138,6 @@ pub(crate) struct TimelineState {
     pub(crate) hovered: bool,
     pub(crate) pointer_y: Option<f32>,
     pub(crate) active_item: Option<usize>,
-    pub(crate) xray_item: Option<usize>,
-    pub(crate) force_click: ForceClickState,
-    pub(crate) suppress_next_click: bool,
     pub(crate) expansion_motion: VisibilityMotion,
 }
 

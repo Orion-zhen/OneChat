@@ -10,7 +10,7 @@ impl IntoElement for SelectableText {
 }
 
 impl Element for SelectableText {
-    type RequestLayoutState = ();
+    type RequestLayoutState = Font;
     type PrepaintState = PrepaintState;
 
     fn id(&self) -> Option<ElementId> {
@@ -28,8 +28,9 @@ impl Element for SelectableText {
         window: &mut Window,
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
+        let default_style = window.text_style();
+        let font = default_style.font();
         if !self.highlights.is_empty() {
-            let default_style = window.text_style();
             let font_size = default_style.font_size.to_pixels(window.rem_size());
             let highlights = std::mem::take(&mut self.highlights)
                 .into_iter()
@@ -74,7 +75,8 @@ impl Element for SelectableText {
             let text = std::mem::replace(&mut self.text, StyledText::new(""));
             self.text = text.with_highlights(highlights);
         }
-        self.text.request_layout(None, inspector_id, window, cx)
+        let (layout_id, ()) = self.text.request_layout(None, inspector_id, window, cx);
+        (layout_id, font)
     }
 
     fn prepaint(
@@ -87,7 +89,7 @@ impl Element for SelectableText {
         cx: &mut App,
     ) -> Self::PrepaintState {
         self.text
-            .prepaint(None, inspector_id, bounds, request_state, window, cx);
+            .prepaint(None, inspector_id, bounds, &mut (), window, cx);
         self.selection.clear_if_unfocused(window);
         let selected_range =
             self.selection
@@ -99,6 +101,7 @@ impl Element for SelectableText {
                 self.source.clone(),
                 self.source_range.clone(),
                 self.text.layout().clone(),
+                request_state.clone(),
                 hitbox.clone(),
             );
             hitbox

@@ -147,6 +147,7 @@ pub(crate) fn render(
         .min_h_0()
         .flex_1()
         .overflow_y_scroll()
+        .restrict_scroll_to_axis()
         .track_scroll(&app.chat.message_scroll)
         .track_focus(&selection_focus)
         .on_scroll_wheel(cx.listener(OneChat::on_message_scroll))

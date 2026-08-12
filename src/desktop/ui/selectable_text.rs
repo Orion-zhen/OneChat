@@ -1,7 +1,7 @@
 use std::{cell::RefCell, collections::HashMap, ops::Range, rc::Rc};
 
 use gpui::{
-    App, Bounds, ClipboardItem, CursorStyle, Element, ElementId, FocusHandle, FontWeight,
+    App, Bounds, ClipboardItem, CursorStyle, Element, ElementId, FocusHandle, Font, FontWeight,
     GlobalElementId, HighlightStyle, Hitbox, HitboxBehavior, InspectorElementId, IntoElement,
     KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad,
     Pixels, Point, Rgba, SharedString, StyledText, TextStyle, Window, fill, size,
@@ -48,6 +48,7 @@ impl SelectionState {
 struct TextRegion {
     layout: gpui::TextLayout,
     source_range: Range<usize>,
+    font: Font,
     hitbox: Hitbox,
 }
 
@@ -124,6 +125,7 @@ impl TextSelection {
         source: SharedString,
         source_range: Range<usize>,
         layout: gpui::TextLayout,
+        font: Font,
         hitbox: Hitbox,
     ) {
         let mut state = self.state.borrow_mut();
@@ -149,6 +151,7 @@ impl TextSelection {
             .push(TextRegion {
                 layout,
                 source_range,
+                font,
                 hitbox,
             });
     }

@@ -85,18 +85,14 @@ impl OneChat {
         cx.notify();
     }
 
-    pub(crate) fn close_timeline_xray(&mut self, cx: &mut Context<Self>) {
-        self.chat.timeline.force_click.cancel();
-        if self.chat.timeline.xray_item.take().is_some() {
-            cx.notify();
-        }
-    }
-
     pub(crate) fn set_timeline_hovered(&mut self, hovered: bool, cx: &mut Context<Self>) {
         if self.chat.timeline.hovered == hovered {
             return;
         }
         self.chat.timeline.hovered = hovered;
+        if !hovered {
+            self.chat.timeline.pointer_y = None;
+        }
         self.chat.timeline.expansion_motion.set_visible(hovered);
         cx.notify();
     }

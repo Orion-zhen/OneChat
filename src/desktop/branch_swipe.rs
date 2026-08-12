@@ -85,6 +85,10 @@ impl<T: Eq> BranchSwipeState<T> {
         self.last_event_at = None;
     }
 
+    pub(crate) fn captures_parent_scroll(&self) -> bool {
+        self.active_target.is_some() && self.axis != AxisLock::Vertical
+    }
+
     fn update_at(
         &mut self,
         target: T,
@@ -224,6 +228,39 @@ mod tests {
             moved(&mut state, "a", -71.9, 0.0, BOTH_DIRECTIONS, Instant::now()),
             None
         );
+    }
+
+    #[test]
+    fn pending_and_horizontal_gestures_capture_parent_scroll() {
+        let now = Instant::now();
+        let mut state = BranchSwipeState::default();
+        assert_eq!(
+            moved(&mut state, "a", -2.0, 1.0, BOTH_DIRECTIONS, now),
+            None
+        );
+        assert!(state.captures_parent_scroll());
+        assert_eq!(
+            moved(
+                &mut state,
+                "a",
+                -10.0,
+                1.0,
+                BOTH_DIRECTIONS,
+                now + Duration::from_millis(10)
+            ),
+            None
+        );
+        assert!(state.captures_parent_scroll());
+    }
+
+    #[test]
+    fn vertical_gesture_releases_parent_scroll() {
+        let mut state = BranchSwipeState::default();
+        assert_eq!(
+            moved(&mut state, "a", 1.0, 8.0, BOTH_DIRECTIONS, Instant::now()),
+            None
+        );
+        assert!(!state.captures_parent_scroll());
     }
 
     #[test]
