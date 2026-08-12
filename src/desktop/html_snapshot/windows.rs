@@ -2,17 +2,22 @@ use std::{path::PathBuf, sync::mpsc, time::SystemTime};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde_json::Value;
-use webview2_com::{Microsoft::Web::WebView2::Win32::*, *};
+use webview2_com::{
+    CallDevToolsProtocolMethodCompletedHandler, CoTaskMemPWSTR, CoreWebView2EnvironmentOptions,
+    CreateCoreWebView2ControllerCompletedHandler, CreateCoreWebView2EnvironmentCompletedHandler,
+    Microsoft::Web::WebView2::Win32::*, NavigationCompletedEventHandler,
+};
 use windows::{
     Win32::{
         Foundation::{E_FAIL, E_POINTER, HINSTANCE, HWND, LPARAM, LRESULT, RECT, WPARAM},
+        Graphics::Gdi::UpdateWindow,
         System::{
             Com::{COINIT_APARTMENTTHREADED, CoInitializeEx},
             LibraryLoader::GetModuleHandleW,
         },
         UI::WindowsAndMessaging::{
             self, DefWindowProcW, DestroyWindow, RegisterClassW, SW_SHOWNOACTIVATE, ShowWindow,
-            UpdateWindow, WNDCLASSW, WS_OVERLAPPEDWINDOW,
+            WNDCLASSW, WS_OVERLAPPEDWINDOW,
         },
     },
     core::{BOOL, PCWSTR, w},
