@@ -29,27 +29,42 @@ impl Element for SelectableText {
         cx: &mut App,
     ) -> (LayoutId, Self::RequestLayoutState) {
         if !self.highlights.is_empty() {
-            let source = &self.source[self.source_range.clone()];
             let default_style = window.text_style();
             let font_size = default_style.font_size.to_pixels(window.rem_size());
             let highlights = std::mem::take(&mut self.highlights)
                 .into_iter()
                 .map(|highlight| {
-                    let text = &source[highlight.range.clone()];
+                    let variant_text = &self.source[highlight.variant_range];
                     let target_style = default_style.clone().highlight(highlight.style);
                     let mut style = highlight.style;
 
                     if let Some(fallback) = highlight.missing_style {
                         let mut baseline = target_style.clone();
                         baseline.font_style = default_style.font_style;
-                        if missing_font_variant(text, &baseline, &target_style, font_size, window) {
+                        if missing_font_variant(
+                            variant_text,
+                            &baseline,
+                            &target_style,
+                            font_size,
+                            window,
+                        ) {
                             style = style.highlight(fallback);
                         }
                     }
                     if let Some(fallback) = highlight.missing_weight {
-                        let mut baseline = target_style.clone();
-                        baseline.font_weight = FontWeight::MEDIUM;
-                        if missing_font_variant(text, &baseline, &target_style, font_size, window) {
+                        let mut probe = target_style.clone();
+                        probe.font_weight = if default_style.font_weight < FontWeight::MEDIUM {
+                            FontWeight::MEDIUM
+                        } else {
+                            default_style.font_weight
+                        };
+                        if missing_font_variant(
+                            variant_text,
+                            &probe,
+                            &target_style,
+                            font_size,
+                            window,
+                        ) {
                             style = style.highlight(fallback);
                         }
                     }

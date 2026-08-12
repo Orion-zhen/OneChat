@@ -81,7 +81,12 @@ pub(super) fn render_inlines(
                                 palette,
                             )
                             .with_adaptive_highlights([
-                                adaptive_highlight(0..content.len(), *style, palette),
+                                adaptive_highlight(
+                                    0..content.len(),
+                                    0..content.len(),
+                                    *style,
+                                    palette,
+                                ),
                             ]),
                         )
                         .into_any_element(),
@@ -299,6 +304,7 @@ fn render_inline_code(
             )
             .with_adaptive_highlights([adaptive_highlight(
                 0..content.len(),
+                0..content.len(),
                 style,
                 palette,
             )]),
@@ -319,6 +325,7 @@ fn text_highlights(
             (start < end).then(|| {
                 adaptive_highlight(
                     (start - source_range.start)..(end - source_range.start),
+                    range.clone(),
                     *style,
                     palette,
                 )
@@ -330,11 +337,13 @@ fn text_highlights(
 
 fn adaptive_highlight(
     range: Range<usize>,
+    variant_range: Range<usize>,
     style: crate::markdown::InlineStyle,
     palette: MarkdownPalette,
 ) -> AdaptiveHighlight {
     AdaptiveHighlight {
         range,
+        variant_range,
         style: HighlightStyle {
             color: style.link.then_some(palette.accent),
             font_weight: style.strong.then_some(FontWeight::BOLD),

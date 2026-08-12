@@ -63,6 +63,7 @@ pub(crate) struct SelectableText {
 
 pub(crate) struct AdaptiveHighlight {
     pub range: Range<usize>,
+    pub variant_range: Range<usize>,
     pub style: HighlightStyle,
     pub missing_weight: Option<HighlightStyle>,
     pub missing_style: Option<HighlightStyle>,
@@ -324,6 +325,7 @@ impl SelectableText {
             highlights
                 .into_iter()
                 .map(|(range, style)| AdaptiveHighlight {
+                    variant_range: range.clone(),
                     range,
                     style,
                     missing_weight: None,
