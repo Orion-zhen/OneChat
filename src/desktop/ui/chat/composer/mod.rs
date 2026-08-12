@@ -14,6 +14,7 @@ pub(super) fn render_composer(
     app: &OneChat,
     message_max_width: f32,
     typography: MessageTypography,
+    context_usage_popover_progress: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let generating = app.is_current_generating();
@@ -31,7 +32,11 @@ pub(super) fn render_composer(
             .absolute()
             .right(px(if multiline { 91.0 } else { 49.0 }))
             .bottom(px(7.0))
-            .child(render_context_indicator(app, cx))
+            .child(render_context_indicator(
+                app,
+                context_usage_popover_progress,
+                cx,
+            ))
     });
     let can_send = (!app.chat.composer.read(cx).value().trim().is_empty()
         || !app.chat.attachments.is_empty())

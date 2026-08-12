@@ -167,6 +167,8 @@ pub(crate) struct ChatState {
     pub(crate) composer: Entity<InputState>,
     pub(crate) composer_multiline: Cell<bool>,
     pub(crate) composer_expanded: Cell<bool>,
+    pub(crate) context_usage_popover_open: bool,
+    pub(crate) context_usage_popover_motion: VisibilityMotion,
     pub(crate) attachments: Vec<AttachmentDraft>,
     pub(crate) attachment_previews: HashMap<String, Arc<gpui::Image>>,
     pub(crate) attachments_loading: bool,

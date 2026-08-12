@@ -168,6 +168,8 @@ impl OneChat {
                 composer,
                 composer_multiline: Cell::new(false),
                 composer_expanded: Cell::new(false),
+                context_usage_popover_open: false,
+                context_usage_popover_motion: VisibilityMotion::new(false),
                 attachments: Vec::new(),
                 attachment_previews: HashMap::new(),
                 attachments_loading: false,

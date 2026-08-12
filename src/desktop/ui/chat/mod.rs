@@ -119,6 +119,7 @@ pub(crate) fn render(
     jump_to_latest_progress: f32,
     timeline_expansion: f32,
     timeline_focused: bool,
+    context_usage_popover_progress: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let conversation = app
@@ -286,7 +287,13 @@ pub(crate) fn render(
         .flex()
         .flex_col()
         .child(message_area)
-        .child(render_composer(app, message_max_width, typography, cx))
+        .child(render_composer(
+            app,
+            message_max_width,
+            typography,
+            context_usage_popover_progress,
+            cx,
+        ))
         .into_any_element()
 }
 

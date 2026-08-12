@@ -9,7 +9,11 @@ use crate::application::context_usage::{
     provider_usage_reference,
 };
 
-pub(super) fn render_context_indicator(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
+pub(super) fn render_context_indicator(
+    app: &OneChat,
+    progress: f32,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
     let usage = current_context_usage(app, cx).expect("context indicator requires a model");
     let tooltip = usage.remaining_ratio.map_or_else(
         || "Context window unavailable".to_string(),
@@ -24,16 +28,42 @@ pub(super) fn render_context_indicator(app: &OneChat, cx: &mut Context<OneChat>)
         .p_0()
         .child(capacity_ring(usage.remaining_ratio, color, cx));
 
+    let progress = progress.clamp(0.0, 1.0);
+    let offset = if cx.reduce_motion() {
+        0.0
+    } else {
+        6.0 * (1.0 - progress)
+    };
+    let palette = *crate::desktop::ui::theme::palette(cx);
+    let panel = div()
+        .w(px(320.0))
+        .p(px(16.0))
+        .rounded(px(14.0))
+        .border_1()
+        .border_color(palette.floating_border)
+        .bg(palette.floating_glass)
+        .shadow(vec![BoxShadow {
+            color: palette.floating_shadow,
+            offset: point(px(0.0), px(6.0)),
+            blur_radius: px(18.0),
+            spread_radius: px(-7.0),
+            inset: false,
+        }])
+        .opacity(progress)
+        .child(context_usage_panel(usage, cx));
+    let app_entity = cx.entity();
+
     Popover::new("composer-context-usage-popover")
         .anchor(Anchor::TopRight)
-        .w(px(300.0))
-        .p(px(14.0))
-        .rounded(px(12.0))
-        .border_color(cx.theme().border)
-        .bg(cx.theme().popover)
-        .shadow_md()
+        .appearance(false)
+        .open(app.chat.context_usage_popover_open)
+        .on_open_change(move |open, _, cx| {
+            app_entity.update(cx, |app, cx| {
+                app.set_context_usage_popover_open(*open, cx);
+            });
+        })
         .trigger(trigger)
-        .child(context_usage_panel(usage, cx))
+        .child(translated_y(panel, px(offset)))
         .into_any_element()
 }
 
@@ -231,62 +261,91 @@ fn circular_progress(progress: f32, track: Hsla, color: Hsla) -> AnyElement {
 }
 
 fn context_usage_panel(usage: ContextUsage, cx: &App) -> AnyElement {
-    let title = div()
-        .text_size(px(13.0))
-        .font_weight(FontWeight::SEMIBOLD)
-        .child(if usage.context_window_tokens.is_some() {
-            "Context Remaining"
-        } else {
-            "Context Usage"
-        });
-    let summary = usage.remaining_ratio.map_or_else(
-        || format!("~{} input tokens used", format_tokens(usage.input_tokens)),
-        |ratio| format!("~{}% remaining", percent(ratio)),
+    let palette = *crate::desktop::ui::theme::palette(cx);
+    let known_window = usage.context_window_tokens;
+    let over_limit = known_window.is_some_and(|window| usage.input_tokens > u64::from(window));
+    let metric = usage.remaining_ratio.map_or_else(
+        || format!("~{}", format_tokens(usage.input_tokens)),
+        |ratio| format!("~{}%", percent(ratio)),
     );
-    let mut panel = div().flex().flex_col().gap_3().child(title).child(
-        div()
-            .text_size(px(22.0))
-            .line_height(px(26.0))
-            .font_weight(FontWeight::SEMIBOLD)
-            .child(summary),
-    );
-
-    if let Some(window) = usage.context_window_tokens {
-        panel = panel.child(detail_row(
-            "Estimated input",
-            &format!(
-                "~{} of {}",
+    let supporting = known_window.map_or_else(
+        || "Estimated input tokens".to_string(),
+        |window| {
+            format!(
+                "~{} of {} estimated input tokens used",
                 format_tokens(usage.input_tokens),
                 crate::domain::format_compact_token_count(window)
-            ),
-            cx,
-        ));
-    } else {
-        panel = panel.child(
+            )
+        },
+    );
+
+    let header = div()
+        .flex()
+        .flex_col()
+        .gap_1()
+        .child(
             div()
-                .rounded_lg()
-                .bg(cx.theme().muted)
-                .p_3()
+                .text_size(px(11.0))
+                .line_height(px(15.0))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(palette.muted_foreground)
+                .child(if known_window.is_some() {
+                    "Context remaining"
+                } else {
+                    "Context usage"
+                }),
+        )
+        .child(
+            div()
+                .text_size(px(28.0))
+                .line_height(px(32.0))
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(metric),
+        )
+        .child(
+            div()
                 .text_size(px(11.0))
                 .line_height(px(16.0))
-                .text_color(cx.theme().muted_foreground)
+                .text_color(palette.muted_foreground)
+                .child(supporting),
+        )
+        .children(usage.remaining_ratio.map(|ratio| {
+            let color = match ratio {
+                ratio if ratio <= 0.1 => palette.danger,
+                ratio if ratio <= 0.25 => cx.theme().warning,
+                _ => palette.accent,
+            };
+            div()
+                .mt_2()
+                .h(px(4.0))
+                .w_full()
+                .overflow_hidden()
+                .rounded_full()
+                .bg(palette.border)
                 .child(
-                    "The selected model does not provide a context window. Set it in the model settings to calculate remaining capacity.",
-                ),
-        );
-    }
+                    div()
+                        .h_full()
+                        .w(relative(ratio.clamp(0.0, 1.0)))
+                        .rounded_full()
+                        .bg(color),
+                )
+        }));
 
-    panel = panel
+    let details = div()
+        .rounded(px(10.0))
+        .bg(palette.secondary)
+        .px_3()
         .child(detail_row(
-            "Usage basis",
+            "Estimate basis",
             match usage.source {
                 ContextUsageSource::Estimated => "Local estimate",
-                ContextUsageSource::ProviderAnchored => "Last provider usage + current changes",
+                ContextUsageSource::ProviderAnchored => "Provider-adjusted",
             },
             cx,
         ))
+        .child(div().h(px(1.0)).w_full().bg(palette.border))
         .child(detail_row(
-            "Replayed reasoning",
+            "Reasoning history",
             if usage.replays_reasoning {
                 "Included"
             } else {
@@ -295,45 +354,106 @@ fn context_usage_panel(usage: ContextUsage, cx: &App) -> AnyElement {
             cx,
         ));
 
-    if usage
-        .context_window_tokens
-        .is_some_and(|window| usage.input_tokens > u64::from(window))
-    {
-        panel = panel.child(
-            div()
-                .rounded_lg()
-                .bg(cx.theme().warning.opacity(0.12))
-                .p_3()
-                .text_size(px(11.0))
-                .line_height(px(16.0))
-                .child(
-                    "This exceeds the configured window. OneChat will remove older turns before sending when possible.",
-                ),
-        );
+    let mut panel = div().flex().flex_col().gap_4().child(header);
+    if known_window.is_none() {
+        panel = panel.child(context_notice(
+            "Context limit unavailable",
+            "Set a limit in model settings to see remaining capacity.",
+            palette.accent,
+            palette.accent_soft,
+        ));
+    } else if over_limit {
+        panel = panel.child(context_notice(
+            "Over the configured limit",
+            "Older turns may be removed before the message is sent.",
+            cx.theme().warning,
+            cx.theme().warning.opacity(0.12),
+        ));
     }
 
     panel
+        .child(details)
         .child(
             div()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap_2()
                 .text_size(px(10.0))
                 .line_height(px(14.0))
-                .text_color(cx.theme().muted_foreground)
+                .text_color(palette.muted_foreground)
+                .child(render_icon(AppIcon::Info, IconTone::Muted, 13.0, cx))
                 .child(
-                    "Attachments, tool definitions, prompt variables, and provider framing can change actual usage.",
+                    div().min_w_0().flex_1().whitespace_normal().child(
+                        "Actual usage can vary with attachments, tools, and provider framing.",
+                    ),
                 ),
         )
         .into_any_element()
 }
 
-fn detail_row(label: &'static str, value: &str, cx: &App) -> AnyElement {
+fn context_notice(
+    title: &'static str,
+    detail: &'static str,
+    tone: Hsla,
+    background: Hsla,
+) -> AnyElement {
     div()
+        .rounded(px(10.0))
+        .bg(background)
+        .p_3()
         .flex()
         .items_start()
+        .gap_2()
+        .child(
+            div()
+                .mt(px(5.0))
+                .size(px(6.0))
+                .flex_none()
+                .rounded_full()
+                .bg(tone),
+        )
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .line_height(px(15.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(title),
+                )
+                .child(
+                    div()
+                        .text_size(px(10.0))
+                        .line_height(px(14.0))
+                        .child(detail),
+                ),
+        )
+        .into_any_element()
+}
+
+fn detail_row(label: &'static str, value: &'static str, cx: &App) -> AnyElement {
+    div()
+        .min_h(px(34.0))
+        .py_2()
+        .flex()
+        .items_center()
         .justify_between()
         .gap_3()
         .text_size(px(11.0))
+        .line_height(px(16.0))
         .child(div().text_color(cx.theme().muted_foreground).child(label))
-        .child(div().text_right().child(value.to_string()))
+        .child(
+            div()
+                .text_right()
+                .font_weight(FontWeight::MEDIUM)
+                .child(value),
+        )
         .into_any_element()
 }
 

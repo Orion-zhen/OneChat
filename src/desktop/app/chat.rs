@@ -18,6 +18,14 @@ impl OneChat {
         cx.notify();
     }
 
+    pub(crate) fn set_context_usage_popover_open(&mut self, open: bool, cx: &mut Context<Self>) {
+        if open {
+            self.chat.context_usage_popover_open = true;
+        }
+        self.chat.context_usage_popover_motion.set_visible(open);
+        cx.notify();
+    }
+
     pub(crate) fn expand_system_prompt(&mut self, cx: &mut Context<Self>) {
         self.chat.system_prompt_mode = SystemPromptMode::Expanded;
         cx.notify();

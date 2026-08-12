@@ -171,6 +171,17 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
             window.focus(&focus, cx);
         }
     }
+    if app.current_model().is_none() {
+        app.chat.context_usage_popover_open = false;
+        app.chat.context_usage_popover_motion.snap_visible(false);
+    }
+    let context_usage_popover_progress = app
+        .chat
+        .context_usage_popover_motion
+        .progress(window, false);
+    if app.chat.context_usage_popover_open && app.chat.context_usage_popover_motion.is_hidden() {
+        app.chat.context_usage_popover_open = false;
+    }
     let picker_overlay = app.overlays.picker.map(|picker| {
         pickers::render_picker_overlay(app, picker, picker_progress, reduce_motion, cx)
     });
@@ -245,6 +256,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
             jump_to_latest_progress,
             timeline_expansion,
             timeline_focused,
+            context_usage_popover_progress,
             cx,
         ),
         Page::Settings => settings::render(app, sidebar_width, cx),

@@ -7,6 +7,7 @@ pub(super) fn render_chat_page(
     jump_to_latest_progress: f32,
     timeline_expansion: f32,
     timeline_focused: bool,
+    context_usage_popover_progress: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let content = if app.data.loading {
@@ -58,6 +59,7 @@ pub(super) fn render_chat_page(
             jump_to_latest_progress,
             timeline_expansion,
             timeline_focused,
+            context_usage_popover_progress,
             cx,
         )
     };
