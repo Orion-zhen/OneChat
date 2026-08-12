@@ -10,14 +10,14 @@ use composer::render_composer;
 use context_indicator::render_context_indicator;
 use message::{render_assistant_turn, render_user_turn};
 use system_prompt::render_system_prompt_card;
-use timeline::TimelineEntry;
+use timeline::{TimelineEntry, TimelineXray};
 
 use std::time::Duration;
 
 use gpui::{
     Animation, AnimationExt as _, AnyElement, App, BoxShadow, Context, ElementId, FontWeight,
-    MouseButton, ObjectFit, Role, SharedString, StyledImage as _, div, ease_out_quint, img, point,
-    prelude::*, px, relative,
+    MouseButton, ObjectFit, Role, ScrollDelta, SharedString, StyledImage as _, div, ease_out_quint,
+    img, point, prelude::*, px, relative,
 };
 use gpui_component::{
     ActiveTheme as _, Disableable as _, Selectable as _,
@@ -31,6 +31,7 @@ use super::{
     markdown,
     motion::translated_y,
     selectable_text::{SelectableText, selection_color},
+    stream::nested_horizontal_scroll_captures,
     text::summary as text_summary,
     typography::MessageTypography,
 };
@@ -112,6 +113,7 @@ fn primary_icon_button(id: impl Into<ElementId>, icon: AppIcon, cx: &App) -> But
         .child(render_icon(icon, IconTone::OnAccent, 20.0, cx))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render(
     app: &OneChat,
     available_width: f32,
@@ -194,6 +196,7 @@ pub(crate) fn render(
                 item: child_index,
                 label: "You".into(),
                 timestamp: turn.user.created_at,
+                xray: TimelineXray::user(&turn.user.content, turn.user.attachments.len()),
             });
             child_index += 1;
 
@@ -211,6 +214,11 @@ pub(crate) fn render(
                     item: child_index,
                     label: response.model_name.clone(),
                     timestamp: response.created_at,
+                    xray: TimelineXray::assistant(
+                        &response.model_name,
+                        &response.content,
+                        response.status,
+                    ),
                 });
                 child_index += 1;
             }

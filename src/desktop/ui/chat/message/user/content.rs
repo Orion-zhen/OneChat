@@ -32,6 +32,11 @@ pub(super) fn render_message_content(
             )
         };
         let palette = crate::desktop::ui::theme::palette(cx).user_message;
+        let attachment_scroll = app
+            .chat
+            .horizontal_scrolls
+            .handle(format!("edit-user-attachments:{}", turn.id));
+        let attachment_boundary_scroll = attachment_scroll.clone();
         let card = div()
             .w(px(width))
             .rounded(px(20.0))
@@ -74,6 +79,12 @@ pub(super) fn render_message_content(
                     )))
                     .w_full()
                     .min_w_0()
+                    .track_scroll(&attachment_scroll)
+                    .on_scroll_wheel(move |event, _, cx| {
+                        if nested_horizontal_scroll_captures(event, &attachment_boundary_scroll) {
+                            cx.stop_propagation();
+                        }
+                    })
                     .overflow_x_scroll()
                     .restrict_scroll_to_axis()
                     .pb_3()
@@ -232,7 +243,10 @@ pub(super) fn render_message_content(
                                 &app.chat.text_selection,
                                 scale_factor,
                                 typography,
-                                app.settings().code_block_wrap,
+                                markdown::MarkdownBehavior {
+                                    code_block_wrap: app.settings().code_block_wrap,
+                                    horizontal_scrolls: &app.chat.horizontal_scrolls,
+                                },
                                 cx,
                             )
                         } else {

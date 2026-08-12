@@ -300,6 +300,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         .flex()
         .track_focus(&app.root_focus)
         .key_context("OneChat")
+        .capture_any_mouse_down(cx.listener(|this, _, _, cx| this.close_timeline_xray(cx)))
         .on_drag_move(
             cx.listener(|this, event: &DragMoveEvent<SidebarResizeDrag>, _, cx| {
                 let pointer_offset = event.drag(cx).pointer_offset.get();

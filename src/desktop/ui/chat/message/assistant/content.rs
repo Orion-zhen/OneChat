@@ -140,7 +140,10 @@ pub(super) fn render_message_content(
             &app.chat.text_selection,
             scale_factor,
             typography,
-            app.settings().code_block_wrap,
+            markdown::MarkdownBehavior {
+                code_block_wrap: app.settings().code_block_wrap,
+                horizontal_scrolls: &app.chat.horizontal_scrolls,
+            },
             cx,
         )
     } else {
@@ -169,7 +172,10 @@ pub(super) fn render_output_content(
             &app.chat.text_selection,
             scale_factor,
             typography,
-            app.settings().code_block_wrap,
+            markdown::MarkdownBehavior {
+                code_block_wrap: app.settings().code_block_wrap,
+                horizontal_scrolls: &app.chat.horizontal_scrolls,
+            },
             cx,
         )
     } else {

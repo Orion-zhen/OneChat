@@ -1,6 +1,7 @@
 use super::*;
 
 pub(super) fn render_message_header(
+    app: &OneChat,
     turn: &Turn,
     message: &AssistantResponse,
     typography: MessageTypography,
@@ -9,8 +10,19 @@ pub(super) fn render_message_header(
     let assistant_label = format!("{} · {}", message.model_name, message.provider_name);
     let multiple_responses = turn.responses.len() > 1;
     let header_content = if multiple_responses {
+        let tabs_scroll = app
+            .chat
+            .horizontal_scrolls
+            .handle(format!("response-tabs:{}", turn.id));
+        let boundary_scroll = tabs_scroll.clone();
         let mut tabs = div()
             .id(SharedString::from(format!("response-tabs-{}", turn.id)))
+            .track_scroll(&tabs_scroll)
+            .on_scroll_wheel(move |event, _, cx| {
+                if nested_horizontal_scroll_captures(event, &boundary_scroll) {
+                    cx.stop_propagation();
+                }
+            })
             .min_w_0()
             .flex_1()
             .flex()

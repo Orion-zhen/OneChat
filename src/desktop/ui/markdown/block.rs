@@ -6,7 +6,7 @@ use super::{
     render_formula_element, render_inlines, selectable,
 };
 use crate::{
-    desktop::ui::{copy_button::CopyButton, theme},
+    desktop::ui::{copy_button::CopyButton, stream::nested_horizontal_scroll_captures, theme},
     markdown::{Block, Inline, TableAlignment},
 };
 
@@ -103,6 +103,10 @@ pub(super) fn render_block(
             let copy_button_id =
                 SharedString::from(format!("copy-code-block-{message_id}-{content_text_index}"));
             let content_to_copy = content.clone();
+            let code_scroll = context
+                .horizontal_scrolls
+                .handle(format!("markdown-code:{message_id}:{content_text_index}"));
+            let boundary_scroll = code_scroll.clone();
 
             div()
                 .w_full()
@@ -141,6 +145,12 @@ pub(super) fn render_block(
                 .child(
                     div()
                         .id(element_key("code", content))
+                        .track_scroll(&code_scroll)
+                        .on_scroll_wheel(move |event, _, cx| {
+                            if nested_horizontal_scroll_captures(event, &boundary_scroll) {
+                                cx.stop_propagation();
+                            }
+                        })
                         .w_full()
                         .min_w_0()
                         .when(context.code_block_wrap, |element| {
@@ -214,6 +224,11 @@ fn render_table(
 ) -> AnyElement {
     let typography = context.typography;
     let palette = context.palette;
+    let table_scroll = context.horizontal_scrolls.handle(format!(
+        "markdown-table:{}:{}",
+        context.message_id, *text_index
+    ));
+    let boundary_scroll = table_scroll.clone();
 
     let columns = table
         .header
@@ -274,6 +289,12 @@ fn render_table(
                 })
                 .unwrap_or("empty"),
         ))
+        .track_scroll(&table_scroll)
+        .on_scroll_wheel(move |event, _, cx| {
+            if nested_horizontal_scroll_captures(event, &boundary_scroll) {
+                cx.stop_propagation();
+            }
+        })
         .w_full()
         .overflow_x_scroll()
         .restrict_scroll_to_axis()

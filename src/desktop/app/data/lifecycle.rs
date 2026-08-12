@@ -241,6 +241,8 @@ impl OneChat {
         self.chat.expanded_tool_execution_ids.clear();
         self.chat.expanded_conversation_tool_server_ids.clear();
         self.chat.message_editor = None;
+        self.chat.branch_swipe.reset();
+        self.chat.horizontal_scrolls.clear();
         self.chat.follow_latest = true;
         self.chat.message_scroll_motion.cancel();
         self.chat.message_scroll = ScrollHandle::new();
@@ -248,6 +250,9 @@ impl OneChat {
         self.chat.timeline.hovered = false;
         self.chat.timeline.pointer_y = None;
         self.chat.timeline.active_item = None;
+        self.chat.timeline.xray_item = None;
+        self.chat.timeline.force_click.cancel();
+        self.chat.timeline.suppress_next_click = false;
         self.chat.timeline.expansion_motion.set_visible(false);
         self.chat.thinking_scrolls.clear();
         self.chat.thinking_motions.clear();

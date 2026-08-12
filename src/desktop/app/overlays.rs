@@ -64,6 +64,7 @@ impl OneChat {
     }
 
     pub(crate) fn set_page(&mut self, page: Page, cx: &mut Context<Self>) {
+        self.close_timeline_xray(cx);
         if page != Page::Chat {
             self.cancel_voice_recording(cx);
         }
@@ -143,7 +144,9 @@ impl OneChat {
     }
 
     pub(crate) fn dismiss_overlay(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if window.has_active_dialog(cx) {
+        if self.chat.timeline.xray_item.is_some() {
+            self.close_timeline_xray(cx);
+        } else if window.has_active_dialog(cx) {
             self.overlays.response_model_turn_id = None;
             self.overlays.destructive_action = None;
             self.settings_ui.prompt_preset_editor = None;

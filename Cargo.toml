@@ -80,6 +80,7 @@ objc2-app-kit = { version = "*", default-features = false, features = [
     "NSFont",
     "NSFontDescriptor",
     "NSFontManager",
+    "NSHapticFeedback",
     "NSPressureConfiguration",
     "NSResponder",
     "NSView",

@@ -1,4 +1,4 @@
-use gpui::{App, Context, Entity, Window, prelude::*};
+use gpui::{App, Context, Entity, TouchPhase, Window, prelude::*};
 use gpui_component::input::{InputEvent, InputState};
 
 use super::super::{
@@ -7,11 +7,49 @@ use super::super::{
 };
 use crate::{
     application::generation::PreparedGeneration,
-    desktop::ui::inspector::InspectorTab,
+    desktop::{
+        branch_swipe::{BranchSwipeAction, BranchSwipeAvailability, BranchSwipeTarget},
+        pressure_touch::{self, Feedback},
+        ui::inspector::InspectorTab,
+    },
     domain::{AssistantBlock, AssistantResponse, Turn, new_id, now_timestamp},
 };
 
 const ASSISTANT_EDITOR_MAX_ROWS: usize = 24;
+
+#[derive(Debug, PartialEq, Eq)]
+struct SwipeNeighbors {
+    previous: Option<String>,
+    next: Option<String>,
+}
+
+impl SwipeNeighbors {
+    fn availability(&self) -> BranchSwipeAvailability {
+        BranchSwipeAvailability {
+            previous: self.previous.is_some(),
+            next: self.next.is_some(),
+        }
+    }
+
+    fn destination(&self, action: BranchSwipeAction) -> Option<String> {
+        match action {
+            BranchSwipeAction::Previous => self.previous.clone(),
+            BranchSwipeAction::Next => self.next.clone(),
+            BranchSwipeAction::Boundary => None,
+        }
+    }
+}
+
+fn swipe_neighbors(ids: &[String], current_id: &str) -> Option<SwipeNeighbors> {
+    let index = ids.iter().position(|id| id == current_id)?;
+    Some(SwipeNeighbors {
+        previous: index
+            .checked_sub(1)
+            .and_then(|index| ids.get(index))
+            .cloned(),
+        next: ids.get(index + 1).cloned(),
+    })
+}
 
 impl OneChat {
     pub(crate) fn show_response(
@@ -30,6 +68,131 @@ impl OneChat {
         if valid {
             self.chat.visible_response_ids.insert(turn_id, response_id);
             cx.notify();
+        }
+    }
+
+    pub(crate) fn swipe_user_branch(
+        &mut self,
+        turn_id: &str,
+        delta_x: f32,
+        delta_y: f32,
+        phase: TouchPhase,
+        cx: &mut Context<Self>,
+    ) {
+        if self.is_current_generating()
+            || self.recording_active()
+            || self.chat.message_editor.is_some()
+        {
+            self.chat.branch_swipe.reset();
+            return;
+        }
+        let Some(turn) = self
+            .data
+            .snapshot
+            .current_turns
+            .iter()
+            .find(|turn| turn.id == turn_id)
+        else {
+            self.chat.branch_swipe.reset();
+            return;
+        };
+        let ids = self
+            .user_branches(turn)
+            .into_iter()
+            .map(|branch| branch.id.clone())
+            .collect::<Vec<_>>();
+        let Some(neighbors) = swipe_neighbors(&ids, turn_id) else {
+            self.chat.branch_swipe.reset();
+            return;
+        };
+        if ids.len() < 2 {
+            self.chat.branch_swipe.reset();
+            return;
+        }
+        let group_id = turn.parent_response_id.clone().unwrap_or_else(|| {
+            format!(
+                "root:{}",
+                self.current_conversation()
+                    .map_or("conversation", |conversation| conversation.id.as_str())
+            )
+        });
+        let action = self.chat.branch_swipe.update(
+            BranchSwipeTarget::User(group_id),
+            delta_x,
+            delta_y,
+            phase,
+            neighbors.availability(),
+        );
+        let Some(action) = action else {
+            return;
+        };
+        cx.stop_propagation();
+        if let Some(destination) = neighbors.destination(action) {
+            pressure_touch::feedback(Feedback::SelectionChanged);
+            self.select_user_branch(destination, cx);
+        } else {
+            pressure_touch::feedback(Feedback::Boundary);
+        }
+    }
+
+    pub(crate) fn swipe_assistant_response(
+        &mut self,
+        turn_id: &str,
+        delta_x: f32,
+        delta_y: f32,
+        phase: TouchPhase,
+        cx: &mut Context<Self>,
+    ) {
+        if self.chat.message_editor.is_some() {
+            self.chat.branch_swipe.reset();
+            return;
+        }
+        let Some(turn) = self
+            .data
+            .snapshot
+            .current_turns
+            .iter()
+            .find(|turn| turn.id == turn_id)
+        else {
+            self.chat.branch_swipe.reset();
+            return;
+        };
+        let ids = turn
+            .responses
+            .iter()
+            .map(|response| response.id.clone())
+            .collect::<Vec<_>>();
+        let Some(current_id) = self
+            .visible_response(turn)
+            .map(|response| response.id.clone())
+        else {
+            self.chat.branch_swipe.reset();
+            return;
+        };
+        let Some(neighbors) = swipe_neighbors(&ids, &current_id) else {
+            self.chat.branch_swipe.reset();
+            return;
+        };
+        if ids.len() < 2 {
+            self.chat.branch_swipe.reset();
+            return;
+        }
+        let action = self.chat.branch_swipe.update(
+            BranchSwipeTarget::Assistant(turn_id.to_string()),
+            delta_x,
+            delta_y,
+            phase,
+            neighbors.availability(),
+        );
+        let Some(action) = action else {
+            return;
+        };
+        cx.stop_propagation();
+        if let Some(destination) = neighbors.destination(action) {
+            pressure_touch::feedback(Feedback::SelectionChanged);
+            self.show_response(turn_id.to_string(), destination, cx);
+        } else {
+            pressure_touch::feedback(Feedback::Boundary);
         }
     }
 
@@ -442,5 +605,46 @@ impl OneChat {
             self.navigation.inspector_tab = InspectorTab::Info;
             self.set_inspector_open(true, true, cx);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ids(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    #[test]
+    fn swipe_neighbors_follow_visual_order_without_wrapping() {
+        let ids = ids(&["first", "second", "third"]);
+
+        assert_eq!(
+            swipe_neighbors(&ids, "first"),
+            Some(SwipeNeighbors {
+                previous: None,
+                next: Some("second".into()),
+            })
+        );
+        assert_eq!(
+            swipe_neighbors(&ids, "second"),
+            Some(SwipeNeighbors {
+                previous: Some("first".into()),
+                next: Some("third".into()),
+            })
+        );
+        assert_eq!(
+            swipe_neighbors(&ids, "third"),
+            Some(SwipeNeighbors {
+                previous: Some("second".into()),
+                next: None,
+            })
+        );
+    }
+
+    #[test]
+    fn swipe_neighbors_reject_unknown_current_item() {
+        assert_eq!(swipe_neighbors(&ids(&["first"]), "missing"), None);
     }
 }

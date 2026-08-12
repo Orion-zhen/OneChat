@@ -2,28 +2,13 @@ use objc2::{AnyThread as _, MainThreadMarker, rc::Retained};
 use objc2_app_kit::{
     NSFont, NSFontAttributeName, NSFontManager, NSFontTraitMask, NSFontWeightBlack,
     NSFontWeightBold, NSFontWeightHeavy, NSFontWeightLight, NSFontWeightMedium,
-    NSFontWeightRegular, NSFontWeightSemibold, NSFontWeightThin, NSPressureBehavior,
-    NSPressureConfiguration, NSView,
+    NSFontWeightRegular, NSFontWeightSemibold, NSFontWeightThin, NSView,
 };
 use objc2_foundation::{NSAttributedString, NSDictionary, NSPoint, NSString};
 use objc2_natural_language::{NLTokenUnit, NLTokenizer};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
 use super::*;
-
-pub(super) fn configure_force_click(window: &Window) {
-    let view = native_view(window);
-    let configuration = NSPressureConfiguration::initWithPressureBehavior(
-        NSPressureConfiguration::alloc(),
-        NSPressureBehavior::PrimaryDeepClick,
-    );
-    view.setPressureConfiguration(Some(&configuration));
-    debug_assert_eq!(
-        view.pressureConfiguration()
-            .map(|configuration| configuration.pressureBehavior()),
-        Some(NSPressureBehavior::PrimaryDeepClick)
-    );
-}
 
 pub(super) fn show_at(selection: &TextSelection, position: Point<Pixels>, window: &Window) -> bool {
     let state = selection.state.borrow();

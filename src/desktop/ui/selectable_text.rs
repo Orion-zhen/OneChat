@@ -8,6 +8,9 @@ use gpui::{
 };
 use unicode_segmentation::UnicodeSegmentation;
 
+#[cfg(target_os = "macos")]
+use crate::desktop::pressure_touch::{ForceClickChange, ForceClickState};
+
 #[derive(Clone)]
 pub(crate) struct TextSelection {
     focus: FocusHandle,
@@ -24,7 +27,7 @@ struct SelectionState {
     collecting: bool,
     pending_position: Option<Point<Pixels>>,
     #[cfg(target_os = "macos")]
-    definition_visible: bool,
+    force_click: ForceClickState,
 }
 
 impl SelectionState {
@@ -37,9 +40,7 @@ impl SelectionState {
         self.collecting = false;
         self.pending_position = None;
         #[cfg(target_os = "macos")]
-        {
-            self.definition_visible = false;
-        }
+        self.force_click.cancel();
     }
 }
 
@@ -72,11 +73,6 @@ pub(crate) struct PrepaintState {
     selection: Vec<PaintQuad>,
 }
 
-#[cfg(target_os = "macos")]
-pub(crate) fn configure_force_click(window: &Window) {
-    dictionary::configure_force_click(window);
-}
-
 impl TextSelection {
     pub(crate) fn new(focus: FocusHandle) -> Self {
         Self {
@@ -90,7 +86,7 @@ impl TextSelection {
                 collecting: false,
                 pending_position: None,
                 #[cfg(target_os = "macos")]
-                definition_visible: false,
+                force_click: ForceClickState::default(),
             })),
             regions: Rc::new(RefCell::new(HashMap::new())),
         }
@@ -190,9 +186,7 @@ impl TextSelection {
         state.collecting = true;
         state.pending_position = Some(event.position);
         #[cfg(target_os = "macos")]
-        {
-            state.definition_visible = false;
-        }
+        state.force_click.cancel();
         self.regions.borrow_mut().clear();
         window.refresh();
         cx.stop_propagation();
@@ -231,9 +225,7 @@ impl TextSelection {
         state.selecting = false;
         state.pending_position = None;
         #[cfg(target_os = "macos")]
-        {
-            state.definition_visible = false;
-        }
+        state.force_click.cancel();
         if state.selection.is_empty() {
             state.active_id = None;
             state.source = "".into();
@@ -251,21 +243,12 @@ impl TextSelection {
         event: &gpui::MousePressureEvent,
         window: &Window,
     ) -> bool {
-        if event.stage != gpui::PressureStage::Force {
-            return false;
-        }
-        {
-            let state = self.state.borrow();
-            if state.definition_visible || !state.selecting {
-                return false;
-            }
-        }
+        let mut state = self.state.borrow_mut();
+        let triggered = state.force_click.update(event) == ForceClickChange::Triggered;
+        let has_selection = state.selecting;
+        drop(state);
 
-        let shown = dictionary::show_at(self, event.position, window);
-        if shown {
-            self.state.borrow_mut().definition_visible = true;
-        }
-        shown
+        triggered && has_selection && dictionary::show_at(self, event.position, window)
     }
 
     pub(crate) fn copy(&self, event: &KeyDownEvent, window: &Window, cx: &mut App) {

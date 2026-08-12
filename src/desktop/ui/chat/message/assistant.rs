@@ -60,9 +60,24 @@ fn render_assistant_message(
         action_group.clone(),
         cx,
     );
-    let header = render_message_header(turn, message, typography, cx);
+    let header = render_message_header(app, turn, message, typography, cx);
     let stats = request.map(format_message_stats).unwrap_or_default();
+    let swipe_turn_id = turn.id.clone();
     div()
+        .on_scroll_wheel(
+            cx.listener(move |this, event: &gpui::ScrollWheelEvent, _, cx| {
+                let ScrollDelta::Pixels(delta) = event.delta else {
+                    return;
+                };
+                this.swipe_assistant_response(
+                    &swipe_turn_id,
+                    f32::from(delta.x),
+                    f32::from(delta.y),
+                    event.touch_phase,
+                    cx,
+                );
+            }),
+        )
         .id(SharedString::from(format!(
             "assistant-message-{}",
             message.id

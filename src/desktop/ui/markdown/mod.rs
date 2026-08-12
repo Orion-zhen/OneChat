@@ -6,6 +6,7 @@ use std::{
 use gpui::{AnyElement, App, Hsla, Rgba, SharedString, div, prelude::*, px};
 
 use super::selectable_text::{SelectableText, TextSelection, selection_color};
+use super::stream::HorizontalScrollRegistry;
 use super::typography::MessageTypography;
 use crate::markdown::{Block, MarkdownDocument};
 
@@ -56,9 +57,14 @@ impl MarkdownPalette {
     }
 }
 
-struct MarkdownOptions {
+struct MarkdownOptions<'a> {
     palette: MarkdownPalette,
-    code_block_wrap: bool,
+    behavior: MarkdownBehavior<'a>,
+}
+
+pub(crate) struct MarkdownBehavior<'a> {
+    pub(crate) code_block_wrap: bool,
+    pub(crate) horizontal_scrolls: &'a HorizontalScrollRegistry,
 }
 
 struct MarkdownContext<'a> {
@@ -68,6 +74,7 @@ struct MarkdownContext<'a> {
     typography: MessageTypography,
     palette: MarkdownPalette,
     code_block_wrap: bool,
+    horizontal_scrolls: &'a HorizontalScrollRegistry,
     cx: &'a App,
 }
 
@@ -101,7 +108,7 @@ pub(crate) fn render(
     selection: &TextSelection,
     scale_factor: f32,
     typography: MessageTypography,
-    code_block_wrap: bool,
+    behavior: MarkdownBehavior<'_>,
     cx: &App,
 ) -> AnyElement {
     render_with_palette(
@@ -112,7 +119,7 @@ pub(crate) fn render(
         typography,
         MarkdownOptions {
             palette: MarkdownPalette::assistant(cx),
-            code_block_wrap,
+            behavior,
         },
         cx,
     )
@@ -124,7 +131,7 @@ pub(crate) fn render_user(
     selection: &TextSelection,
     scale_factor: f32,
     typography: MessageTypography,
-    code_block_wrap: bool,
+    behavior: MarkdownBehavior<'_>,
     cx: &App,
 ) -> AnyElement {
     render_with_palette(
@@ -135,7 +142,7 @@ pub(crate) fn render_user(
         typography,
         MarkdownOptions {
             palette: MarkdownPalette::user(cx),
-            code_block_wrap,
+            behavior,
         },
         cx,
     )
@@ -147,7 +154,7 @@ fn render_with_palette(
     selection: &TextSelection,
     scale_factor: f32,
     typography: MessageTypography,
-    options: MarkdownOptions,
+    options: MarkdownOptions<'_>,
     cx: &App,
 ) -> AnyElement {
     let context = MarkdownContext {
@@ -156,7 +163,8 @@ fn render_with_palette(
         scale_factor,
         typography,
         palette: options.palette,
-        code_block_wrap: options.code_block_wrap,
+        code_block_wrap: options.behavior.code_block_wrap,
+        horizontal_scrolls: options.behavior.horizontal_scrolls,
         cx,
     };
     let mut text_index = 0;

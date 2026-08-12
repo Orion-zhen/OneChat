@@ -1,5 +1,6 @@
 use super::*;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn render_chat_page(
     app: &OneChat,
     available_width: f32,

@@ -40,7 +40,22 @@ fn render_user_message(
         cx,
     );
     let action_bar = render_message_actions(app, turn, action_group.clone(), typography, cx);
+    let swipe_turn_id = turn.id.clone();
     div()
+        .on_scroll_wheel(
+            cx.listener(move |this, event: &gpui::ScrollWheelEvent, _, cx| {
+                let ScrollDelta::Pixels(delta) = event.delta else {
+                    return;
+                };
+                this.swipe_user_branch(
+                    &swipe_turn_id,
+                    f32::from(delta.x),
+                    f32::from(delta.y),
+                    event.touch_phase,
+                    cx,
+                );
+            }),
+        )
         .mx_auto()
         .mb_7()
         .w_full()
