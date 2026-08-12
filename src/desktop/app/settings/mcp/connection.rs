@@ -27,13 +27,16 @@ impl OneChat {
     }
 
     pub(crate) fn open_mcp_config(&mut self, cx: &mut Context<Self>) {
-        let path = self.mcp.snapshot.config_path.clone();
-        if let Err(error) = std::process::Command::new("open").arg(&path).spawn() {
-            self.data.error = Some(format!(
-                "Could not open MCP config {}: {error}",
-                path.display()
-            ));
-            cx.notify();
+        let path = &self.mcp.snapshot.config_path;
+        match url::Url::from_file_path(path) {
+            Ok(url) => cx.open_url(url.as_str()),
+            Err(()) => {
+                self.data.error = Some(format!(
+                    "Could not open MCP config {}: path is not absolute",
+                    path.display()
+                ));
+                cx.notify();
+            }
         }
     }
 

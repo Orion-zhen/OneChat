@@ -66,6 +66,7 @@ two-face = "*"
 unicode-segmentation = "*"
 unicode-linebreak = "*"
 undoc = "*"
+url = "*"
 zip = { version = "*", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
@@ -123,7 +124,6 @@ gtk = "*"
 webkit2gtk = "*"
 
 [target.'cfg(windows)'.dependencies]
-url = "*"
 webview2-com = "*"
 windows = { version = "*", features = [
     "Win32_Foundation",
