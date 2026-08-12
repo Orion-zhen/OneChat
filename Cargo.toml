@@ -67,6 +67,9 @@ zip = { version = "*", default-features = false, features = ["deflate"] }
 [dev-dependencies]
 tempfile = "*"
 
+[target.'cfg(windows)'.build-dependencies]
+embed-resource = "*"
+
 [target.'cfg(unix)'.dependencies]
 libc = "*"
 
