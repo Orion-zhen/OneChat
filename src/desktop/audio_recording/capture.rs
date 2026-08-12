@@ -4,8 +4,8 @@ use std::sync::{
     mpsc,
 };
 
-use cpal::{
-    Device, FromSample, Sample, SampleFormat, Stream, StreamConfig, SupportedStreamConfig,
+use rodio::cpal::{
+    self, Device, FromSample, Sample, SampleFormat, Stream, StreamConfig, SupportedStreamConfig,
     traits::{DeviceTrait, HostTrait, StreamTrait},
 };
 
@@ -65,7 +65,7 @@ fn build_input_stream(
     samples: mpsc::SyncSender<Vec<f32>>,
     errors: mpsc::Sender<String>,
 ) -> Result<Stream, String> {
-    let stream_config: StreamConfig = (*config).into();
+    let stream_config: StreamConfig = config.clone().into();
     let result = match config.sample_format() {
         SampleFormat::I8 => {
             build_typed_input_stream::<i8>(device, &stream_config, channels, samples, errors)
@@ -121,7 +121,7 @@ fn build_typed_input_stream<T>(
     channels: usize,
     samples: mpsc::SyncSender<Vec<f32>>,
     errors: mpsc::Sender<String>,
-) -> Result<Stream, cpal::Error>
+) -> Result<Stream, cpal::BuildStreamError>
 where
     T: cpal::SizedSample + Copy + Send + 'static,
     f32: FromSample<T>,
@@ -130,7 +130,7 @@ where
     let overflow_reported = Arc::new(AtomicBool::new(false));
     let callback_overflow_reported = overflow_reported.clone();
     device.build_input_stream(
-        *config,
+        config,
         move |data: &[T], _| {
             let mono = downmix(data, channels);
             if !mono.is_empty() {

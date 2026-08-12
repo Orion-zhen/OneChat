@@ -1,13 +1,6 @@
 use std::{io::Cursor, path::Path};
 
-use symphonia::core::{
-    codecs::audio::well_known::CODEC_ID_MP3,
-    errors::Error as SymphoniaError,
-    formats::{FormatOptions, TrackType, probe::Hint},
-    io::MediaSourceStream,
-    meta::MetadataOptions,
-    units::Timestamp,
-};
+use rodio::{Decoder, Source};
 
 use crate::domain::{
     AttachmentDraft, AttachmentDraftFile, AttachmentFileKind, AttachmentKind,
@@ -45,8 +38,8 @@ pub(super) fn load(
             "Invalid audio {name}: file content does not match its .{extension} extension."
         ));
     }
-    let duration_ms = duration_ms(&bytes, actual_extension)
-        .map_err(|error| format!("Invalid audio {name}: {error}"))?;
+    let duration_ms =
+        duration_ms(&bytes).map_err(|error| format!("Invalid audio {name}: {error}"))?;
 
     Ok(AttachmentDraft {
         id: new_id("attachment"),
@@ -85,57 +78,13 @@ fn is_mp3_frame(bytes: &[u8]) -> bool {
         && bytes[2] & 0x0c != 0x0c
 }
 
-fn duration_ms(bytes: &[u8], extension: &str) -> Result<u64, String> {
-    let source = MediaSourceStream::new(Box::new(Cursor::new(bytes)), Default::default());
-    let mut format = symphonia::default::get_probe()
-        .probe(
-            &Hint::new(),
-            source,
-            FormatOptions::default(),
-            MetadataOptions::default(),
-        )
-        .map_err(|error| error.to_string())?;
-    let track = format
-        .default_track(TrackType::Audio)
-        .ok_or_else(|| "file contains no audio track".to_string())?;
-    let track_id = track.id;
-    if extension == "mp3"
-        && track
-            .codec_params
-            .as_ref()
-            .and_then(|params| params.audio())
-            .is_none_or(|params| params.codec != CODEC_ID_MP3)
-    {
-        return Err("file does not contain MPEG Layer III audio".into());
-    }
-    let time_base = track
-        .time_base
+fn duration_ms(bytes: &[u8]) -> Result<u64, String> {
+    let decoder =
+        Decoder::try_from(Cursor::new(bytes.to_vec())).map_err(|error| error.to_string())?;
+    let duration = decoder
+        .total_duration()
         .ok_or_else(|| "audio duration is unavailable".to_string())?;
-    let mut end = track.duration.map(|duration| duration.get()).unwrap_or(0);
-
-    loop {
-        match format.next_packet() {
-            Ok(Some(packet)) if packet.track_id == track_id => {
-                let packet_end = packet
-                    .pts
-                    .get()
-                    .max(0)
-                    .saturating_add_unsigned(packet.dur.get());
-                end = end.max(packet_end as u64);
-            }
-            Ok(Some(_)) => {}
-            Ok(None) => break,
-            Err(SymphoniaError::ResetRequired) => break,
-            Err(error) => return Err(error.to_string()),
-        }
-    }
-
-    if end == 0 {
-        return Err("file contains no audio samples".into());
-    }
-    let end = i64::try_from(end).unwrap_or(i64::MAX);
-    let time = time_base.calc_time_saturating(Timestamp::new(end));
-    let duration_ms = u64::try_from((time.as_nanos() + 999_999) / 1_000_000)
+    let duration_ms = u64::try_from(duration.as_nanos().div_ceil(1_000_000))
         .map_err(|_| "audio duration is invalid".to_string())?;
     (duration_ms > 0)
         .then_some(duration_ms)
