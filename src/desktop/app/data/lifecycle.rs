@@ -242,6 +242,7 @@ impl OneChat {
         self.chat.expanded_conversation_tool_server_ids.clear();
         self.chat.message_editor = None;
         self.chat.branch_swipe.reset();
+        self.chat.response_tab_force_click.cancel();
         self.chat.horizontal_scrolls.clear();
         self.chat.follow_latest = true;
         self.chat.message_scroll_motion.cancel();

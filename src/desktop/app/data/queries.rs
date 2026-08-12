@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use gpui::Window;
 
 use super::super::OneChat;
@@ -7,15 +9,27 @@ use crate::domain::{
 };
 
 impl OneChat {
-    pub(crate) fn current_animated_title(&mut self, window: &mut Window) -> Option<String> {
-        let conversation_id = self.current_conversation()?.id.clone();
-        let (title, finished) = self.chat.title_transitions.get(&conversation_id)?.frame();
-        if finished {
-            self.chat.title_transitions.remove(&conversation_id);
-        } else {
+    pub(crate) fn animated_titles(&mut self, window: &mut Window) -> HashMap<String, String> {
+        let mut finished = Vec::new();
+        let titles = self
+            .chat
+            .title_transitions
+            .iter()
+            .map(|(conversation_id, transition)| {
+                let (title, is_finished) = transition.frame();
+                if is_finished {
+                    finished.push(conversation_id.clone());
+                }
+                (conversation_id.clone(), title)
+            })
+            .collect();
+        if finished.len() < self.chat.title_transitions.len() {
             window.request_animation_frame();
         }
-        Some(title)
+        for conversation_id in finished {
+            self.chat.title_transitions.remove(&conversation_id);
+        }
+        titles
     }
 
     pub(crate) fn current_conversation(&self) -> Option<&Conversation> {

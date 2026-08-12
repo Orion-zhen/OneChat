@@ -1,10 +1,12 @@
+use std::collections::HashMap;
+
 use super::*;
 
 pub(super) fn prepare_render(
     app: &mut OneChat,
     window: &mut Window,
     cx: &mut Context<OneChat>,
-) -> Option<String> {
+) -> HashMap<String, String> {
     let theme_color = app.settings().theme_color.clone();
     component_theme::sync_component_theme(
         app.theme(),
@@ -72,8 +74,8 @@ pub(super) fn prepare_render(
 
     if app.navigation.page == Page::Chat {
         app.advance_message_scroll(window);
-        app.current_animated_title(window)
+        app.animated_titles(window)
     } else {
-        None
+        HashMap::new()
     }
 }

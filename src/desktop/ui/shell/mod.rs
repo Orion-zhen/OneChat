@@ -1,4 +1,5 @@
 mod chat_page;
+mod conversation_peek;
 mod pickers;
 mod runtime;
 mod sidebar;
@@ -7,6 +8,7 @@ mod top_bar;
 use std::cell::Cell;
 
 use chat_page::render_chat_page;
+use conversation_peek::render_conversation_peek;
 pub(crate) use pickers::{
     CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate, ReasoningPickerDelegate,
     command_palette_dialog,
@@ -157,7 +159,11 @@ fn primary_icon_button(id: impl Into<ElementId>, icon: AppIcon, cx: &App) -> But
 }
 
 pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>) -> AnyElement {
-    let animated_title = prepare_render(app, window, cx);
+    let animated_titles = prepare_render(app, window, cx);
+    let current_animated_title = app
+        .current_conversation()
+        .and_then(|conversation| animated_titles.get(&conversation.id))
+        .map(String::as_str);
     let scale_factor = window.scale_factor();
     let reduce_motion = cx.reduce_motion();
     let inspector_progress = app
@@ -213,12 +219,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
             .h_full()
             .flex_none()
             .overflow_hidden()
-            .child(render_sidebar(
-                app,
-                sidebar_width,
-                animated_title.as_deref(),
-                cx,
-            ))
+            .child(render_sidebar(app, sidebar_width, &animated_titles, cx))
     });
     let sidebar_resize_handle =
         (app.navigation.page == Page::Chat && !app.settings().sidebar_collapsed).then(|| {
@@ -247,7 +248,17 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
                     }
                 }))
         });
-    let top_bar = render_top_bar(app, animated_title.as_deref(), cx);
+    let conversation_peek = (app.navigation.page == Page::Chat)
+        .then(|| {
+            render_conversation_peek(
+                app,
+                sidebar_width,
+                f32::from(window.bounds().size.height),
+                cx,
+            )
+        })
+        .flatten();
+    let top_bar = render_top_bar(app, current_animated_title, cx);
     let page = match app.navigation.page {
         Page::Chat => render_chat_page(
             app,
@@ -372,6 +383,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
                 .child(div().relative().min_h_0().flex_1().flex().child(page)),
         )
         .children(sidebar_resize_handle)
+        .children(conversation_peek)
         .children(inspector)
         .children(picker_overlay)
         .into_any_element()

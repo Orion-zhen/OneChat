@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::{
     AutoTitleState, Conversation, RequestInfo, Turn, UserMessage, active_turns, new_id,
-    now_timestamp,
 };
 
 use super::{
@@ -30,6 +29,11 @@ pub(super) struct ConversationFile {
 }
 
 impl Storage {
+    pub fn load_conversation_turns(&self, conversation_id: &str) -> Result<Vec<Turn>> {
+        let _guard = self.lock()?;
+        Ok(self.read_conversation(conversation_id)?.turns)
+    }
+
     pub fn insert_conversation(&self, conversation: &Conversation) -> Result<()> {
         let _guard = self.lock()?;
         let path = self.conversation_path(&conversation.id)?;
@@ -66,7 +70,6 @@ impl Storage {
         self.edit_conversation(conversation_id, |file| {
             file.conversation.title = title.to_string();
             file.conversation.auto_title_state = AutoTitleState::Finished;
-            file.conversation.updated_at = now_timestamp();
             Ok(())
         })
     }
@@ -125,7 +128,6 @@ impl Storage {
         }
         if let Some(title) = title.map(str::trim).filter(|title| !title.is_empty()) {
             file.conversation.title = title.to_string();
-            file.conversation.updated_at = now_timestamp();
         }
         file.conversation.auto_title_state = AutoTitleState::Finished;
         self.write_conversation(&file)?;

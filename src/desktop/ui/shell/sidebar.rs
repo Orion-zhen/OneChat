@@ -1,11 +1,16 @@
-use std::{f32::consts::PI, time::Duration};
+use std::{collections::HashMap, f32::consts::PI, time::Duration};
 
 use gpui::{
     Animation, AnimationExt as _, Bounds, Hsla, PathBuilder, Pixels, Window, canvas, ease_in_out,
     ease_out_quint, point,
 };
 
+#[cfg(target_os = "macos")]
+use gpui::MouseButton;
+
 use crate::desktop::app::GenerationBorderClock;
+#[cfg(target_os = "macos")]
+use crate::desktop::pressure_touch::ForceClickChange;
 
 use super::*;
 
@@ -19,7 +24,7 @@ const GENERATION_BORDER_STROKE: f32 = 2.0;
 pub(super) fn render_sidebar(
     app: &mut OneChat,
     width: f32,
-    animated_title: Option<&str>,
+    animated_titles: &HashMap<String, String>,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let groups = app.conversation_groups(cx);
@@ -64,6 +69,7 @@ pub(super) fn render_sidebar(
                     .child(group.label()),
             );
             for conversation in conversations {
+                let animated_title = animated_titles.get(&conversation.id).map(String::as_str);
                 list = list.child(render_conversation_row(
                     app,
                     conversation,
@@ -209,11 +215,7 @@ fn render_conversation_row(
         && unseen_generation.is_none();
     let title_animation_id: SharedString =
         format!("waiting-sidebar-title-{}", conversation.id).into();
-    let displayed_title = if selected {
-        animated_title.unwrap_or(&conversation.title).to_string()
-    } else {
-        conversation.title.clone()
-    };
+    let displayed_title = animated_title.unwrap_or(&conversation.title).to_string();
     let title_accessibility_label = if generating {
         format!("{displayed_title}, generating response")
     } else if unseen_generation.is_some() {
@@ -251,65 +253,125 @@ fn render_conversation_row(
         );
     }
     if hovered {
-        actions = actions
-            .child(
-                icon_button(
-                    SharedString::from(format!("rename-{}", rename_id)),
-                    AppIcon::Pencil,
-                    IconTone::Muted,
-                    cx,
+        let mut rename_button = icon_button(
+            SharedString::from(format!("rename-{}", rename_id)),
+            AppIcon::Pencil,
+            IconTone::Muted,
+            cx,
+        );
+        #[cfg(target_os = "macos")]
+        {
+            let pressure_id = rename_id.clone();
+            rename_button = rename_button
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, _| {
+                        this.sidebar.rename_force_click.cancel();
+                        this.sidebar.force_renamed_conversation_id = None;
+                    }),
                 )
-                .on_click(cx.listener(
-                    move |this, event: &gpui::ClickEvent, window, cx| {
-                        if event.modifiers().secondary() {
-                            this.regenerate_auto_title(rename_id.clone(), cx);
-                        } else {
-                            this.start_rename(rename_id.clone(), window, cx);
-                        }
-                    },
-                )),
+                .on_mouse_up_out(
+                    MouseButton::Left,
+                    cx.listener(|this, _, _, _| {
+                        this.sidebar.rename_force_click.cancel();
+                        this.sidebar.force_renamed_conversation_id = None;
+                    }),
+                )
+                .on_mouse_pressure(cx.listener(move |this, event, _, cx| {
+                    if this.sidebar.rename_force_click.update(event) == ForceClickChange::Triggered
+                    {
+                        this.sidebar.force_renamed_conversation_id = Some(pressure_id.clone());
+                        this.regenerate_auto_title(pressure_id.clone(), cx);
+                        cx.stop_propagation();
+                    }
+                }));
+        }
+        let rename_button = rename_button.on_click(cx.listener(
+            move |this, event: &gpui::ClickEvent, window, cx| {
+                #[cfg(target_os = "macos")]
+                if this.sidebar.force_renamed_conversation_id.as_deref() == Some(rename_id.as_str())
+                {
+                    this.sidebar.force_renamed_conversation_id = None;
+                    return;
+                }
+                if event.modifiers().secondary() {
+                    this.regenerate_auto_title(rename_id.clone(), cx);
+                } else {
+                    this.start_rename(rename_id.clone(), window, cx);
+                }
+            },
+        ));
+        actions = actions.child(rename_button).child(
+            icon_button(
+                SharedString::from(format!("delete-{}", delete_id)),
+                AppIcon::Trash,
+                IconTone::Danger,
+                cx,
             )
-            .child(
-                icon_button(
-                    SharedString::from(format!("delete-{}", delete_id)),
-                    AppIcon::Trash,
-                    IconTone::Danger,
-                    cx,
-                )
-                .on_click(cx.listener(
-                    move |this, event: &gpui::ClickEvent, window, cx| {
-                        if event.modifiers().secondary() {
-                            this.delete_conversation(delete_id.clone(), cx);
-                        } else {
-                            this.request_delete_conversation(delete_id.clone(), window, cx);
-                        }
-                    },
-                )),
-            );
+            .on_click(cx.listener(
+                move |this, event: &gpui::ClickEvent, window, cx| {
+                    if event.modifiers().secondary() {
+                        this.delete_conversation(delete_id.clone(), cx);
+                    } else {
+                        this.request_delete_conversation(delete_id.clone(), window, cx);
+                    }
+                },
+            )),
+        );
     }
 
-    let title = waiting_title(
-        div()
-            .id(SharedString::from(format!("select-{}", conversation.id)))
-            .min_w_0()
-            .flex_1()
-            .h_full()
-            .flex()
-            .items_center()
-            .cursor_pointer()
-            .overflow_hidden()
-            .whitespace_nowrap()
-            .text_ellipsis()
-            .text_base()
-            .aria_label(title_accessibility_label)
-            .font_weight(if selected {
-                FontWeight::SEMIBOLD
-            } else {
-                FontWeight::NORMAL
-            })
-            .on_click(
-                cx.listener(move |this, _, _, cx| this.select_conversation(select_id.clone(), cx)),
+    let mut title_content = div()
+        .id(SharedString::from(format!("select-{}", conversation.id)))
+        .min_w_0()
+        .flex_1()
+        .h_full()
+        .flex()
+        .items_center()
+        .cursor_pointer()
+        .overflow_hidden()
+        .whitespace_nowrap()
+        .text_ellipsis()
+        .text_base()
+        .aria_label(title_accessibility_label)
+        .font_weight(if selected {
+            FontWeight::SEMIBOLD
+        } else {
+            FontWeight::NORMAL
+        });
+    #[cfg(target_os = "macos")]
+    {
+        let pressure_id = select_id.clone();
+        title_content = title_content
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| this.begin_conversation_peek_pressure(cx)),
             )
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|this, _, _, cx| this.cancel_conversation_peek_pressure(cx)),
+            )
+            .on_mouse_pressure(cx.listener(
+                move |this, event: &gpui::MousePressureEvent, _, cx| {
+                    if this.update_conversation_peek_pressure(
+                        pressure_id.clone(),
+                        f32::from(event.position.y),
+                        event,
+                        cx,
+                    ) {
+                        cx.stop_propagation();
+                    }
+                },
+            ));
+    }
+    let title = waiting_title(
+        title_content
+            .on_click(cx.listener(move |this, _, _, cx| {
+                #[cfg(target_os = "macos")]
+                if this.consume_conversation_peek_click(&select_id, cx) {
+                    return;
+                }
+                this.select_conversation(select_id.clone(), cx);
+            }))
             .child(displayed_title),
         title_animation_id,
         title_waiting,

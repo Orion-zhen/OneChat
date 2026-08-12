@@ -1,6 +1,7 @@
 mod attachments;
 mod bootstrap;
 mod chat;
+mod conversation_peek;
 mod conversations;
 mod data;
 mod generation;
@@ -17,7 +18,7 @@ mod tokio_bridge;
 use motion::*;
 pub use navigation::{ConversationGroup, Page};
 use state::*;
-pub(crate) use state::{GenerationBorderClock, PickerOverlay};
+pub(crate) use state::{ConversationPeekContent, GenerationBorderClock, PickerOverlay};
 
 use std::{
     collections::HashMap,

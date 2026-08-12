@@ -121,7 +121,12 @@ impl OneChat {
                 hovered_conversation_id: None,
                 generation_border_epoch: Instant::now(),
                 unseen_generations: HashMap::new(),
+                conversation_peek: Default::default(),
                 rename_editor: None,
+                #[cfg(target_os = "macos")]
+                rename_force_click: Default::default(),
+                #[cfg(target_os = "macos")]
+                force_renamed_conversation_id: None,
             },
             overlays: OverlayState {
                 command_picker,
@@ -155,6 +160,7 @@ impl OneChat {
                 },
                 text_selection,
                 branch_swipe: Default::default(),
+                response_tab_force_click: Default::default(),
                 horizontal_scrolls: Default::default(),
                 thinking_scrolls: HashMap::new(),
                 thinking_motions: HashMap::new(),

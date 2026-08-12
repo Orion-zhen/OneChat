@@ -45,34 +45,61 @@ pub(super) fn render_message_header(
             );
             let tab_turn_id = turn.id.clone();
             let tab_response_id = response.id.clone();
-            tabs = tabs.child(
-                response_tab_button(
-                    SharedString::from(format!("response-tab-{}", response.id)),
-                    label,
-                    typography,
-                )
-                .selected(selected)
-                .flex()
-                .items_center()
-                .gap_1()
-                .children(
-                    context
-                        .then(|| render_icon(AppIcon::ContextSelected, IconTone::Accent, 15.0, cx)),
-                )
-                .bg(if selected {
-                    cx.theme().accent
-                } else {
-                    cx.theme().transparent
-                })
-                .text_color(if selected {
-                    cx.theme().primary
-                } else {
-                    cx.theme().muted_foreground
-                })
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.show_response(tab_turn_id.clone(), tab_response_id.clone(), cx)
-                })),
-            );
+            let mut tab = response_tab_button(
+                SharedString::from(format!("response-tab-{}", response.id)),
+                label,
+                typography,
+            )
+            .selected(selected)
+            .flex()
+            .items_center()
+            .gap_1()
+            .children(
+                context.then(|| render_icon(AppIcon::ContextSelected, IconTone::Accent, 15.0, cx)),
+            )
+            .bg(if selected {
+                cx.theme().accent
+            } else {
+                cx.theme().transparent
+            })
+            .text_color(if selected {
+                cx.theme().primary
+            } else {
+                cx.theme().muted_foreground
+            });
+            #[cfg(target_os = "macos")]
+            {
+                let pressure_turn_id = tab_turn_id.clone();
+                let pressure_response_id = tab_response_id.clone();
+                tab = tab
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, _| this.begin_response_tab_pressure()),
+                    )
+                    .on_mouse_up_out(
+                        MouseButton::Left,
+                        cx.listener(|this, _, _, _| this.cancel_response_tab_pressure()),
+                    )
+                    .on_mouse_pressure(cx.listener(
+                        move |this, event: &gpui::MousePressureEvent, _, cx| {
+                            if this.update_response_tab_pressure(
+                                pressure_turn_id.clone(),
+                                pressure_response_id.clone(),
+                                event,
+                                cx,
+                            ) {
+                                cx.stop_propagation();
+                            }
+                        },
+                    ));
+            }
+            tabs = tabs.child(tab.on_click(cx.listener(move |this, _, _, cx| {
+                #[cfg(target_os = "macos")]
+                if this.consume_response_tab_click(&tab_response_id) {
+                    return;
+                }
+                this.show_response(tab_turn_id.clone(), tab_response_id.clone(), cx);
+            })));
         }
         tabs.into_any_element()
     } else {
