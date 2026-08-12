@@ -148,7 +148,7 @@ impl OneChat {
             .iter()
             .find(|turn| turn.id == prepared.request_info.turn_id)
             .filter(|turn| turn.parent_response_id.is_none())
-            .map(|turn| turn.user.content.clone());
+            .map(|turn| turn.user.clone());
         self.chat
             .thinking_started_at
             .insert(request_id.clone(), Instant::now());

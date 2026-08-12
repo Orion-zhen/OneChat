@@ -3,12 +3,12 @@ use gpui::Context;
 use super::super::{OneChat, PendingTitleTransition};
 use crate::{
     application::title::generate_title,
-    domain::{AssistantResponse, AutoTitleState},
+    domain::{AssistantResponse, AutoTitleState, UserMessage},
 };
 
 enum AutoTitleRequest {
     Initial {
-        user_message: String,
+        user_message: UserMessage,
         assistant_response: String,
     },
     Regenerate,
@@ -24,7 +24,7 @@ impl OneChat {
     pub(super) fn start_auto_title(
         &mut self,
         conversation_id: String,
-        user_message: String,
+        user_message: UserMessage,
         response: &AssistantResponse,
         cx: &mut Context<Self>,
     ) {
@@ -96,11 +96,11 @@ impl OneChat {
                     assistant_response,
                 } => storage
                     .claim_auto_title(&claim_id)
-                    .map(|claimed| claimed.then_some((user_message, assistant_response))),
+                    .map(|claimed| claimed.then_some(vec![(user_message, assistant_response)])),
                 AutoTitleRequest::Regenerate => storage.restart_auto_title(&claim_id),
             })
             .await;
-            let (user_message, assistant_response) = match claimed {
+            let conversation = match claimed {
                 Ok(Ok(Some(source))) => {
                     if sender.send(AutoTitleUpdate::Claimed).await.is_err() {
                         return;
@@ -130,8 +130,7 @@ impl OneChat {
                     model,
                     system_prompt,
                     reasoning_preset,
-                    user_message,
-                    assistant_response,
+                    conversation,
                 )
                 .await
                 .ok(),

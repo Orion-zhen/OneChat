@@ -7,7 +7,8 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::domain::{
-    AutoTitleState, Conversation, RequestInfo, Turn, active_turns, new_id, now_timestamp,
+    AutoTitleState, Conversation, RequestInfo, Turn, UserMessage, active_turns, new_id,
+    now_timestamp,
 };
 
 use super::{
@@ -84,7 +85,10 @@ impl Storage {
         Ok(true)
     }
 
-    pub fn restart_auto_title(&self, conversation_id: &str) -> Result<Option<(String, String)>> {
+    pub fn restart_auto_title(
+        &self,
+        conversation_id: &str,
+    ) -> Result<Option<Vec<(UserMessage, String)>>> {
         let _guard = self.lock()?;
         if !self.conversation_path(conversation_id)?.exists() {
             return Ok(None);
@@ -93,18 +97,21 @@ impl Storage {
         if file.conversation.auto_title_state == AutoTitleState::Running {
             return Ok(None);
         }
-        let Some((user_message, assistant_response)) =
-            active_turns(&file.turns).first().and_then(|turn| {
+        let conversation = active_turns(&file.turns)
+            .into_iter()
+            .filter_map(|turn| {
                 turn.continuation_response()
                     .filter(|response| !response.content.trim().is_empty())
-                    .map(|response| (turn.user.content.clone(), response.content.clone()))
+                    .map(|response| (turn.user.clone(), response.content.clone()))
             })
-        else {
+            .take(3)
+            .collect::<Vec<_>>();
+        if conversation.is_empty() {
             return Ok(None);
-        };
+        }
         file.conversation.auto_title_state = AutoTitleState::Running;
         self.write_conversation(&file)?;
-        Ok(Some((user_message, assistant_response)))
+        Ok(Some(conversation))
     }
 
     pub fn finish_auto_title(&self, conversation_id: &str, title: Option<&str>) -> Result<bool> {

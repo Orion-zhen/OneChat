@@ -21,10 +21,13 @@ fn automatic_title_can_restart_from_a_stored_conversation() {
         .rename_conversation(&conversation.id, "Manual title")
         .unwrap();
 
-    assert_eq!(
-        storage.restart_auto_title(&conversation.id).unwrap(),
-        Some(("question".into(), "answer".into()))
-    );
+    let title_source = storage
+        .restart_auto_title(&conversation.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(title_source.len(), 1);
+    assert_eq!(title_source[0].0.content, "question");
+    assert_eq!(title_source[0].1, "answer");
     assert_eq!(
         storage.load_snapshot().unwrap().conversations[0].auto_title_state,
         AutoTitleState::Running
@@ -36,10 +39,13 @@ fn automatic_title_can_restart_from_a_stored_conversation() {
             .finish_auto_title(&conversation.id, Some("Generated title"))
             .unwrap()
     );
-    assert_eq!(
-        storage.restart_auto_title(&conversation.id).unwrap(),
-        Some(("question".into(), "answer".into()))
-    );
+    let title_source = storage
+        .restart_auto_title(&conversation.id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(title_source.len(), 1);
+    assert_eq!(title_source[0].0.content, "question");
+    assert_eq!(title_source[0].1, "answer");
 }
 
 #[test]
