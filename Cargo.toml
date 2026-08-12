@@ -73,6 +73,30 @@ embed-resource = "*"
 [target.'cfg(unix)'.dependencies]
 libc = "*"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "*"
+objc2-app-kit = { version = "*", default-features = false, features = [
+    "NSEvent",
+    "NSFont",
+    "NSFontDescriptor",
+    "NSFontManager",
+    "NSPressureConfiguration",
+    "NSResponder",
+    "NSView",
+    "objc2-core-foundation",
+] }
+objc2-foundation = { version = "*", default-features = false, features = [
+    "NSAttributedString",
+    "NSGeometry",
+    "NSRange",
+    "NSString",
+] }
+objc2-natural-language = { version = "*", default-features = false, features = [
+    "std",
+    "NLTokenizer",
+] }
+raw-window-handle = "*"
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "*", features = [
     "Win32_Foundation",

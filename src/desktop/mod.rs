@@ -120,6 +120,8 @@ fn open_main_window(
             ..Default::default()
         },
         move |window, cx| {
+            #[cfg(target_os = "macos")]
+            ui::selectable_text::configure_force_click(window);
             let one_chat = cx.new(|cx| OneChat::new(storage.clone(), runtime, mcp, window, cx));
             let initial_focus = one_chat.read(cx).initial_focus_handle(cx);
             window.focus(&initial_focus, cx);

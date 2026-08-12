@@ -138,6 +138,8 @@ pub(crate) fn render(
     let selection_mouse_up = text_selection.clone();
     let selection_mouse_up_out = text_selection.clone();
     let selection_copy = text_selection.clone();
+    #[cfg(target_os = "macos")]
+    let selection_pressure = text_selection.clone();
     let mut messages = div()
         .id("message-list")
         .min_h_0()
@@ -164,6 +166,15 @@ pub(crate) fn render(
             (has_system_prompt || editing_system_prompt)
                 .then(|| render_system_prompt_card(app, message_max_width, typography, cx)),
         );
+
+    #[cfg(target_os = "macos")]
+    {
+        messages = messages.on_mouse_pressure(move |event, window, cx| {
+            if selection_pressure.show_definition(event, window) {
+                cx.stop_propagation();
+            }
+        });
+    }
 
     let mut timeline_entries = Vec::new();
     let mut child_index = usize::from(has_system_prompt || editing_system_prompt);

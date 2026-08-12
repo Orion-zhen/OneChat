@@ -23,6 +23,8 @@ struct SelectionState {
     selecting: bool,
     collecting: bool,
     pending_position: Option<Point<Pixels>>,
+    #[cfg(target_os = "macos")]
+    definition_visible: bool,
 }
 
 impl SelectionState {
@@ -34,6 +36,10 @@ impl SelectionState {
         self.selecting = false;
         self.collecting = false;
         self.pending_position = None;
+        #[cfg(target_os = "macos")]
+        {
+            self.definition_visible = false;
+        }
     }
 }
 
@@ -66,6 +72,11 @@ pub(crate) struct PrepaintState {
     selection: Vec<PaintQuad>,
 }
 
+#[cfg(target_os = "macos")]
+pub(crate) fn configure_force_click(window: &Window) {
+    dictionary::configure_force_click(window);
+}
+
 impl TextSelection {
     pub(crate) fn new(focus: FocusHandle) -> Self {
         Self {
@@ -78,6 +89,8 @@ impl TextSelection {
                 selecting: false,
                 collecting: false,
                 pending_position: None,
+                #[cfg(target_os = "macos")]
+                definition_visible: false,
             })),
             regions: Rc::new(RefCell::new(HashMap::new())),
         }
@@ -176,6 +189,10 @@ impl TextSelection {
         state.selecting = false;
         state.collecting = true;
         state.pending_position = Some(event.position);
+        #[cfg(target_os = "macos")]
+        {
+            state.definition_visible = false;
+        }
         self.regions.borrow_mut().clear();
         window.refresh();
         cx.stop_propagation();
@@ -213,6 +230,10 @@ impl TextSelection {
         state.collecting = false;
         state.selecting = false;
         state.pending_position = None;
+        #[cfg(target_os = "macos")]
+        {
+            state.definition_visible = false;
+        }
         if state.selection.is_empty() {
             state.active_id = None;
             state.source = "".into();
@@ -222,6 +243,29 @@ impl TextSelection {
         if changed {
             window.refresh();
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn show_definition(
+        &self,
+        event: &gpui::MousePressureEvent,
+        window: &Window,
+    ) -> bool {
+        if event.stage != gpui::PressureStage::Force {
+            return false;
+        }
+        {
+            let state = self.state.borrow();
+            if state.definition_visible || !state.selecting {
+                return false;
+            }
+        }
+
+        let shown = dictionary::show_at(self, event.position, window);
+        if shown {
+            self.state.borrow_mut().definition_visible = true;
+        }
+        shown
     }
 
     pub(crate) fn copy(&self, event: &KeyDownEvent, window: &Window, cx: &mut App) {
@@ -351,6 +395,8 @@ fn missing_font_variant(
     })
 }
 
+#[cfg(target_os = "macos")]
+mod dictionary;
 mod element;
 mod geometry;
 
