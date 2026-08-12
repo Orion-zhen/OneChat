@@ -1,0 +1,556 @@
+:root {
+  color-scheme: light dark;
+  --canvas: #f5f5f7;
+  --surface: #ffffff;
+  --text: #1d1d1f;
+  --secondary: #6e6e73;
+  --separator: rgba(60, 60, 67, 0.18);
+  --theme-accent: #007aff;
+  --accent: color-mix(in oklab, var(--theme-accent) 90%, black);
+  --user-surface: color-mix(in oklab, var(--surface) 91%, var(--theme-accent));
+  --user-border: color-mix(in srgb, var(--theme-accent) 14%, transparent);
+  --code-surface: #f5f5f7;
+  --raised: rgba(118, 118, 128, 0.08);
+  --selection: color-mix(in srgb, var(--theme-accent) 22%, transparent);
+  --shadow: 0 24px 70px rgba(0, 0, 0, 0.10), 0 2px 12px rgba(0, 0, 0, 0.04);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", sans-serif;
+  font-optical-sizing: auto;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+:root[data-theme="dark"] {
+  --canvas: #111113;
+  --surface: #1c1c1e;
+  --text: #f5f5f7;
+  --secondary: #a1a1a6;
+  --separator: rgba(255, 255, 255, 0.12);
+  --accent: color-mix(in oklab, var(--theme-accent) 78%, white);
+  --user-surface: color-mix(in oklab, var(--surface) 82%, var(--theme-accent));
+  --user-border: color-mix(in srgb, var(--theme-accent) 18%, transparent);
+  --code-surface: #2c2c2e;
+  --raised: rgba(255, 255, 255, 0.07);
+  --selection: color-mix(in srgb, var(--theme-accent) 30%, transparent);
+  --shadow: 0 28px 80px rgba(0, 0, 0, 0.40);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --canvas: #111113;
+    --surface: #1c1c1e;
+    --text: #f5f5f7;
+    --secondary: #a1a1a6;
+    --separator: rgba(255, 255, 255, 0.12);
+    --accent: #2997ff;
+    --accent-rgb: 41, 151, 255;
+    --user-surface: #18283c;
+    --user-border: rgba(41, 151, 255, 0.18);
+    --code-surface: #2c2c2e;
+    --raised: rgba(255, 255, 255, 0.07);
+    --selection: color-mix(in srgb, var(--theme-accent) 30%, transparent);
+    --shadow: 0 28px 80px rgba(0, 0, 0, 0.40);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--canvas);
+}
+
+body {
+  margin: 0;
+  padding: clamp(24px, 4vw, 48px);
+  background: var(--canvas);
+  color: var(--text);
+  font-size: 17px;
+  line-height: 1.65;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--selection);
+}
+
+.conversation {
+  width: min(100%, 900px);
+  margin: 0 auto;
+  padding: clamp(40px, 6vw, 64px);
+  overflow: hidden;
+  border: 1px solid var(--separator);
+  border-radius: 28px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.conversation-header {
+  padding-bottom: 34px;
+  border-bottom: 1px solid var(--separator);
+}
+
+.eyebrow {
+  margin: 0 0 12px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.3;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.conversation-title {
+  max-width: 760px;
+  margin: 0;
+  font-size: clamp(34px, 6vw, 40px);
+  font-weight: 720;
+  line-height: 1.08;
+  letter-spacing: -0.028em;
+  overflow-wrap: anywhere;
+}
+
+.conversation-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 17px 0 0;
+  color: var(--secondary);
+  font-size: 13px;
+  font-weight: 450;
+  line-height: 1.45;
+}
+
+.conversation-meta span + span::before {
+  content: "·";
+  margin-right: 16px;
+  color: var(--separator);
+}
+
+.transcript {
+  padding-top: 44px;
+}
+
+.turn + .turn {
+  margin-top: 52px;
+}
+
+.message-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 11px;
+  color: var(--secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: 0.01em;
+}
+
+.message-author {
+  color: var(--text);
+  font-weight: 650;
+}
+
+.message-time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.user-message {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  margin-left: auto;
+}
+
+.user-message .message-header {
+  width: auto;
+  justify-content: flex-end;
+  gap: 0;
+  margin-bottom: 8px;
+}
+
+.user-message .message-time::before {
+  content: "·";
+  margin: 0 7px;
+  color: var(--separator);
+}
+
+.user-bubble {
+  width: fit-content;
+  max-width: min(82%, 620px);
+  padding: 13px 18px 14px;
+  border: 1px solid var(--user-border);
+  border-radius: 20px;
+  background: var(--user-surface);
+}
+
+.assistant-message {
+  margin-top: 28px;
+}
+
+.assistant-message .message-header {
+  justify-content: flex-start;
+  gap: 0;
+}
+
+.assistant-message .message-time::before {
+  content: "·";
+  margin: 0 7px;
+  color: var(--separator);
+}
+
+.status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  margin-left: 7px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--raised);
+  color: var(--secondary);
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: 1px;
+}
+
+.prose {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.prose > :first-child {
+  margin-top: 0;
+}
+
+.prose > :last-child {
+  margin-bottom: 0;
+}
+
+.prose p {
+  margin: 0 0 1em;
+}
+
+.prose h1,
+.prose h2,
+.prose h3,
+.prose h4,
+.prose h5,
+.prose h6 {
+  margin: 1.45em 0 0.55em;
+  color: var(--text);
+  font-weight: 680;
+  line-height: 1.22;
+  text-wrap: balance;
+}
+
+.prose h1 {
+  font-size: 30px;
+  letter-spacing: -0.022em;
+}
+
+.prose h2 {
+  font-size: 24px;
+  letter-spacing: -0.017em;
+}
+
+.prose h3 {
+  font-size: 20px;
+  letter-spacing: -0.012em;
+}
+
+.prose h4,
+.prose h5,
+.prose h6 {
+  font-size: 17px;
+}
+
+.prose strong {
+  font-weight: 680;
+}
+
+.prose a {
+  color: var(--accent);
+  text-decoration-line: underline;
+  text-decoration-thickness: 0.06em;
+  text-underline-offset: 0.16em;
+  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.prose a:hover,
+.prose a:focus-visible {
+  text-decoration-color: currentColor;
+}
+
+.prose ul,
+.prose ol {
+  margin: 0.7em 0 1em;
+  padding-left: 1.45em;
+}
+
+.prose li {
+  padding-left: 0.18em;
+}
+
+.prose li + li {
+  margin-top: 0.28em;
+}
+
+.prose blockquote {
+  margin: 1.25em 0;
+  padding: 0.15em 0 0.15em 17px;
+  border-left: 2px solid var(--accent);
+  color: var(--secondary);
+}
+
+.prose blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+.prose hr {
+  height: 1px;
+  margin: 2em 0;
+  border: 0;
+  background: var(--separator);
+}
+
+.prose code,
+.formula-source {
+  padding: 0.16em 0.38em;
+  border-radius: 6px;
+  background: var(--code-surface);
+  font-family: "SFMono-Regular", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.82em;
+  font-variant-ligatures: none;
+}
+
+.prose pre {
+  max-width: 100%;
+  margin: 1.25em 0;
+  padding: 17px 19px;
+  overflow-x: auto;
+  border: 1px solid var(--separator);
+  border-radius: 14px;
+  background: var(--code-surface);
+  line-height: 1.6;
+  -webkit-overflow-scrolling: touch;
+}
+
+.prose pre code {
+  display: block;
+  min-width: max-content;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 13.5px;
+  white-space: pre;
+}
+
+.prose table {
+  display: block;
+  width: 100%;
+  margin: 1.3em 0;
+  overflow-x: auto;
+  border-spacing: 0;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+
+.prose th,
+.prose td {
+  min-width: 110px;
+  padding: 9px 13px;
+  border-bottom: 1px solid var(--separator);
+  text-align: left;
+  vertical-align: top;
+}
+
+.prose th {
+  font-weight: 650;
+}
+
+.prose img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  margin: 1.25em auto;
+  border: 1px solid var(--separator);
+  border-radius: 16px;
+}
+
+.formula {
+  color: var(--text);
+}
+
+.formula-inline {
+  display: inline-flex;
+  width: var(--formula-width);
+  max-width: 100%;
+  height: var(--formula-height);
+  margin: 0 0.08em;
+  vertical-align: -0.24em;
+}
+
+.formula-display {
+  display: flex;
+  width: min(var(--formula-width), 100%);
+  height: var(--formula-height);
+  margin: 1.35em auto;
+  overflow-x: auto;
+  justify-content: center;
+}
+
+.formula svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+:root[data-theme="dark"] .formula svg {
+  filter: invert(1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .formula svg {
+    filter: invert(1);
+  }
+}
+
+.attachments {
+  display: flex;
+  max-width: min(82%, 620px);
+  margin: 0 0 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 9px;
+}
+
+.attachment-image {
+  width: 100%;
+  margin: 0;
+  text-align: right;
+}
+
+.attachment-image img {
+  display: inline-block;
+  max-width: 100%;
+  max-height: 420px;
+  border: 1px solid var(--separator);
+  border-radius: 18px;
+  object-fit: contain;
+  vertical-align: bottom;
+}
+
+.attachment-file {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 13px;
+  border: 1px solid var(--separator);
+  border-radius: 13px;
+  background: var(--raised);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 1.35;
+}
+
+.attachment-file::before {
+  content: "";
+  width: 9px;
+  height: 12px;
+  flex: none;
+  border: 1.5px solid var(--accent);
+  border-radius: 2px;
+}
+
+.attachment-file span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.export-footer {
+  margin-top: 52px;
+  padding-top: 20px;
+  border-top: 1px solid var(--separator);
+  color: var(--secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+@media (max-width: 620px) {
+  body {
+    padding: 0;
+  }
+
+  .conversation {
+    padding: 34px 22px 40px;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .conversation-meta span {
+    width: 100%;
+  }
+
+  .conversation-meta span + span::before {
+    content: none;
+  }
+
+  .user-message .message-header,
+  .user-bubble,
+  .attachments {
+    max-width: 92%;
+  }
+}
+
+@media print {
+  :root {
+    color-scheme: light;
+    --canvas: #ffffff;
+    --surface: #ffffff;
+    --text: #000000;
+    --secondary: #55555a;
+    --separator: rgba(0, 0, 0, 0.16);
+    --user-surface: #f3f7fc;
+    --code-surface: #f5f5f7;
+    --raised: #f5f5f7;
+  }
+
+  @page {
+    margin: 18mm;
+  }
+
+  body {
+    padding: 0;
+    background: white;
+  }
+
+  .conversation {
+    width: 100%;
+    padding: 0;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .turn,
+  .user-message,
+  .assistant-message,
+  pre,
+  blockquote,
+  figure {
+    break-inside: avoid;
+  }
+
+  .formula svg {
+    filter: none !important;
+  }
+}

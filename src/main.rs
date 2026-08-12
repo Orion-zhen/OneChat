@@ -1,3 +1,5 @@
 fn main() {
-    onechat::desktop::run();
+    if !onechat::desktop::run_snapshot_helper_if_requested() {
+        onechat::desktop::run();
+    }
 }

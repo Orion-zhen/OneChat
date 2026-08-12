@@ -2,6 +2,7 @@ mod app;
 mod audio_playback;
 mod audio_recording;
 mod branch_swipe;
+mod html_snapshot;
 mod pressure_touch;
 mod ui;
 
@@ -25,6 +26,11 @@ use crate::{
 
 #[cfg(target_os = "macos")]
 actions!(onechat, [Hide, HideOthers, OpenRepository, Quit, ShowAll]);
+
+#[doc(hidden)]
+pub fn run_snapshot_helper_if_requested() -> bool {
+    html_snapshot::run_helper_if_requested()
+}
 
 struct WindowContent {
     one_chat: Entity<OneChat>,

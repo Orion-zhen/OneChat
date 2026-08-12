@@ -17,7 +17,7 @@ mod component;
 mod fonts;
 mod palette;
 
-pub(crate) use component::{init, sync_component_theme, window_background};
+pub(crate) use component::{component_mode, init, sync_component_theme, window_background};
 pub(crate) use fonts::{code_font, sync_fonts, ui_font};
 pub(crate) use palette::{AppPalette, palette, parse_theme_color};
 

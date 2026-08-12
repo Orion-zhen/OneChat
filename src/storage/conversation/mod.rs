@@ -1,6 +1,7 @@
 use std::{
     collections::HashSet,
     fs,
+    io::Write as _,
     path::{Path, PathBuf},
 };
 
@@ -32,6 +33,49 @@ impl Storage {
     pub fn load_conversation_turns(&self, conversation_id: &str) -> Result<Vec<Turn>> {
         let _guard = self.lock()?;
         Ok(self.read_conversation(conversation_id)?.turns)
+    }
+
+    pub fn export_conversation_archive(
+        &self,
+        conversation_id: &str,
+        markdown: &str,
+        destination: &Path,
+    ) -> Result<()> {
+        let _guard = self.lock()?;
+        let source_json = fs::read(self.conversation_path(conversation_id)?)?;
+        let attachments_dir = self.conversation_dir(conversation_id)?.join("attachments");
+        let attachment_files = files_below(&attachments_dir)?;
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let file_name = destination
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("conversation.zip");
+        let temporary =
+            destination.with_file_name(format!(".{file_name}.{}.tmp", new_id("export")));
+
+        let result = write_archive(
+            &temporary,
+            &source_json,
+            markdown.as_bytes(),
+            &attachments_dir,
+            &attachment_files,
+        );
+        if let Err(error) = result {
+            let _ = fs::remove_file(&temporary);
+            return Err(error);
+        }
+
+        #[cfg(windows)]
+        if destination.exists() {
+            fs::remove_file(destination)?;
+        }
+        if let Err(error) = fs::rename(&temporary, destination) {
+            let _ = fs::remove_file(&temporary);
+            return Err(error.into());
+        }
+        Ok(())
     }
 
     pub fn insert_conversation(&self, conversation: &Conversation) -> Result<()> {
@@ -334,6 +378,75 @@ impl Storage {
     }
 }
 
+fn files_below(directory: &Path) -> Result<Vec<PathBuf>> {
+    if !directory.exists() {
+        return Ok(Vec::new());
+    }
+    let mut pending = vec![directory.to_path_buf()];
+    let mut files = Vec::new();
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(directory)? {
+            let entry = entry?;
+            let file_type = entry.file_type()?;
+            if file_type.is_dir() {
+                pending.push(entry.path());
+            } else if file_type.is_file() {
+                files.push(entry.path());
+            }
+        }
+    }
+    files.sort();
+    Ok(files)
+}
+
+fn write_archive(
+    destination: &Path,
+    conversation_json: &[u8],
+    markdown: &[u8],
+    attachments_dir: &Path,
+    attachment_files: &[PathBuf],
+) -> Result<()> {
+    let file = fs::File::create(destination)?;
+    let mut archive = zip::ZipWriter::new(file);
+    let options = zip::write::SimpleFileOptions::default()
+        .compression_method(zip::CompressionMethod::Deflated);
+
+    archive
+        .start_file("conversation.json", options)
+        .map_err(zip_error)?;
+    archive.write_all(conversation_json)?;
+    archive
+        .start_file("conversation.md", options)
+        .map_err(zip_error)?;
+    archive.write_all(markdown)?;
+
+    for path in attachment_files {
+        let relative = path.strip_prefix(attachments_dir).map_err(|_| {
+            StorageError::InvalidData(format!(
+                "attachment path is outside its conversation: {}",
+                path.display()
+            ))
+        })?;
+        let name = relative
+            .components()
+            .map(|component| component.as_os_str().to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/");
+        archive
+            .start_file(format!("attachments/{name}"), options)
+            .map_err(zip_error)?;
+        let mut attachment = fs::File::open(path)?;
+        std::io::copy(&mut attachment, &mut archive)?;
+    }
+
+    archive.finish().map_err(zip_error)?;
+    Ok(())
+}
+
+fn zip_error(error: zip::result::ZipError) -> StorageError {
+    StorageError::Io(std::io::Error::other(error))
+}
+
 fn validate_component(kind: &str, value: &str) -> Result<()> {
     if value.is_empty()
         || Path::new(value).components().count() != 1
@@ -429,4 +542,60 @@ fn fork_path(
     }
 
     Ok((turns, requests))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Read as _;
+
+    use tempfile::tempdir;
+
+    use super::*;
+
+    #[test]
+    fn complete_archive_contains_json_markdown_and_attachments() {
+        let temporary = tempdir().unwrap();
+        let storage = Storage::open(
+            temporary.path().join("settings.jsonc"),
+            temporary.path().join("state"),
+        )
+        .unwrap();
+        let conversation = Conversation::new("Archive test", None, "private prompt");
+        storage.insert_conversation(&conversation).unwrap();
+        let attachments = storage
+            .conversation_dir(&conversation.id)
+            .unwrap()
+            .join("attachments")
+            .join("attachment-1");
+        fs::create_dir_all(&attachments).unwrap();
+        fs::write(attachments.join("notes.txt"), b"attachment contents").unwrap();
+
+        let destination = temporary.path().join("export.zip");
+        storage
+            .export_conversation_archive(&conversation.id, "# Exported\n", &destination)
+            .unwrap();
+
+        let mut archive = zip::ZipArchive::new(fs::File::open(destination).unwrap()).unwrap();
+        let mut json = String::new();
+        archive
+            .by_name("conversation.json")
+            .unwrap()
+            .read_to_string(&mut json)
+            .unwrap();
+        assert!(json.contains("Archive test"));
+        let mut markdown = String::new();
+        archive
+            .by_name("conversation.md")
+            .unwrap()
+            .read_to_string(&mut markdown)
+            .unwrap();
+        assert_eq!(markdown, "# Exported\n");
+        let mut attachment = String::new();
+        archive
+            .by_name("attachments/attachment-1/notes.txt")
+            .unwrap()
+            .read_to_string(&mut attachment)
+            .unwrap();
+        assert_eq!(attachment, "attachment contents");
+    }
 }

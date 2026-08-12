@@ -4,6 +4,7 @@ mod chat;
 mod conversation_peek;
 mod conversations;
 mod data;
+mod export;
 mod generation;
 mod messages;
 mod motion;

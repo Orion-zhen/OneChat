@@ -15,14 +15,15 @@ use timeline::{TimelineEntry, TimelineXray};
 use std::time::Duration;
 
 use gpui::{
-    Animation, AnimationExt as _, AnyElement, App, BoxShadow, Context, ElementId, FontWeight,
-    MouseButton, ObjectFit, Role, ScrollDelta, SharedString, StyledImage as _, div, ease_out_quint,
-    img, point, prelude::*, px, relative,
+    Anchor, Animation, AnimationExt as _, AnyElement, App, BoxShadow, Context, ElementId,
+    FontWeight, MouseButton, ObjectFit, Role, ScrollDelta, SharedString, StyledImage as _, div,
+    ease_out_quint, img, point, prelude::*, px, relative,
 };
 use gpui_component::{
     ActiveTheme as _, Disableable as _, Selectable as _,
     button::{Button, ButtonVariants as _},
     input::{Enter, Escape as InputEscape, Input, Paste},
+    popover::Popover,
 };
 
 use super::{
@@ -73,6 +74,7 @@ fn icon_tooltip(icon: AppIcon) -> &'static str {
         AppIcon::Close => "Cancel",
         AppIcon::ContextSelect => "Use for context",
         AppIcon::Copy => "Copy",
+        AppIcon::FileDown => "Export conversation",
         AppIcon::FileText => "File",
         AppIcon::Fork => "Fork conversation",
         AppIcon::Info => "Inspect request",

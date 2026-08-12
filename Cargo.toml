@@ -24,6 +24,12 @@ window-size = { width = 600, height = 400 }
 app-position = { x = 180, y = 190 }
 application-folder-position = { x = 420, y = 190 }
 
+[package.metadata.packager.deb]
+depends = ["libgtk-3-0", "libwebkit2gtk-4.1-0"]
+
+[package.metadata.packager.pacman]
+depends = ["gtk3", "webkit2gtk-4.1"]
+
 [package.metadata.packager.linux]
 generate-desktop-entry = true
 
@@ -74,9 +80,11 @@ embed-resource = "*"
 libc = "*"
 
 [target.'cfg(target_os = "macos")'.dependencies]
+block2 = "*"
 objc2 = "*"
 objc2-app-kit = { version = "*", default-features = false, features = [
     "NSEvent",
+    "NSImage",
     "NSFont",
     "NSFontDescriptor",
     "NSFontManager",
@@ -88,9 +96,22 @@ objc2-app-kit = { version = "*", default-features = false, features = [
 ] }
 objc2-foundation = { version = "*", default-features = false, features = [
     "NSAttributedString",
+    "NSData",
+    "NSError",
     "NSGeometry",
     "NSRange",
     "NSString",
+    "NSValue",
+] }
+objc2-web-kit = { version = "*", default-features = false, features = [
+    "block2",
+    "objc2-app-kit",
+    "objc2-core-foundation",
+    "WKNavigation",
+    "WKSnapshotConfiguration",
+    "WKWebView",
+    "WKWebViewConfiguration",
+    "WKWebsiteDataStore",
 ] }
 objc2-natural-language = { version = "*", default-features = false, features = [
     "std",
@@ -98,7 +119,20 @@ objc2-natural-language = { version = "*", default-features = false, features = [
 ] }
 raw-window-handle = "*"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+cairo-rs = { version = "*", features = ["png"] }
+gtk = "*"
+webkit2gtk = "*"
+
 [target.'cfg(windows)'.dependencies]
+url = "*"
+webview2-com = "*"
+windows = { version = "*", features = [
+    "Win32_Foundation",
+    "Win32_System_Com",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_WindowsAndMessaging",
+] }
 windows-sys = { version = "*", features = [
     "Win32_Foundation",
     "Win32_Security",

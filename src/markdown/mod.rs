@@ -1,6 +1,7 @@
 mod ast;
 mod formula;
 mod highlight;
+mod html;
 mod parser;
 
 pub use ast::{
@@ -8,3 +9,4 @@ pub use ast::{
     TableAlignment,
 };
 pub use formula::{FormulaImage, render_formula_cached};
+pub(crate) use html::to_html;

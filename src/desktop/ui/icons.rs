@@ -9,6 +9,7 @@ pub(crate) const LUCIDE_FONT_FAMILY: &str = "lucide";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum AppIcon {
+    Archive,
     ArrowDown,
     ArrowUp,
     At,
@@ -27,9 +28,11 @@ pub(crate) enum AppIcon {
     ContextSelected,
     Copy,
     Eye,
+    FileDown,
     FileText,
     FileUp,
     Fork,
+    Image,
     Info,
     Key,
     Layers,
@@ -65,6 +68,7 @@ enum IconBackend {
 impl AppIcon {
     fn backend(self) -> IconBackend {
         match self {
+            Self::Archive => IconBackend::Lucide(LucideIcon::Archive),
             Self::ArrowDown => IconBackend::Component(IconName::ArrowDown),
             Self::ArrowUp => IconBackend::Component(IconName::ArrowUp),
             Self::At => IconBackend::Lucide(LucideIcon::AtSign),
@@ -83,9 +87,11 @@ impl AppIcon {
             Self::ContextSelected => IconBackend::Component(IconName::CircleCheck),
             Self::Copy => IconBackend::Component(IconName::Copy),
             Self::Eye => IconBackend::Lucide(LucideIcon::Eye),
+            Self::FileDown => IconBackend::Lucide(LucideIcon::FileDown),
             Self::FileText => IconBackend::Lucide(LucideIcon::FileText),
             Self::FileUp => IconBackend::Lucide(LucideIcon::FileUp),
             Self::Fork => IconBackend::Lucide(LucideIcon::GitFork),
+            Self::Image => IconBackend::Lucide(LucideIcon::Image),
             Self::Info => IconBackend::Component(IconName::Info),
             Self::Key => IconBackend::Lucide(LucideIcon::KeyRound),
             Self::Layers => IconBackend::Lucide(LucideIcon::Layers),

@@ -4,12 +4,24 @@ OneChat is a personal Rust + GPUI desktop client for local, streaming conversati
 
 ## Prerequisites
 
-Install the latest stable Rust toolchain, Xcode command-line tools, and Apple's Metal Toolchain:
+Install the latest stable Rust toolchain. On macOS, also install Xcode command-line tools and Apple's Metal Toolchain:
 
 ```sh
 xcode-select --install
 xcodebuild -downloadComponent MetalToolchain
 ```
+
+Linux builds use the system WebKitGTK renderer for HTML/PNG conversation export. Install its development packages before building:
+
+```sh
+# Debian / Ubuntu
+sudo apt install libgtk-3-dev libwebkit2gtk-4.1-dev
+
+# Arch Linux
+sudo pacman -S gtk3 webkit2gtk-4.1
+```
+
+Windows PNG export uses the Microsoft Edge WebView2 Runtime, which is included with current Windows releases and can also be installed separately by Microsoft.
 
 GPUI and the provider crates evolve quickly. Published dependencies intentionally use `"*"`; `gpui`/`gpui_platform` and `gpui-component`/`gpui-component-assets` track the respective upstream Git HEADs. `Cargo.lock` is local build output and is not committed, so ordinary local builds keep using the commits recorded there. Run `cargo update` (or delete the local lockfile) only when intentionally updating upstream HEADs. Breaking upstream changes are fixed directly instead of maintaining compatibility code.
 
@@ -27,7 +39,7 @@ The crate keeps reusable code independent from the GPUI desktop shell:
 
 The desktop shell starts through `gpui_platform`, installs `gpui_component_assets`, and wraps each window in `gpui_component::Root`. Standard inputs, buttons, pickers, dialogs, forms, tabs, switches, sliders, alerts, and notifications come from `gpui-component`. `desktop/ui/theme.rs` is the semantic color center: it generates light and dark palettes from the configured theme color, feeds component theme tokens, and owns product-specific message, Markdown, status, media, glass, and selection colors. `desktop/ui/icons.rs` maps product semantics to component or Lucide icons. Chat layout, glass materials, product motion, Markdown/LaTeX rendering, and cross-node message selection remain OneChat-owned.
 
-`src/main.rs` only starts `desktop::run()`. Another UI or CLI can reuse the library modules without depending on desktop internals.
+`src/main.rs` normally starts `desktop::run()`; on Linux and Windows the same executable can also enter a private, isolated HTML snapshot helper mode so WebKitGTK/WebView2 does not interfere with GPUI's event loop. Another UI or CLI can reuse the library modules without depending on desktop internals.
 
 ## Run and verify
 
@@ -96,6 +108,8 @@ Each conversation has its own directory containing `<conversation-id>.json`, inc
 - Windows: `%LOCALAPPDATA%\OneChat\conversations\<conversation-id>\`
 
 Attachment metadata and relative paths are stored in that JSON file. Attachment contents are stored under `attachments/` in the same conversation directory, so images and rendered PDF pages do not inflate the conversation log. Deleting or clearing a conversation removes its attachment files, and forking copies the attachments used by the forked history.
+
+Hover the latest assistant response and use its export action to copy or save the visible branch as Markdown. A full archive export creates a ZIP containing that Markdown, the complete conversation JSON with all branches and requests, and the stored attachment assets.
 
 ### Attachments
 

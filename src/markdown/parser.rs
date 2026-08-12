@@ -16,23 +16,27 @@ fn table_alignment(alignment: ComrakTableAlignment) -> TableAlignment {
     }
 }
 
+pub(super) fn options() -> Options<'static> {
+    let mut options = Options::default();
+    options.extension.strikethrough = true;
+    options.extension.table = true;
+    options.extension.autolink = true;
+    options.extension.tasklist = true;
+    options.extension.footnotes = true;
+    options.extension.inline_footnotes = true;
+    options.extension.description_lists = true;
+    options.extension.alerts = true;
+    options.extension.math_dollars = true;
+    options.extension.math_latex = true;
+    options.extension.math_code = true;
+    options.extension.cjk_friendly_emphasis = true;
+    options
+}
+
 impl MarkdownDocument {
     pub fn parse(source: &str) -> Self {
         let arena = Arena::new();
-        let mut options = Options::default();
-        options.extension.strikethrough = true;
-        options.extension.table = true;
-        options.extension.autolink = true;
-        options.extension.tasklist = true;
-        options.extension.footnotes = true;
-        options.extension.inline_footnotes = true;
-        options.extension.description_lists = true;
-        options.extension.alerts = true;
-        options.extension.math_dollars = true;
-        options.extension.math_latex = true;
-        options.extension.math_code = true;
-        options.extension.cjk_friendly_emphasis = true;
-
+        let options = options();
         let root = parse_document(&arena, source, &options);
         Self {
             blocks: parse_blocks(root),

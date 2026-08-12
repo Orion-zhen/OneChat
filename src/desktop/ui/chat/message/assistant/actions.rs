@@ -27,6 +27,7 @@ pub(super) fn render_message_actions(
         && usable_as_context
         && turn.continuation_response_id.as_deref() != Some(&message.id);
     let can_fork = !editing_any && usable_as_context;
+    let can_export = latest && !generating && !editing_any && has_content;
 
     let content_actions = if can_copy || can_edit {
         let mut group = div().flex().items_center().gap_1();
@@ -100,10 +101,11 @@ pub(super) fn render_message_actions(
         None
     };
 
-    let conversation_actions = if can_fork {
-        let fork_id = message.id.clone();
-        Some(
-            div().flex().items_center().gap_1().child(
+    let conversation_actions = if can_fork || can_export {
+        let mut group = div().flex().items_center().gap_1();
+        if can_fork {
+            let fork_id = message.id.clone();
+            group = group.child(
                 icon_button(
                     SharedString::from(format!("fork-message-{}", message.id)),
                     AppIcon::Fork,
@@ -113,8 +115,12 @@ pub(super) fn render_message_actions(
                 .on_click(
                     cx.listener(move |this, _, _, cx| this.fork_from_response(fork_id.clone(), cx)),
                 ),
-            ),
-        )
+            );
+        }
+        if can_export {
+            group = group.child(export_popover(message, cx));
+        }
+        Some(group)
     } else {
         None
     };
@@ -149,4 +155,204 @@ pub(super) fn render_message_actions(
         .children(conversation_actions)
         .children(info_actions)
         .into_any_element()
+}
+
+fn export_popover(message: &AssistantResponse, cx: &mut Context<OneChat>) -> AnyElement {
+    let response_id = message.id.clone();
+    let app = cx.entity();
+    let trigger = icon_button(
+        SharedString::from(format!("export-conversation-{}", message.id)),
+        AppIcon::FileDown,
+        IconTone::Muted,
+        cx,
+    );
+
+    Popover::new(SharedString::from(format!(
+        "export-conversation-popover-{}",
+        message.id
+    )))
+    .anchor(Anchor::TopRight)
+    .appearance(false)
+    .trigger(trigger)
+    .content(move |_, _, cx| {
+        let popover = cx.entity();
+
+        let copy_markdown = {
+            let popover = popover.clone();
+            let app = app.clone();
+            let response_id = response_id.clone();
+            export_menu_button(
+                "copy-conversation-markdown",
+                AppIcon::Copy,
+                "Copy as Markdown",
+                cx,
+            )
+            .on_click(move |_, window, cx| {
+                popover.update(cx, |popover, cx| popover.dismiss(window, cx));
+                app.update(cx, |app, cx| {
+                    app.copy_conversation_markdown(&response_id, window, cx)
+                });
+            })
+        };
+
+        let copy_png = {
+            let popover = popover.clone();
+            let app = app.clone();
+            let response_id = response_id.clone();
+            export_menu_button("copy-conversation-png", AppIcon::Image, "Copy as PNG", cx).on_click(
+                move |_, window, cx| {
+                    popover.update(cx, |popover, cx| popover.dismiss(window, cx));
+                    app.update(cx, |app, cx| {
+                        app.copy_conversation_png(&response_id, window, cx)
+                    });
+                },
+            )
+        };
+
+        let export_markdown = {
+            let popover = popover.clone();
+            let app = app.clone();
+            let response_id = response_id.clone();
+            export_menu_button(
+                "export-conversation-markdown",
+                AppIcon::FileText,
+                "Export Markdown",
+                cx,
+            )
+            .on_click(move |_, window, cx| {
+                popover.update(cx, |popover, cx| popover.dismiss(window, cx));
+                app.update(cx, |app, cx| {
+                    app.export_conversation_markdown(&response_id, window, cx)
+                });
+            })
+        };
+
+        let export_html = {
+            let popover = popover.clone();
+            let app = app.clone();
+            let response_id = response_id.clone();
+            export_menu_button(
+                "export-conversation-html",
+                AppIcon::Braces,
+                "Export HTML",
+                cx,
+            )
+            .on_click(move |_, window, cx| {
+                popover.update(cx, |popover, cx| popover.dismiss(window, cx));
+                app.update(cx, |app, cx| {
+                    app.export_conversation_html(&response_id, window, cx)
+                });
+            })
+        };
+
+        let export_png = {
+            let popover = popover.clone();
+            let app = app.clone();
+            let response_id = response_id.clone();
+            export_menu_button("export-conversation-png", AppIcon::Image, "Export PNG", cx)
+                .on_click(move |_, window, cx| {
+                    popover.update(cx, |popover, cx| popover.dismiss(window, cx));
+                    app.update(cx, |app, cx| {
+                        app.export_conversation_png(&response_id, window, cx)
+                    });
+                })
+        };
+
+        let export_archive = {
+            let popover = popover.clone();
+            let app = app.clone();
+            let response_id = response_id.clone();
+            export_menu_button(
+                "export-conversation-archive",
+                AppIcon::Archive,
+                "Export Full Archive",
+                cx,
+            )
+            .on_click(move |_, window, cx| {
+                popover.update(cx, |popover, cx| popover.dismiss(window, cx));
+                app.update(cx, |app, cx| {
+                    app.export_conversation_archive(&response_id, window, cx)
+                });
+            })
+        };
+
+        let palette = *crate::desktop::ui::theme::palette(cx);
+        let divider = || {
+            div()
+                .mx_3()
+                .my(px(6.0))
+                .h(px(1.0))
+                .bg(palette.floating_border)
+        };
+        let panel = div()
+            .w(px(296.0))
+            .p(px(8.0))
+            .rounded(px(14.0))
+            .border_1()
+            .border_color(palette.floating_border)
+            .bg(palette.floating_glass)
+            .shadow(vec![BoxShadow {
+                color: palette.floating_shadow,
+                offset: point(px(0.0), px(9.0)),
+                blur_radius: px(28.0),
+                spread_radius: px(-8.0),
+                inset: false,
+            }])
+            .child(copy_markdown)
+            .child(copy_png)
+            .child(divider())
+            .child(export_markdown)
+            .child(export_html)
+            .child(export_png)
+            .child(export_archive);
+
+        if cx.reduce_motion() {
+            panel.into_any_element()
+        } else {
+            div()
+                .relative()
+                .child(panel)
+                .with_animation(
+                    SharedString::from(format!("export-popover-enter-{response_id}")),
+                    Animation::new(Duration::from_millis(140)).with_easing(ease_out_quint()),
+                    |panel, delta| {
+                        panel
+                            .opacity(0.84 + delta * 0.16)
+                            .top(px(3.0 * (1.0 - delta)))
+                    },
+                )
+                .into_any_element()
+        }
+    })
+    .into_any_element()
+}
+
+fn export_menu_button(
+    id: impl Into<ElementId>,
+    icon: AppIcon,
+    label: &'static str,
+    cx: &App,
+) -> Button {
+    Button::new(id)
+        .ghost()
+        .w_full()
+        .h(px(40.0))
+        .px_3()
+        .rounded(px(9.0))
+        .child(
+            div()
+                .w_full()
+                .flex()
+                .items_center()
+                .gap_3()
+                .child(render_icon(icon, IconTone::Muted, 17.0, cx))
+                .child(
+                    div()
+                        .whitespace_nowrap()
+                        .text_size(px(14.0))
+                        .line_height(px(19.0))
+                        .font_weight(FontWeight::NORMAL)
+                        .child(label),
+                ),
+        )
 }
