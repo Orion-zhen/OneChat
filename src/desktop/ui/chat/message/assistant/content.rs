@@ -62,8 +62,6 @@ pub(super) fn render_message_content(
                             .aria_label("Edit assistant response")
                             .appearance(false)
                             .w_full()
-                            .px(px(2.0))
-                            .py(px(4.0))
                             .text_size(px(typography.body_size))
                             .line_height(px(typography.body_line_height)),
                     ),
@@ -230,8 +228,6 @@ pub(super) fn render_output_editor(
                             .aria_label(format!("Edit assistant output {}", index + 1))
                             .appearance(false)
                             .w_full()
-                            .px(px(2.0))
-                            .py(px(4.0))
                             .text_size(px(typography.body_size))
                             .line_height(px(typography.body_line_height)),
                     ),

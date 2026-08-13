@@ -20,7 +20,11 @@ pub(super) fn render_conversation_row(
             .bg(cx.theme().muted)
             .p_1()
             .on_action(cx.listener(|this, _: &InputEscape, _, cx| this.cancel_rename(cx)))
-            .child(Input::new(&input).aria_label("Rename conversation"))
+            .child(
+                Input::new(&input)
+                    .aria_label("Rename conversation")
+                    .text_base(),
+            )
             .into_any_element();
     }
 

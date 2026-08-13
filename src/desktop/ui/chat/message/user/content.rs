@@ -119,8 +119,6 @@ pub(super) fn render_message_content(
                             .aria_label("Edit user message")
                             .appearance(false)
                             .w_full()
-                            .px(px(2.0))
-                            .py(px(4.0))
                             .text_size(px(typography.body_size))
                             .line_height(px(typography.body_line_height)),
                     ),

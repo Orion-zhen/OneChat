@@ -122,9 +122,11 @@ fn render_sidebar_header(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement
         )
         .child(
             Input::new(&app.sidebar.search_input)
-                .prefix(render_icon(AppIcon::Search, IconTone::Muted, 14.0, cx))
+                .prefix(render_icon(AppIcon::Search, IconTone::Muted, 16.0, cx))
                 .cleanable(true)
-                .aria_label("Search conversations"),
+                .aria_label("Search conversations")
+                .h(px(40.0))
+                .text_base(),
         )
         .into_any_element()
 }

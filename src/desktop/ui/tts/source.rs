@@ -52,15 +52,11 @@ pub(super) fn render(app: &OneChat, stacked: bool, cx: &mut Context<OneChat>) ->
                 .border_1()
                 .border_color(cx.theme().border)
                 .bg(crate::desktop::ui::theme::palette(cx).panel)
-                .px_4()
-                .py_3()
                 .child(
                     Textarea::new(&app.tts.controls.source)
                         .appearance(false)
                         .w_full()
                         .h_full()
-                        .px_0()
-                        .py_0()
                         .text_size(px(15.0))
                         .line_height(px(22.0))
                         .aria_label("Text to turn into speech"),
