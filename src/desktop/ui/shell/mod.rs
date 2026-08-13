@@ -37,7 +37,7 @@ use super::{
 
 use crate::{
     desktop::app::{ConnectionTestStatus, OneChat, Page, PendingFocus},
-    desktop::ui::{chat, inspector, settings},
+    desktop::ui::{chat, inspector, settings, tts},
     domain::{AutoTitleState, Conversation, ModelCapabilities},
     mcp::McpServerStatus,
 };
@@ -171,6 +171,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         .inspector_motion
         .progress(window, reduce_motion);
     let picker_progress = app.overlays.picker_motion.progress(window, false);
+    let tts_inspector_progress = app.tts.inspector_motion.progress(window, reduce_motion);
     if app.overlays.picker.is_some() && app.overlays.picker_motion.is_hidden() {
         app.overlays.picker = None;
         if let Some(focus) = app.overlays.picker_previous_focus.take() {
@@ -212,17 +213,19 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         .navigation
         .sidebar_width_motion
         .progress(window, reduce_motion);
-    let chat_available_width = (f32::from(window.bounds().size.width) - sidebar_width).max(0.0);
-    let sidebar = (app.navigation.page == Page::Chat && sidebar_width > 0.01).then(|| {
-        div()
-            .w(px(sidebar_width))
-            .h_full()
-            .flex_none()
-            .overflow_hidden()
-            .child(render_sidebar(app, sidebar_width, &animated_titles, cx))
-    });
-    let sidebar_resize_handle =
-        (app.navigation.page == Page::Chat && !app.settings().sidebar_collapsed).then(|| {
+    let page_available_width = (f32::from(window.bounds().size.width) - sidebar_width).max(0.0);
+    let sidebar = (matches!(app.navigation.page, Page::Chat | Page::Tts) && sidebar_width > 0.01)
+        .then(|| {
+            div()
+                .w(px(sidebar_width))
+                .h_full()
+                .flex_none()
+                .overflow_hidden()
+                .child(render_sidebar(app, sidebar_width, &animated_titles, cx))
+        });
+    let sidebar_resize_handle = (matches!(app.navigation.page, Page::Chat | Page::Tts)
+        && !app.settings().sidebar_collapsed)
+        .then(|| {
             div()
                 .id("sidebar-resize-handle")
                 .absolute()
@@ -262,7 +265,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
     let page = match app.navigation.page {
         Page::Chat => render_chat_page(
             app,
-            chat_available_width,
+            page_available_width,
             scale_factor,
             jump_to_latest_progress,
             timeline_expansion,
@@ -270,6 +273,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
             context_usage_popover_progress,
             cx,
         ),
+        Page::Tts => tts::render(app, page_available_width, cx),
         Page::Settings => settings::render(app, sidebar_width, cx),
     };
     let inspector = (app.navigation.page == Page::Chat
@@ -304,6 +308,9 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
                         )),
                 )
         });
+    let tts_inspector = (app.navigation.page == Page::Tts
+        && (app.tts.view.inspector_open || tts_inspector_progress > 0.0))
+        .then(|| tts::render_inspector_overlay(app, tts_inspector_progress, cx));
 
     let root = div()
         .relative()
@@ -385,6 +392,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         .children(sidebar_resize_handle)
         .children(conversation_peek)
         .children(inspector)
+        .children(tts_inspector)
         .children(picker_overlay)
         .into_any_element()
 }

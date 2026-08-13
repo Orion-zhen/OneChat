@@ -125,6 +125,8 @@ pub(crate) enum IconTone {
     Muted,
     Accent,
     Danger,
+    Success,
+    Warning,
     OnAccent,
 }
 
@@ -231,6 +233,8 @@ fn icon_color(tone: IconTone, cx: &App) -> Hsla {
         IconTone::Muted => cx.theme().muted_foreground,
         IconTone::Accent => cx.theme().primary,
         IconTone::Danger => cx.theme().danger,
+        IconTone::Success => cx.theme().success,
+        IconTone::Warning => cx.theme().warning,
         IconTone::OnAccent => cx.theme().primary_foreground,
     }
 }

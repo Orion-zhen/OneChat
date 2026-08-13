@@ -17,13 +17,13 @@ use tokio::runtime::Runtime;
 
 use super::{
     ChatState, DataState, DefaultModelRole, DrawerMotion, FontRole, McpState, MessageScrollMotion,
-    NavigationState, OneChat, OverlayState, Page, Services, SettingsState, SidebarState,
-    SidebarWidthMotion, SystemPromptMode, TimelineState, VisibilityMotion,
+    NavigationState, OneChat, OverlayState, Page, PlaybackState, Services, SettingsState,
+    SidebarState, SidebarWidthMotion, SystemPromptMode, TimelineState, TtsState, VisibilityMotion,
 };
 use crate::{
     application::generation::GenerationManager,
     desktop::{
-        audio_playback::{AudioPlayback, PlaybackSnapshot},
+        audio_playback::AudioPlayback,
         audio_recording::{AudioRecording, RecordingSnapshot},
         ui::{
             SIDEBAR_WIDTH,
@@ -139,6 +139,7 @@ impl OneChat {
                 response_model_turn_id: None,
                 destructive_action: None,
             },
+            playback: PlaybackState::new(cx),
             chat: ChatState {
                 draft_model_id: None,
                 selected_request_id: None,
@@ -182,8 +183,6 @@ impl OneChat {
                 attachment_previews: HashMap::new(),
                 attachments_loading: false,
                 attachments_revision: 0,
-                audio_playback: PlaybackSnapshot::default(),
-                audio_playback_task: Task::ready(()),
                 audio_recording: RecordingSnapshot::default(),
                 audio_recording_task: Task::ready(()),
                 recording_conversation_id: None,
@@ -192,6 +191,7 @@ impl OneChat {
                 pending_title_transitions: HashMap::new(),
                 title_transitions: HashMap::new(),
             },
+            tts: TtsState::new(window, cx),
             settings_ui: SettingsState {
                 section: SettingsSection::default(),
                 ui_font_select,

@@ -35,7 +35,8 @@ The crate keeps reusable code independent from the GPUI desktop shell:
 - `storage`: JSONC/JSON persistence behind the `Storage` facade
 - `mcp`: JSONC configuration and stdio/Streamable HTTP MCP server lifecycle
 - `markdown`: UI-independent Markdown AST, parsing, and formula rendering
-- `desktop`: GPUI coordination and feature-oriented chat, settings, inspector, and shell presentation
+- `speech`: UI-independent audio.cpp client, segmentation, validation, retry, audio processing, and WAV/MP3 export pipeline
+- `desktop`: GPUI coordination and feature-oriented chat, TTS, settings, inspector, and shell presentation
 
 The desktop shell starts through `gpui_platform`, installs `gpui_component_assets`, and wraps each window in `gpui_component::Root`. Standard inputs, buttons, pickers, dialogs, forms, tabs, switches, sliders, alerts, and notifications come from `gpui-component`. `desktop/ui/theme.rs` is the semantic color center: it generates light and dark palettes from the configured theme color, feeds component theme tokens, and owns product-specific message, Markdown, status, media, glass, and selection colors. `desktop/ui/icons.rs` maps product semantics to component or Lucide icons. Chat layout, glass materials, product motion, Markdown/LaTeX rendering, and cross-node message selection remain OneChat-owned.
 
@@ -117,9 +118,15 @@ Text attachments must be UTF-8 and are limited to 1 MiB. Vision models additiona
 
 Models with the **Audio** capability accept WAV and MP3 attachments up to 10 MiB. OneChat validates the file contents rather than trusting the extension. The microphone button records a voice draft: click once to start and again to stop, press `Enter` to stop, or press `Escape` to cancel. Stopping never sends automatically. Recordings are finalized as 16 kHz mono PCM16 little-endian WAV and stop automatically at 5 minutes or 10 MiB. Audio drafts and sent audio attachments can be played, paused, and removed through their attachment cards.
 
-Audio support differs by provider. Native OpenAI models with the **Audio** capability always use Chat Completions, including for text-only turns; other native OpenAI models continue to use Responses. OpenAI-compatible providers use Chat Completions, Gemini receives inline audio, and Anthropic does not accept audio. OneChat requests text output only and does not provide audio output or transcription as a separate local feature. Switching to a model without Audio is allowed, but generation is blocked locally while the retained request context still contains audio; audio in complete turns removed by history or context-window limits does not block the request.
+Audio support differs by provider. Native OpenAI models with the **Audio** capability always use Chat Completions, including for text-only turns; other native OpenAI models continue to use Responses. OpenAI-compatible providers use Chat Completions, Gemini receives inline audio, and Anthropic does not accept audio. Chat requests text output only and do not request provider audio output or transcription. Switching to a model without Audio is allowed, but generation is blocked locally while the retained request context still contains audio; audio in complete turns removed by history or context-window limits does not block the request.
 
 Audio files and recordings use the same conversation-local attachment storage as other files. They remain local until a generation request includes them, at which point their contents are sent to the selected provider, including when replayed as retained conversation history. OneChat does not upload them to a provider file cache or retain provider file IDs. Cancelled or failed recordings are discarded without creating an attachment.
+
+### Text to Speech
+
+Open **Text to Speech** from the sidebar or command palette to use the audio.cpp TTS Playground. Configure the audio.cpp endpoint and optional bearer token, refresh its model and voice catalog, then generate, inspect, retry, regenerate, play, seek, and export speech as WAV or MP3. OneChat connects to an existing audio.cpp service; it does not start the service or download models.
+
+The endpoint, token, selected model and voice, tuning values, source text, generated PCM, and run results remain in memory only and are discarded when OneChat quits. Completed and partial runs can be exported explicitly, but the Playground does not maintain TTS history or add generated speech to conversations.
 
 Modern Office attachments (`.docx`, `.xlsx`, and `.pptx`) are parsed locally into Markdown instead of being uploaded through a provider-specific file API. They are available with every model: the extracted Markdown is always sent, while successfully extracted embedded images are added only when the selected model supports Vision. Embedded image parsing can be disabled with **Parse Document Images** under General settings; image references are then omitted from the extracted Markdown. Office source files are limited to 20 MiB, extracted Markdown to 1 MiB, and embedded images to 20 files, 10 MiB each, and 50 MiB total.
 

@@ -3,7 +3,7 @@ use gpui_component::slider::SliderState;
 
 use crate::desktop::app::OneChat;
 
-pub(super) fn sync_slider(
+pub(crate) fn sync_slider(
     slider: &Entity<SliderState>,
     value: f32,
     window: &mut Window,

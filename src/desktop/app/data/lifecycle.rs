@@ -39,7 +39,7 @@ impl OneChat {
     ) {
         match result {
             Ok(mut snapshot) => {
-                if self.navigation.page == Page::Chat {
+                if matches!(self.navigation.page, Page::Chat | Page::Tts) {
                     let width = if snapshot.settings.sidebar_collapsed {
                         0.0
                     } else {

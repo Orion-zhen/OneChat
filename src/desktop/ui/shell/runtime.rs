@@ -22,6 +22,24 @@ pub(super) fn prepare_render(
     );
     settings::sync_controls(app, window, cx);
     inspector::sync_controls(app, window, cx);
+    app.sync_tts_controls(window, cx);
+    let playback_progress = app.playback.seek_preview.unwrap_or_else(|| {
+        if app.playback.snapshot.duration_ms == 0 {
+            0.0
+        } else {
+            app.playback.snapshot.position_ms as f32 / app.playback.snapshot.duration_ms as f32
+        }
+    });
+    crate::desktop::ui::controls::sync_slider(
+        &app.playback.seek_slider,
+        playback_progress,
+        window,
+        cx,
+    );
+
+    if let Some(message) = app.tts.completion_notice.take() {
+        window.push_notification(Notification::success(message).title("Text to Speech"), cx);
+    }
 
     if let Some(message) = app.data.error.take() {
         window.push_notification(

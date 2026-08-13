@@ -15,11 +15,14 @@ mod recording;
 mod settings;
 mod state;
 mod tokio_bridge;
+mod tts;
 
 use motion::*;
 pub use navigation::{ConversationGroup, Page};
+pub(crate) use playback::{attachment_source_id, tts_combined_source_id, tts_segment_source_id};
 use state::*;
 pub(crate) use state::{ConversationPeekContent, GenerationBorderClock, PickerOverlay};
+pub(crate) use tts::{TtsOperationKind, TtsState};
 
 use std::{
     collections::HashMap,
@@ -212,11 +215,12 @@ pub(crate) enum PaletteCommand {
     ToggleInspector,
     EditSystemPrompt,
     OpenChat,
+    OpenTextToSpeech,
     OpenSettings,
 }
 
 impl PaletteCommand {
-    pub(crate) const ALL: [Self; 8] = [
+    pub(crate) const ALL: [Self; 9] = [
         Self::NewConversation,
         Self::ChooseModel,
         Self::FocusConversationSearch,
@@ -224,6 +228,7 @@ impl PaletteCommand {
         Self::ToggleInspector,
         Self::EditSystemPrompt,
         Self::OpenChat,
+        Self::OpenTextToSpeech,
         Self::OpenSettings,
     ];
 
@@ -236,6 +241,7 @@ impl PaletteCommand {
             Self::ToggleInspector => "Toggle Inspector",
             Self::EditSystemPrompt => "Edit System Prompt",
             Self::OpenChat => "Open chat",
+            Self::OpenTextToSpeech => "Open Text to Speech",
             Self::OpenSettings => "Open settings",
         }
     }
@@ -249,6 +255,7 @@ impl PaletteCommand {
             Self::ToggleInspector => "Show or hide model, context, and request info",
             Self::EditSystemPrompt => "Customize instructions for this conversation",
             Self::OpenChat => "Return to the current conversation",
+            Self::OpenTextToSpeech => "Open the audio.cpp TTS Playground",
             Self::OpenSettings => "Manage providers, models, and appearance",
         }
     }
@@ -262,6 +269,7 @@ impl PaletteCommand {
             Self::ToggleInspector => "inspector parameters context info",
             Self::EditSystemPrompt => "system prompt instructions edit",
             Self::OpenChat => "chat conversation messages",
+            Self::OpenTextToSpeech => "tts text speech voice audio playground audio.cpp",
             Self::OpenSettings => "settings provider model appearance preferences",
         }
     }
@@ -271,6 +279,19 @@ impl PaletteCommand {
         query.is_empty()
             || self.label().to_lowercase().contains(&query)
             || self.keywords().contains(&query)
+    }
+}
+
+#[cfg(test)]
+mod palette_command_tests {
+    use super::PaletteCommand;
+
+    #[test]
+    fn text_to_speech_is_discoverable_by_label_and_audio_keywords() {
+        assert!(PaletteCommand::ALL.contains(&PaletteCommand::OpenTextToSpeech));
+        assert!(PaletteCommand::OpenTextToSpeech.matches("text to speech"));
+        assert!(PaletteCommand::OpenTextToSpeech.matches("voice"));
+        assert!(PaletteCommand::OpenTextToSpeech.matches("audio.cpp"));
     }
 }
 
@@ -294,7 +315,9 @@ pub struct OneChat {
     pub(crate) navigation: NavigationState,
     pub(crate) sidebar: SidebarState,
     pub(crate) overlays: OverlayState,
+    pub(crate) playback: PlaybackState,
     pub(crate) chat: ChatState,
+    pub(crate) tts: TtsState,
     pub(crate) settings_ui: SettingsState,
     pub(crate) applied_component_theme: Option<(gpui_component::ThemeMode, String)>,
 }

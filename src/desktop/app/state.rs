@@ -164,6 +164,14 @@ pub(crate) struct TimelineState {
     pub(crate) expansion_motion: VisibilityMotion,
 }
 
+pub(crate) struct PlaybackState {
+    pub(crate) snapshot: PlaybackSnapshot,
+    pub(crate) seek_slider: Entity<SliderState>,
+    pub(crate) seek_preview: Option<f32>,
+    pub(crate) seek_target_ms: Option<u64>,
+    pub(super) observer_task: Task<()>,
+}
+
 pub(crate) struct ChatState {
     pub(super) draft_model_id: Option<String>,
     pub(super) selected_request_id: Option<String>,
@@ -201,8 +209,6 @@ pub(crate) struct ChatState {
     pub(crate) attachment_previews: HashMap<String, Arc<gpui::Image>>,
     pub(crate) attachments_loading: bool,
     pub(crate) attachments_revision: u64,
-    pub(crate) audio_playback: PlaybackSnapshot,
-    pub(super) audio_playback_task: Task<()>,
     pub(crate) audio_recording: RecordingSnapshot,
     pub(super) audio_recording_task: Task<()>,
     pub(super) recording_conversation_id: Option<String>,

@@ -4,4 +4,5 @@ pub mod domain;
 pub mod markdown;
 pub mod mcp;
 pub mod providers;
+pub mod speech;
 pub mod storage;

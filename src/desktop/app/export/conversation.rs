@@ -1,11 +1,8 @@
-use std::path::PathBuf;
-
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use chrono::Local;
 use gpui::{AppContext as _, ClipboardItem, Context, Image, ImageFormat, Window};
 use gpui_component::{WindowExt as _, notification::Notification};
 
-use super::OneChat;
+use super::{ExportNotice, OneChat, prompt_export_path, show_export_result};
 use crate::{
     application::export::{ExportTheme, conversation_html, conversation_markdown},
     desktop::{html_snapshot, ui::theme::component_mode},
@@ -81,20 +78,14 @@ impl OneChat {
         };
         let title = export.conversation.title.clone();
         let markdown = conversation_markdown(export.conversation, &export.turns, now_timestamp());
-        let receiver =
-            cx.prompt_for_new_path(&export_directory(), Some(&suggested_name(&title, "md")));
-        cx.spawn_in(window, async move |this, cx| {
-            let Ok(Ok(Some(path))) = receiver.await else {
-                return;
-            };
-            let notification_path = path.clone();
-            let result = cx
-                .background_spawn(async move { std::fs::write(path, markdown) })
-                .await
-                .map_err(|error| error.to_string());
-            show_export_result(this, cx, notification_path, result);
-        })
-        .detach();
+        self.export_file(
+            &title,
+            "md",
+            ExportNotice::CONVERSATION,
+            move |path| std::fs::write(path, markdown).map_err(|error| error.to_string()),
+            window,
+            cx,
+        );
     }
 
     pub(crate) fn export_conversation_html(
@@ -108,20 +99,14 @@ impl OneChat {
         };
         let title = export.conversation.title.clone();
         let html = self.export_html(&export, ExportTheme::Auto, now_timestamp());
-        let receiver =
-            cx.prompt_for_new_path(&export_directory(), Some(&suggested_name(&title, "html")));
-        cx.spawn_in(window, async move |this, cx| {
-            let Ok(Ok(Some(path))) = receiver.await else {
-                return;
-            };
-            let notification_path = path.clone();
-            let result = cx
-                .background_spawn(async move { std::fs::write(path, html) })
-                .await
-                .map_err(|error| error.to_string());
-            show_export_result(this, cx, notification_path, result);
-        })
-        .detach();
+        self.export_file(
+            &title,
+            "html",
+            ExportNotice::CONVERSATION,
+            move |path| std::fs::write(path, html).map_err(|error| error.to_string()),
+            window,
+            cx,
+        );
     }
 
     pub(crate) fn export_conversation_png(
@@ -135,10 +120,9 @@ impl OneChat {
         };
         let title = export.conversation.title.clone();
         let html = self.export_html(&export, export_theme(self, window), now_timestamp());
-        let receiver =
-            cx.prompt_for_new_path(&export_directory(), Some(&suggested_name(&title, "png")));
+        let path = prompt_export_path(&title, "png", cx);
         cx.spawn_in(window, async move |this, cx| {
-            let Ok(Ok(Some(path))) = receiver.await else {
+            let Some(path) = path.await else {
                 return;
             };
             let notification_path = path.clone();
@@ -149,7 +133,13 @@ impl OneChat {
                     .map_err(|error| error.to_string()),
                 Err(error) => Err(error),
             };
-            show_export_result(this, cx, notification_path, result);
+            show_export_result(
+                this,
+                cx,
+                notification_path,
+                result,
+                ExportNotice::CONVERSATION,
+            );
         })
         .detach();
     }
@@ -166,23 +156,19 @@ impl OneChat {
         let conversation_id = export.conversation.id.clone();
         let title = export.conversation.title.clone();
         let markdown = conversation_markdown(export.conversation, &export.turns, now_timestamp());
-        let receiver =
-            cx.prompt_for_new_path(&export_directory(), Some(&suggested_name(&title, "zip")));
         let storage = self.services.storage.clone();
-        cx.spawn_in(window, async move |this, cx| {
-            let Ok(Ok(Some(path))) = receiver.await else {
-                return;
-            };
-            let notification_path = path.clone();
-            let result = cx
-                .background_spawn(async move {
-                    storage.export_conversation_archive(&conversation_id, &markdown, &path)
-                })
-                .await
-                .map_err(|error| error.to_string());
-            show_export_result(this, cx, notification_path, result);
-        })
-        .detach();
+        self.export_file(
+            &title,
+            "zip",
+            ExportNotice::CONVERSATION,
+            move |path| {
+                storage
+                    .export_conversation_archive(&conversation_id, &markdown, &path)
+                    .map_err(|error| error.to_string())
+            },
+            window,
+            cx,
+        );
     }
 
     fn conversation_export(&self, response_id: &str) -> Option<ConversationExport<'_>> {
@@ -251,79 +237,5 @@ fn export_theme(app: &OneChat, window: &Window) -> ExportTheme {
         ExportTheme::Dark
     } else {
         ExportTheme::Light
-    }
-}
-
-fn show_export_result(
-    this: gpui::WeakEntity<OneChat>,
-    cx: &mut gpui::AsyncWindowContext,
-    path: PathBuf,
-    result: Result<(), String>,
-) {
-    let _ = this.update_in(cx, |this, window, cx| match result {
-        Ok(()) => window.push_notification(
-            Notification::success(path.display().to_string()).title("Conversation exported"),
-            cx,
-        ),
-        Err(error) => {
-            this.data.error = Some(format!("Could not export conversation: {error}"));
-            cx.notify();
-        }
-    });
-}
-
-fn export_directory() -> PathBuf {
-    ["HOME", "USERPROFILE"]
-        .into_iter()
-        .find_map(std::env::var_os)
-        .filter(|path| !path.is_empty())
-        .map(PathBuf::from)
-        .map(|home| {
-            let downloads = home.join("Downloads");
-            if downloads.is_dir() { downloads } else { home }
-        })
-        .unwrap_or_default()
-}
-
-fn suggested_name(title: &str, extension: &str) -> String {
-    let stem = safe_file_stem(title);
-    format!("{stem} - {}.{extension}", Local::now().format("%Y-%m-%d"))
-}
-
-fn safe_file_stem(title: &str) -> String {
-    let mut stem = String::new();
-    let mut pending_separator = false;
-    for character in title.trim().chars().take(80) {
-        if character.is_control()
-            || matches!(
-                character,
-                '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|'
-            )
-        {
-            pending_separator = true;
-        } else {
-            if pending_separator && !stem.is_empty() {
-                stem.push('-');
-            }
-            pending_separator = false;
-            stem.push(character);
-        }
-    }
-    let stem = stem.trim().trim_matches(['.', '-']).trim();
-    if stem.is_empty() {
-        "Conversation".into()
-    } else {
-        stem.into()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::safe_file_stem;
-
-    #[test]
-    fn export_file_stem_removes_path_characters() {
-        assert_eq!(safe_file_stem("  Plan / Notes: v2  "), "Plan - Notes- v2");
-        assert_eq!(safe_file_stem("../"), "Conversation");
     }
 }

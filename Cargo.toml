@@ -37,8 +37,10 @@ generate-desktop-entry = true
 async-channel = "*"
 async-trait = "*"
 base64 = "*"
+blake2 = "*"
 chrono = "*"
 comrak = { version = "*", default-features = false }
+difflib = "*"
 futures-util = "*"
 hayro = "*"
 hound = "*"
@@ -50,9 +52,11 @@ gpui-component-assets = { git = "https://github.com/longbridge/gpui-component" }
 json5 = "*"
 jsonc-parser = { version = "*", features = ["cst", "serde_json"] }
 lucide-icons = "*"
-reqwest = { version = "*", features = ["socks"] }
+mp3lame-encoder = "*"
+reqwest = { version = "*", features = ["multipart", "query", "socks"] }
 rig-core = "*"
 rodio = { version = "*", default-features = false, features = ["mp3", "playback", "wav"] }
+rustfft = "*"
 rmcp = { version = "*", default-features = false, features = ["auth", "client", "transport-child-process", "transport-streamable-http-client-reqwest"] }
 ratex-layout = "*"
 ratex-parser = "*"
@@ -60,13 +64,16 @@ ratex-svg = { version = "*", features = ["embed-fonts"] }
 ratex-types = "*"
 serde = { version = "*", features = ["derive"] }
 serde_json = "*"
+sentencex = "*"
 tokio = { version = "*", features = ["io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }
 tokio-util = { version = "*", features = ["rt"] }
 two-face = "*"
+unicode-normalization = "*"
 unicode-segmentation = "*"
 unicode-linebreak = "*"
 undoc = "*"
 url = "*"
+whatlang = "*"
 zip = { version = "*", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]

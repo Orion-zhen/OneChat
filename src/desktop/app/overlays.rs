@@ -68,10 +68,15 @@ impl OneChat {
         if page != Page::Chat {
             self.cancel_voice_recording(cx);
         }
+        if page != Page::Tts {
+            self.tts.view.connection_popover_open = false;
+            self.tts.view.inspector_open = false;
+            self.tts.inspector_motion.set_open(false, false);
+        }
         if self.navigation.page != page {
             let sidebar_width = match page {
-                Page::Chat if self.settings().sidebar_collapsed => 0.0,
-                Page::Chat => self.sidebar.width,
+                Page::Chat | Page::Tts if self.settings().sidebar_collapsed => 0.0,
+                Page::Chat | Page::Tts => self.sidebar.width,
                 Page::Settings => SIDEBAR_WIDTH,
             };
             self.navigation
@@ -113,7 +118,7 @@ impl OneChat {
             PaletteCommand::FocusConversationSearch => {
                 if self.data.snapshot.settings.sidebar_collapsed {
                     self.data.snapshot.settings.sidebar_collapsed = false;
-                    if self.navigation.page == Page::Chat {
+                    if matches!(self.navigation.page, Page::Chat | Page::Tts) {
                         self.navigation
                             .sidebar_width_motion
                             .set_target(self.sidebar.width, true);
@@ -139,6 +144,7 @@ impl OneChat {
                 self.navigation.pending_focus = Some(PendingFocus::Composer);
                 cx.notify();
             }
+            PaletteCommand::OpenTextToSpeech => self.set_page(Page::Tts, cx),
             PaletteCommand::OpenSettings => self.set_page(Page::Settings, cx),
         }
     }
@@ -152,6 +158,11 @@ impl OneChat {
             self.settings_ui.pending_provider_exit = None;
             self.settings_ui.form_error = None;
             window.close_dialog(cx);
+        } else if self.tts.view.connection_popover_open {
+            self.tts.view.connection_popover_open = false;
+            cx.notify();
+        } else if self.tts.view.inspector_open {
+            self.set_tts_inspector_open(false, cx);
         } else if self.overlays.picker.is_some() {
             self.close_picker_overlay(false, cx);
         } else if self.settings_ui.provider_editor.is_some() {
@@ -165,7 +176,7 @@ impl OneChat {
         self.close_conversation_peek(cx);
         self.data.snapshot.settings.sidebar_collapsed =
             !self.data.snapshot.settings.sidebar_collapsed;
-        if self.navigation.page == Page::Chat {
+        if matches!(self.navigation.page, Page::Chat | Page::Tts) {
             let width = if self.data.snapshot.settings.sidebar_collapsed {
                 0.0
             } else {
