@@ -7,7 +7,10 @@ use std::{
 
 use gpui::{Entity, FocusHandle, ScrollHandle, Task};
 use gpui_component::{
-    input::InputState, list::ListState, select::SelectState, slider::SliderState,
+    input::{InputState, TextareaState},
+    list::ListState,
+    select::SelectState,
+    slider::SliderState,
 };
 use tokio::runtime::Runtime;
 
@@ -194,13 +197,13 @@ pub(crate) struct ChatState {
     pub(crate) thinking_started_at: HashMap<String, Instant>,
     pub(crate) follow_latest: bool,
     pub(crate) system_prompt_mode: SystemPromptMode,
-    pub(crate) system_prompt_editor: Option<Entity<InputState>>,
+    pub(crate) system_prompt_editor: Option<Entity<TextareaState>>,
     pub(crate) generation_config_editor: Option<GenerationConfigEditor>,
     pub(crate) history_limit_slider: Entity<SliderState>,
     pub(crate) history_limit_preview: Option<crate::domain::HistoryLimit>,
     pub(crate) generation_config_save_revision: u64,
     pub(crate) parameter_error: Option<String>,
-    pub(crate) composer: Entity<InputState>,
+    pub(crate) composer: Entity<TextareaState>,
     pub(crate) composer_multiline: Cell<bool>,
     pub(crate) composer_expanded: Cell<bool>,
     pub(crate) context_usage_popover_open: bool,
@@ -249,8 +252,8 @@ pub(crate) struct SettingsState {
     pub(crate) prompt_variable_editor: Option<PromptVariableEditor>,
     pub(crate) prompt_variable_test_revision: u64,
     pub(crate) prompt_builtins_expanded: bool,
-    pub(crate) title_prompt_editor: Option<Entity<InputState>>,
-    pub(crate) mcp_json_import: Entity<InputState>,
+    pub(crate) title_prompt_editor: Option<Entity<TextareaState>>,
+    pub(crate) mcp_json_import: Entity<TextareaState>,
     pub(crate) mcp_server_editor: Option<McpServerEditor>,
     pub(crate) mcp_error: Option<String>,
     pub(crate) expanded_mcp_server_ids: HashSet<String>,

@@ -19,9 +19,9 @@ pub struct PromptVariableEditor {
     original_name: Option<String>,
     pub kind: PromptVariableKind,
     pub name: Entity<InputState>,
-    pub text: Entity<InputState>,
+    pub text: Entity<TextareaState>,
     pub environment: Entity<InputState>,
-    pub script: Entity<InputState>,
+    pub script: Entity<TextareaState>,
     pub cwd: Entity<InputState>,
     pub timeout_seconds: Entity<InputState>,
     pub advanced_expanded: bool,
@@ -100,18 +100,14 @@ impl PromptVariableEditor {
         self.original_name.as_deref()
     }
 
-    pub fn focus_input(&self) -> Entity<InputState> {
-        if self.original_name.is_some() {
-            return self.active_value_input();
+    pub fn focus_handle(&self, cx: &App) -> gpui::FocusHandle {
+        if self.original_name.is_none() {
+            return self.name.read(cx).focus_handle(cx);
         }
-        self.name.clone()
-    }
-
-    pub fn active_value_input(&self) -> Entity<InputState> {
         match self.kind {
-            PromptVariableKind::Text => self.text.clone(),
-            PromptVariableKind::Environment => self.environment.clone(),
-            PromptVariableKind::Command => self.script.clone(),
+            PromptVariableKind::Text => self.text.read(cx).focus_handle(cx),
+            PromptVariableKind::Environment => self.environment.read(cx).focus_handle(cx),
+            PromptVariableKind::Command => self.script.read(cx).focus_handle(cx),
         }
     }
 

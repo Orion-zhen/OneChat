@@ -9,8 +9,7 @@ impl OneChat {
             .title_generation_system_prompt
             .clone();
         self.settings_ui.title_prompt_editor = Some(cx.new(|cx| {
-            InputState::new(window, cx)
-                .multi_line(true)
+            TextareaState::new(window, cx)
                 .soft_wrap(true)
                 .default_value(value)
                 .placeholder("Used to generate automatic conversation titles")

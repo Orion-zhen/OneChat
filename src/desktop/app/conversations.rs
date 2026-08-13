@@ -211,15 +211,12 @@ impl OneChat {
             return;
         };
         let title = conversation.title.clone();
-        let cursor = title.len();
         let event_id = conversation_id.clone();
         let input = cx.new(|cx| {
-            let mut input = InputState::new(window, cx)
+            InputState::new(window, cx)
                 .default_value(title)
                 .placeholder("Conversation title")
-                .submit_on_enter(true);
-            input.set_selected_range(cursor..cursor, cx);
-            input
+                .submit_on_enter(true)
         });
         cx.subscribe_in(
             &input,

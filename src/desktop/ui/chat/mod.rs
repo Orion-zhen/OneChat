@@ -22,13 +22,14 @@ use gpui::{
 use gpui_component::{
     ActiveTheme as _, Disableable as _, Selectable as _,
     button::{Button, ButtonVariants as _},
-    input::{Enter, Escape as InputEscape, Input, Paste},
+    input::{Enter, Escape as InputEscape, Paste, Textarea},
     popover::Popover,
 };
 
 use super::{
     copy_button::CopyButton,
     icons::{AppIcon, IconTone, render_icon},
+    input::{set_textarea_selection, textarea_selection, textarea_text_size},
     markdown,
     motion::translated_y,
     selectable_text::{SelectableText, selection_color},

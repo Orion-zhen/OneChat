@@ -125,7 +125,7 @@ pub(crate) fn init(cx: &mut App) {
         &light
     });
     theme.list.active_highlight = false;
-    theme.scrollbar_show = ScrollbarShow::Scrolling;
+    theme.scrollbar_mode = ScrollbarMode::Scrolling;
     cx.set_global(ActiveAppPalette(AppPalette::generate(initial_mode, seed)));
     cx.set_global(app_fonts(&[], &[]));
 }

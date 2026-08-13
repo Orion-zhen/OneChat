@@ -31,7 +31,7 @@ use std::{
 };
 
 use gpui::{Context, Entity, FocusHandle, Render, Window, prelude::*};
-use gpui_component::input::InputState;
+use gpui_component::input::{InputState, TextareaState};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::{
@@ -96,12 +96,12 @@ enum MessageEditorTarget {
 
 pub(crate) struct AssistantOutputEditor {
     pub(crate) block_id: String,
-    pub(crate) input: Entity<InputState>,
+    pub(crate) input: Entity<TextareaState>,
 }
 
 pub(crate) struct MessageEditor {
     target: MessageEditorTarget,
-    pub(crate) input: Entity<InputState>,
+    pub(crate) input: Entity<TextareaState>,
     pub(crate) output_editors: Vec<AssistantOutputEditor>,
     pub(crate) attachments: Vec<Attachment>,
     pub(crate) attachment_drafts: Vec<AttachmentDraft>,
@@ -112,17 +112,15 @@ pub(crate) struct MessageEditor {
 fn multiline_input(
     value: impl Into<String>,
     placeholder: impl Into<gpui::SharedString>,
+    max_rows: usize,
     window: &mut Window,
-    cx: &mut Context<InputState>,
-) -> InputState {
-    let value = value.into();
-    let cursor = value.len();
-    let mut input = InputState::new(window, cx)
-        .auto_grow(1, 8)
+    cx: &mut Context<TextareaState>,
+) -> TextareaState {
+    let mut input = TextareaState::new(window, cx)
+        .auto_grow(1, max_rows)
         .soft_wrap(true)
-        .placeholder(placeholder)
-        .default_value(value);
-    input.set_selected_range(cursor..cursor, cx);
+        .placeholder(placeholder);
+    input.insert(value.into(), window, cx);
     input
 }
 

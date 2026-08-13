@@ -433,11 +433,7 @@ pub(super) fn reasoning_input(
     window: &mut Window,
     cx: &mut Context<OneChat>,
 ) -> Entity<InputState> {
-    cx.new(|cx| {
-        InputState::new(window, cx)
-            .default_value(value.into())
-            .placeholder(placeholder)
-    })
+    single_line_input(value, placeholder, window, cx)
 }
 
 pub fn default_reasoning_format(

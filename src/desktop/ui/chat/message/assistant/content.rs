@@ -58,7 +58,7 @@ pub(super) fn render_message_content(
                     .on_mouse_up(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_mouse_up_out(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .child(
-                        Input::new(&editor.input)
+                        Textarea::new(&editor.input)
                             .aria_label("Edit assistant response")
                             .appearance(false)
                             .w_full()
@@ -185,7 +185,7 @@ pub(super) fn render_output_content(
 
 pub(super) fn render_output_editor(
     output_id: &str,
-    editor: &gpui::Entity<gpui_component::input::InputState>,
+    editor: &gpui::Entity<gpui_component::input::TextareaState>,
     index: usize,
     count: usize,
     typography: MessageTypography,
@@ -226,7 +226,7 @@ pub(super) fn render_output_editor(
                     .on_mouse_up(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_mouse_up_out(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .child(
-                        Input::new(editor)
+                        Textarea::new(editor)
                             .aria_label(format!("Edit assistant output {}", index + 1))
                             .appearance(false)
                             .w_full()

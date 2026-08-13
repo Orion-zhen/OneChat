@@ -8,7 +8,7 @@ use std::{
 use gpui::{Context, Entity, ScrollHandle, Task, Window, prelude::*};
 use gpui_component::{
     WindowExt as _,
-    input::{InputEvent, InputState},
+    input::{InputEvent, InputState, TextareaState},
     list::{ListEvent, ListState},
     select::{SelectEvent, SelectState},
     slider::{SliderEvent, SliderState},

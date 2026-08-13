@@ -1,5 +1,5 @@
 use gpui::{App, Context, Entity, TouchPhase, Window, prelude::*};
-use gpui_component::input::{InputEvent, InputState};
+use gpui_component::input::{InputEvent, TextareaState};
 
 use super::super::{
     AssistantOutputEditor, MessageEditor, MessageEditorTarget, OneChat, PendingFocus,
@@ -282,7 +282,7 @@ impl OneChat {
         })
     }
 
-    pub(crate) fn active_message_editor(&self) -> Option<Entity<InputState>> {
+    pub(crate) fn active_message_editor(&self) -> Option<Entity<TextareaState>> {
         self.chat
             .message_editor
             .as_ref()
@@ -368,7 +368,7 @@ impl OneChat {
         else {
             return;
         };
-        let input = cx.new(|cx| multiline_input(content, "Edit user message", window, cx));
+        let input = cx.new(|cx| multiline_input(content, "Edit user message", 8, window, cx));
         cx.subscribe_in(&input, window, |_, _, event: &InputEvent, _, cx| {
             if matches!(event, InputEvent::Change) {
                 cx.notify();
@@ -422,8 +422,13 @@ impl OneChat {
         let mut output_editors = Vec::with_capacity(outputs.len());
         for (block_id, content) in outputs {
             let input = cx.new(|cx| {
-                multiline_input(content, "Edit assistant output", window, cx)
-                    .auto_grow(1, ASSISTANT_EDITOR_MAX_ROWS)
+                multiline_input(
+                    content,
+                    "Edit assistant output",
+                    ASSISTANT_EDITOR_MAX_ROWS,
+                    window,
+                    cx,
+                )
             });
             cx.subscribe_in(&input, window, |_, _, event: &InputEvent, _, cx| {
                 if matches!(event, InputEvent::Change) {

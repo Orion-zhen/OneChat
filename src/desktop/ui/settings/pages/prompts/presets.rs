@@ -151,13 +151,21 @@ pub(super) fn prompt_presets_content(app: &OneChat, cx: &mut Context<OneChat>) -
         .into_any_element()
 }
 
-fn prompt_preset_field(label: &'static str, input: &Entity<InputState>, multiline: bool) -> Field {
-    Field::new().label(label).required(true).child(
+fn prompt_preset_name_field(input: &Entity<InputState>) -> Field {
+    Field::new().label("Name").required(true).child(
         Input::new(input)
-            .aria_label(label)
+            .aria_label("Name")
             .large()
+            .rounded(px(12.0)),
+    )
+}
+
+fn prompt_preset_content_field(input: &Entity<TextareaState>) -> Field {
+    Field::new().label("Prompt").required(true).child(
+        Textarea::new(input)
+            .aria_label("Prompt")
             .rounded(px(12.0))
-            .when(multiline, |input| input.h(px(240.0))),
+            .h(px(240.0)),
     )
 }
 
@@ -172,8 +180,8 @@ pub(in crate::desktop::ui::settings) fn prompt_preset_dialog_body(
             .gap_3()
             .child(
                 Form::vertical()
-                    .child(prompt_preset_field("Name", &editor.name, false))
-                    .child(prompt_preset_field("Prompt", &editor.content, true)),
+                    .child(prompt_preset_name_field(&editor.name))
+                    .child(prompt_preset_content_field(&editor.content)),
             )
             .children(app.settings_ui.form_error.as_deref().map(error_banner))
             .into_any_element();

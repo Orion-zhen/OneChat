@@ -7,7 +7,7 @@ use transport::server_fields;
 
 pub(in crate::desktop::ui::settings) fn mcp_server_form(
     editor: &McpServerEditor,
-    json_import: &Entity<InputState>,
+    json_import: &Entity<TextareaState>,
     loading: bool,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
@@ -62,8 +62,7 @@ pub(in crate::desktop::ui::settings) fn mcp_server_form(
                     .label("JSON / JSONC")
                     .description("Paste an mcpServers object; matching server IDs are replaced")
                     .child(
-                        Input::new(json_import)
-                            .large()
+                        Textarea::new(json_import)
                             .aria_label("MCP JSON configuration")
                             .h(px(220.0)),
                     ),

@@ -120,7 +120,7 @@ pub(super) fn render_system_prompt_card(
                         this.cancel_system_prompt_edit(cx)
                     }))
                     .child(
-                        Input::new(editor)
+                        Textarea::new(editor)
                             .aria_label("System prompt")
                             .bg(cx.theme().muted)
                             .text_size(px(typography.secondary_size))

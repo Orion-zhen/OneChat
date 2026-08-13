@@ -67,9 +67,9 @@ pub(super) fn prepare_render(
                 .map(|input| input.read(cx).focus_handle(cx)),
             PendingFocus::SettingsPrompt => {
                 if let Some(editor) = &app.settings_ui.prompt_preset_editor {
-                    Some(editor.focus_input().read(cx).focus_handle(cx))
+                    Some(editor.focus_handle(cx))
                 } else if let Some(editor) = &app.settings_ui.prompt_variable_editor {
-                    Some(editor.focus_input().read(cx).focus_handle(cx))
+                    Some(editor.focus_handle(cx))
                 } else {
                     app.settings_ui
                         .title_prompt_editor

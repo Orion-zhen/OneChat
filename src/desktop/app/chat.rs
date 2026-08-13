@@ -48,6 +48,7 @@ impl OneChat {
             multiline_input(
                 value,
                 "Describe how the assistant should respond",
+                8,
                 window,
                 cx,
             )

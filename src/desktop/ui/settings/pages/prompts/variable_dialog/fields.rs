@@ -90,9 +90,8 @@ pub(super) fn variable_value_field(editor: &PromptVariableEditor) -> AnyElement 
         PromptVariableKind::Text => Field::new()
             .label("Text")
             .child(
-                Input::new(&editor.text)
+                Textarea::new(&editor.text)
                     .aria_label("Text")
-                    .large()
                     .rounded(px(12.0))
                     .h(px(150.0)),
             )
@@ -111,9 +110,8 @@ pub(super) fn variable_value_field(editor: &PromptVariableEditor) -> AnyElement 
             .label("Shell Script")
             .required(true)
             .child(
-                Input::new(&editor.script)
+                Textarea::new(&editor.script)
                     .aria_label("Shell script")
-                    .large()
                     .rounded(px(12.0))
                     .h(px(150.0)),
             )

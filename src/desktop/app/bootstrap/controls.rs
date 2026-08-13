@@ -2,8 +2,8 @@ use super::*;
 
 pub(super) struct InputControls {
     pub(super) search_input: Entity<InputState>,
-    pub(super) composer: Entity<InputState>,
-    pub(super) mcp_json_import: Entity<InputState>,
+    pub(super) composer: Entity<TextareaState>,
+    pub(super) mcp_json_import: Entity<TextareaState>,
 }
 
 pub(super) fn input_controls(window: &mut Window, cx: &mut Context<OneChat>) -> InputControls {
@@ -16,7 +16,7 @@ pub(super) fn input_controls(window: &mut Window, cx: &mut Context<OneChat>) -> 
     .detach();
 
     let composer = cx.new(|cx| {
-        InputState::new(window, cx)
+        TextareaState::new(window, cx)
             .auto_grow(1, 8)
             .soft_wrap(true)
             .placeholder("Message")
@@ -29,8 +29,7 @@ pub(super) fn input_controls(window: &mut Window, cx: &mut Context<OneChat>) -> 
     .detach();
 
     let mcp_json_import = cx.new(|cx| {
-        InputState::new(window, cx)
-            .multi_line(true)
+        TextareaState::new(window, cx)
             .soft_wrap(true)
             .placeholder("Paste a JSON or JSONC object containing mcpServers")
     });

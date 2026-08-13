@@ -115,7 +115,7 @@ pub(super) fn render_message_content(
                     .on_mouse_up(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_mouse_up_out(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .child(
-                        Input::new(&editor_input)
+                        Textarea::new(&editor_input)
                             .aria_label("Edit user message")
                             .appearance(false)
                             .w_full()

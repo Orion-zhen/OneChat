@@ -96,11 +96,11 @@ pub(super) fn render_composer(
                 .w_full()
                 .h(px(48.0))
                 .child(
-                    Input::new(&app.chat.composer)
+                    Textarea::new(&app.chat.composer)
                         .aria_label("Message")
                         .appearance(false)
                         .w_full()
-                        .py(px(12.0)),
+                        .my(px(4.0)),
                 )
                 .child(
                     div()
@@ -113,31 +113,33 @@ pub(super) fn render_composer(
                 )
                 .into_any_element()
         } else {
-            let input = Input::new(&app.chat.composer)
+            let input = Textarea::new(&app.chat.composer)
                 .aria_label("Message")
                 .appearance(false)
                 .text_size(px(typography.body_size))
                 .line_height(px(typography.body_line_height));
 
             if multiline {
-                let input = input.px(px(12.0)).py(px(0.0));
                 let input = if expanded { input.h(px(480.0)) } else { input };
                 div()
                     .w_full()
                     .min_w_0()
-                    .pt(px(12.0))
+                    .pt(px(4.0))
                     .pr(px(4.0))
                     .child(input)
                     .into_any_element()
             } else {
                 input
-                    .pl(px(if show_microphone { 98.0 } else { 56.0 }))
-                    .pr(px(if show_context_indicator { 98.0 } else { 56.0 }))
-                    .py(px(12.0))
+                    .pl(px(if show_microphone { 88.0 } else { 46.0 }))
+                    .pr(px(if show_context_indicator { 88.0 } else { 46.0 }))
+                    .my(px(4.0))
                     .into_any_element()
             }
         })
-        .children((multiline && !recording_active).then(|| div().h(px(48.0)).flex_none()))
+        .children(
+            (multiline && !recording_active)
+                .then(|| div().h(px(if expanded { 56.0 } else { 40.0 })).flex_none()),
+        )
         .child(add)
         .children(microphone)
         .child(action)
@@ -161,8 +163,7 @@ pub(super) fn render_composer(
 }
 
 fn composer_is_multiline(app: &OneChat, width: f32, cx: &App) -> bool {
-    let composer = app.chat.composer.read(cx);
-    let value = composer.value();
+    let value = app.chat.composer.read(cx).value();
     if value.is_empty() {
         app.chat.composer_multiline.set(false);
         app.chat.composer_expanded.set(false);
@@ -173,14 +174,12 @@ fn composer_is_multiline(app: &OneChat, width: f32, cx: &App) -> bool {
         return true;
     }
 
-    let Some((bounds, line_height)) = composer
-        .range_to_bounds(&(0..value.len()))
-        .zip(composer.line_height())
+    let Some((size, line_height)) = textarea_text_size(&app.chat.composer, 0..value.len(), cx)
     else {
         return app.chat.composer_multiline.get();
     };
-    let multiline = bounds.size.height > line_height + px(0.5)
-        || bounds.size.width > px((width - 112.0).max(0.0));
+    let multiline =
+        size.height > line_height + px(0.5) || size.width > px((width - 112.0).max(0.0));
     app.chat.composer_multiline.set(multiline);
     if !multiline {
         app.chat.composer_expanded.set(false);

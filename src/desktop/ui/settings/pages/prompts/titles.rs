@@ -46,7 +46,7 @@ pub(super) fn title_prompt_content(app: &OneChat, cx: &mut Context<OneChat>) -> 
             .child(
                 Form::vertical().child(
                     Field::new().label("Prompt").required(true).child(
-                        Input::new(editor)
+                        Textarea::new(editor)
                             .aria_label("Title generation prompt")
                             .h(px(220.0)),
                     ),

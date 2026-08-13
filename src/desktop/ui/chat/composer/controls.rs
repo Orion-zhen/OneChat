@@ -95,14 +95,12 @@ pub(super) fn render_expand_action(
                     .composer_expanded
                     .set(!this.chat.composer_expanded.get());
                 let composer = this.chat.composer.clone();
-                let selection = composer.read(cx).selected_range();
+                let selection = textarea_selection(&composer, cx);
                 composer.update(cx, |composer, cx| composer.focus(window, cx));
                 cx.on_next_frame(window, move |_, window, cx| {
                     cx.on_next_frame(window, move |_, window, cx| {
-                        composer.update(cx, |composer, cx| {
-                            composer.set_selected_range(selection, cx);
-                            composer.focus(window, cx);
-                        });
+                        set_textarea_selection(&composer, selection, cx);
+                        composer.update(cx, |composer, cx| composer.focus(window, cx));
                     });
                 });
                 cx.notify();

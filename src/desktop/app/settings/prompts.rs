@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use gpui::{AppContext as _, Context, Window};
-use gpui_component::{WindowExt as _, input::InputState};
+use gpui_component::{WindowExt as _, input::TextareaState};
 
 use crate::{
     application::prompt::{PromptContext, render_prompt},

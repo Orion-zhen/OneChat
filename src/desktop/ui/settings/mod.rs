@@ -38,8 +38,8 @@ use std::{
 };
 
 use gpui::{
-    AlignItems, AnyElement, App, Context, Div, DragMoveEvent, ElementId, Entity, FontWeight,
-    Render, SharedString, Stateful, Task, Window, div, prelude::*, px,
+    AlignItems, AnyElement, App, Context, Div, DragMoveEvent, ElementId, Entity, Focusable,
+    FontWeight, Render, SharedString, Stateful, Task, Window, div, prelude::*, px,
 };
 use gpui_component::{
     ActiveTheme as _, Disableable as _, Icon, IconName, IndexPath, Selectable as _, Sizable as _,
@@ -49,7 +49,7 @@ use gpui_component::{
     combobox::{Combobox, ComboboxEvent, ComboboxState},
     dialog::Dialog,
     form::{Field, Form},
-    input::{Escape as InputEscape, Input, InputContentType, InputState},
+    input::{Escape as InputEscape, Input, InputContentType, InputState, Textarea, TextareaState},
     searchable_list::{SearchableListDelegate, SearchableListItem},
     select::{Select, SelectEvent, SelectState},
     slider::{Slider, SliderState},
@@ -63,7 +63,9 @@ use super::{
     controls::sync_slider,
     copy_button::CopyButton,
     icons::{AppIcon, IconActionSize::Compact, IconTone, render_icon},
-    input::multiline as multiline_input,
+    input::{
+        masked as masked_input, single_line as single_line_input, textarea as multiline_input,
+    },
     mcp::tool_row as mcp_tool_row,
     model::capability_summary as model_capability_summary,
     text::summary as text_summary,

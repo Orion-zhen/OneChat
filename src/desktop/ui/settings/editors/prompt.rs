@@ -3,7 +3,7 @@ use super::*;
 pub struct PromptPresetEditor {
     original_name: Option<String>,
     pub name: Entity<InputState>,
-    pub content: Entity<InputState>,
+    pub content: Entity<TextareaState>,
 }
 
 impl PromptPresetEditor {
@@ -30,11 +30,11 @@ impl PromptPresetEditor {
         self.original_name.as_deref()
     }
 
-    pub fn focus_input(&self) -> Entity<InputState> {
+    pub fn focus_handle(&self, cx: &App) -> gpui::FocusHandle {
         if self.original_name.is_some() {
-            self.content.clone()
+            self.content.read(cx).focus_handle(cx)
         } else {
-            self.name.clone()
+            self.name.read(cx).focus_handle(cx)
         }
     }
 

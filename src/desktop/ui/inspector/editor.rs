@@ -105,10 +105,11 @@ impl GenerationParameter {
             Self::Extra => true,
         }
     }
+}
 
-    pub fn is_multiline(self) -> bool {
-        matches!(self, Self::StopSequences | Self::Extra)
-    }
+pub enum GenerationParameterInput {
+    Single(Entity<InputState>),
+    Multiline(Entity<TextareaState>),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -145,8 +146,8 @@ pub struct GenerationConfigEditor {
     pub frequency_penalty: Entity<InputState>,
     pub presence_penalty: Entity<InputState>,
     pub seed: Entity<InputState>,
-    pub stop_sequences: Entity<InputState>,
-    pub extra: Entity<InputState>,
+    pub stop_sequences: Entity<TextareaState>,
+    pub extra: Entity<TextareaState>,
 }
 
 impl GenerationConfigEditor {
@@ -190,6 +191,14 @@ impl GenerationConfigEditor {
             ),
         };
         for input in editor.inputs() {
+            cx.subscribe(&input, |this, _, event: &InputEvent, cx| {
+                if matches!(event, InputEvent::Change) {
+                    this.schedule_generation_config_save(cx);
+                }
+            })
+            .detach();
+        }
+        for input in editor.textareas() {
             cx.subscribe(&input, |this, _, event: &InputEvent, cx| {
                 if matches!(event, InputEvent::Change) {
                     this.schedule_generation_config_save(cx);
@@ -273,21 +282,37 @@ impl GenerationConfigEditor {
         cx: &mut Context<OneChat>,
     ) {
         self.active.remove(&parameter);
-        self.input(parameter)
-            .update(cx, |input, cx| input.set_value("", window, cx));
+        match self.parameter_input(parameter) {
+            GenerationParameterInput::Single(input) => {
+                input.update(cx, |input, cx| input.set_value("", window, cx));
+            }
+            GenerationParameterInput::Multiline(input) => {
+                input.update(cx, |input, cx| input.set_value("", window, cx));
+            }
+        }
     }
 
-    pub fn input(&self, parameter: GenerationParameter) -> Entity<InputState> {
+    pub fn parameter_input(&self, parameter: GenerationParameter) -> GenerationParameterInput {
         match parameter {
-            GenerationParameter::Temperature => self.temperature.clone(),
-            GenerationParameter::TopP => self.top_p.clone(),
-            GenerationParameter::TopK => self.top_k.clone(),
-            GenerationParameter::MaxOutputTokens => self.max_output_tokens.clone(),
-            GenerationParameter::FrequencyPenalty => self.frequency_penalty.clone(),
-            GenerationParameter::PresencePenalty => self.presence_penalty.clone(),
-            GenerationParameter::Seed => self.seed.clone(),
-            GenerationParameter::StopSequences => self.stop_sequences.clone(),
-            GenerationParameter::Extra => self.extra.clone(),
+            GenerationParameter::Temperature => {
+                GenerationParameterInput::Single(self.temperature.clone())
+            }
+            GenerationParameter::TopP => GenerationParameterInput::Single(self.top_p.clone()),
+            GenerationParameter::TopK => GenerationParameterInput::Single(self.top_k.clone()),
+            GenerationParameter::MaxOutputTokens => {
+                GenerationParameterInput::Single(self.max_output_tokens.clone())
+            }
+            GenerationParameter::FrequencyPenalty => {
+                GenerationParameterInput::Single(self.frequency_penalty.clone())
+            }
+            GenerationParameter::PresencePenalty => {
+                GenerationParameterInput::Single(self.presence_penalty.clone())
+            }
+            GenerationParameter::Seed => GenerationParameterInput::Single(self.seed.clone()),
+            GenerationParameter::StopSequences => {
+                GenerationParameterInput::Multiline(self.stop_sequences.clone())
+            }
+            GenerationParameter::Extra => GenerationParameterInput::Multiline(self.extra.clone()),
         }
     }
 
@@ -345,7 +370,7 @@ impl GenerationConfigEditor {
         Ok(config)
     }
 
-    fn inputs(&self) -> [Entity<InputState>; 9] {
+    fn inputs(&self) -> [Entity<InputState>; 7] {
         [
             self.temperature.clone(),
             self.top_p.clone(),
@@ -354,9 +379,11 @@ impl GenerationConfigEditor {
             self.frequency_penalty.clone(),
             self.presence_penalty.clone(),
             self.seed.clone(),
-            self.stop_sequences.clone(),
-            self.extra.clone(),
         ]
+    }
+
+    fn textareas(&self) -> [Entity<TextareaState>; 2] {
+        [self.stop_sequences.clone(), self.extra.clone()]
     }
 }
 

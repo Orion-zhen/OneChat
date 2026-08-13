@@ -2,7 +2,7 @@ use gpui::{AnyElement, Context, div, prelude::*, px};
 use gpui_component::{
     ActiveTheme as _, Disableable as _,
     button::{Button, ButtonVariants as _},
-    input::Input,
+    input::Textarea,
 };
 
 use super::components::{panel, panel_header, tts_connected};
@@ -55,7 +55,7 @@ pub(super) fn render(app: &OneChat, stacked: bool, cx: &mut Context<OneChat>) ->
                 .px_4()
                 .py_3()
                 .child(
-                    Input::new(&app.tts.controls.source)
+                    Textarea::new(&app.tts.controls.source)
                         .appearance(false)
                         .w_full()
                         .h_full()

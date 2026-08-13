@@ -87,7 +87,7 @@ pub(super) fn render_model(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEleme
     let capabilities = &model.capabilities;
     for parameter in GenerationParameter::ALL {
         if editor.is_active(parameter) && parameter.supported_by(capabilities) {
-            parameters = parameters.child(parameter_field(parameter, editor.input(parameter), cx));
+            parameters = parameters.child(parameter_field(parameter, editor, cx));
         }
     }
 
@@ -104,10 +104,26 @@ pub(super) fn render_model(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEleme
 
 fn parameter_field(
     parameter: GenerationParameter,
-    input: Entity<InputState>,
+    editor: &GenerationConfigEditor,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    let label = div()
+    match editor.parameter_input(parameter) {
+        GenerationParameterInput::Single(input) => scalar_parameter_field(parameter, &input, cx),
+        GenerationParameterInput::Multiline(input) => textarea_parameter_field(
+            parameter,
+            &input,
+            if parameter == GenerationParameter::Extra {
+                140.0
+            } else {
+                92.0
+            },
+            cx,
+        ),
+    }
+}
+
+fn parameter_label(parameter: GenerationParameter, cx: &App) -> Div {
+    div()
         .flex()
         .flex_col()
         .child(
@@ -122,8 +138,11 @@ fn parameter_field(
                 .text_size(px(11.0))
                 .text_color(cx.theme().muted_foreground)
                 .child(parameter.hint()),
-        );
-    let remove = Button::new(SharedString::from(format!(
+        )
+}
+
+fn remove_parameter_button(parameter: GenerationParameter, cx: &mut Context<OneChat>) -> Button {
+    Button::new(SharedString::from(format!(
         "remove-parameter-{}",
         parameter.id()
     )))
@@ -134,57 +153,69 @@ fn parameter_field(
     .child(render_icon(AppIcon::Close, IconTone::Muted, 15.0, cx))
     .on_click(cx.listener(move |this, _, window, cx| {
         this.remove_generation_parameter(parameter, window, cx)
-    }));
+    }))
+}
 
-    if parameter.is_multiline() {
-        div()
-            .rounded(px(14.0))
-            .bg(cx.theme().muted)
-            .p_3()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .child(
-                div()
-                    .flex()
-                    .items_start()
-                    .justify_between()
-                    .gap_2()
-                    .child(label)
-                    .child(remove),
-            )
-            .child(
-                Input::new(&input)
-                    .aria_label(parameter.label())
-                    .h(if parameter == GenerationParameter::Extra {
-                        px(140.0)
-                    } else {
-                        px(92.0)
-                    })
-                    .rounded(px(10.0)),
-            )
-            .into_any_element()
-    } else {
-        div()
-            .rounded(px(14.0))
-            .bg(cx.theme().muted)
-            .p_3()
-            .flex()
-            .items_center()
-            .gap_2()
-            .child(div().min_w_0().flex_1().child(label))
-            .child(
-                Input::new(&input)
-                    .aria_label(parameter.label())
-                    .w(px(112.0))
-                    .h(px(40.0))
-                    .px_3()
-                    .rounded(px(10.0))
-                    .text_right(),
-            )
-            .child(remove)
-            .into_any_element()
-    }
+fn scalar_parameter_field(
+    parameter: GenerationParameter,
+    input: &Entity<InputState>,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    div()
+        .rounded(px(14.0))
+        .bg(cx.theme().muted)
+        .p_3()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .child(parameter_label(parameter, cx)),
+        )
+        .child(
+            Input::new(input)
+                .aria_label(parameter.label())
+                .w(px(112.0))
+                .h(px(40.0))
+                .px_3()
+                .rounded(px(10.0))
+                .text_right(),
+        )
+        .child(remove_parameter_button(parameter, cx))
+        .into_any_element()
+}
+
+fn textarea_parameter_field(
+    parameter: GenerationParameter,
+    input: &Entity<TextareaState>,
+    height: f32,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    div()
+        .rounded(px(14.0))
+        .bg(cx.theme().muted)
+        .p_3()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(
+            div()
+                .flex()
+                .items_start()
+                .justify_between()
+                .gap_2()
+                .child(parameter_label(parameter, cx))
+                .child(remove_parameter_button(parameter, cx)),
+        )
+        .child(
+            Textarea::new(input)
+                .aria_label(parameter.label())
+                .h(px(height))
+                .rounded(px(10.0)),
+        )
+        .into_any_element()
 }
 
 fn add_parameter_select(

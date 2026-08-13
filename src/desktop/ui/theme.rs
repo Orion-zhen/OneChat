@@ -6,7 +6,7 @@ use gpui::{
 };
 use gpui_component::{
     Colorize as _, Theme as ComponentTheme, ThemeConfig, ThemeConfigColors,
-    ThemeMode as ComponentThemeMode, scroll::ScrollbarShow,
+    ThemeMode as ComponentThemeMode, scroll::ScrollbarMode,
 };
 
 use crate::domain::{

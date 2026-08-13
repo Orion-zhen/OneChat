@@ -52,33 +52,6 @@ fn remove_committed<T>(items: &mut Vec<T>, index: usize) {
     }
 }
 
-fn single_line_input(
-    value: impl Into<String>,
-    placeholder: &'static str,
-    window: &mut Window,
-    cx: &mut Context<OneChat>,
-) -> Entity<InputState> {
-    cx.new(|cx| {
-        InputState::new(window, cx)
-            .default_value(value.into())
-            .placeholder(placeholder)
-    })
-}
-
-fn masked_input(
-    value: impl Into<String>,
-    placeholder: &'static str,
-    window: &mut Window,
-    cx: &mut Context<OneChat>,
-) -> Entity<InputState> {
-    cx.new(|cx| {
-        InputState::new(window, cx)
-            .default_value(value.into())
-            .placeholder(placeholder)
-            .masked(true)
-    })
-}
-
 #[cfg(test)]
 mod collection_tests {
     use super::{append_draft_if_tail_complete, remove_committed};

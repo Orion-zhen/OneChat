@@ -4,8 +4,9 @@ use gpui::{
 };
 use gpui_component::{
     ActiveTheme as _, FocusTrapElement as _, Icon, IconName, IndexPath, Sizable as _,
+    WindowExt as _,
     button::{Button, ButtonVariants as _},
-    dialog::{CancelDialog, Dialog, DialogFooter},
+    dialog::{Dialog, DialogFooter},
     list::{List, ListDelegate, ListItem, ListState},
 };
 
@@ -342,9 +343,7 @@ fn picker_dialog(
                         .p_0()
                         .rounded(px(11.0))
                         .child(Icon::new(IconName::Close).size(px(18.0)))
-                        .on_click(|_, window, cx| {
-                            window.dispatch_action(Box::new(CancelDialog), cx)
-                        }),
+                        .on_click(|_, window, cx| window.close_dialog(cx)),
                 ),
         )
 }

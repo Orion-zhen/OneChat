@@ -10,19 +10,20 @@ use model::render_model;
 use tools::render_tools;
 
 pub(crate) use editor::{
-    GenerationConfigEditor, GenerationParameter, GenerationParameterItem, ReasoningPresetItem,
+    GenerationConfigEditor, GenerationParameter, GenerationParameterInput, GenerationParameterItem,
+    ReasoningPresetItem,
 };
 
 use std::{fmt::Display, str::FromStr};
 
 use gpui::{
-    AnyElement, App, Context, Entity, FontWeight, SharedString, Window, div, prelude::*, px,
+    AnyElement, App, Context, Div, Entity, FontWeight, SharedString, Window, div, prelude::*, px,
 };
 use gpui_component::{
     ActiveTheme as _, Disableable as _, Sizable as _,
     alert::Alert,
     button::{Button, ButtonVariants as _},
-    input::{Input, InputEvent, InputState, MaskPattern},
+    input::{Input, InputEvent, InputState, MaskPattern, Textarea, TextareaState},
     searchable_list::SearchableListItem,
     select::{Select, SelectState},
     slider::Slider,
@@ -37,7 +38,7 @@ use crate::{
         badges::{StatusPillBackground, status_pill},
         controls::sync_slider,
         icons::{AppIcon, IconActionSize::Regular, IconTone, render_icon},
-        input::multiline as multiline_input,
+        input::textarea as multiline_input,
         mcp::tool_row as mcp_tool_row,
     },
     domain::{Conversation, GenerationConfig, Model, RequestStatus, ToolSelection},

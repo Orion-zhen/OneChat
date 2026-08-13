@@ -1,6 +1,6 @@
 use gpui::{App, AppContext as _, Context, Entity, IntoElement, SharedString, Window};
 use gpui_component::{
-    input::{InputEvent, InputState},
+    input::{InputEvent, InputState, TextareaState},
     searchable_list::SearchableListItem,
     select::{SelectEvent, SelectState},
     slider::{SliderEvent, SliderState},
@@ -60,7 +60,7 @@ pub(crate) struct TtsTuningControls {
 
 pub(crate) struct TtsControls {
     pub(crate) connection: TtsConnectionControls,
-    pub(crate) source: Entity<InputState>,
+    pub(crate) source: Entity<TextareaState>,
     pub(crate) model: Entity<SelectState<Vec<TtsSelectOption>>>,
     pub(crate) voice: Entity<SelectState<Vec<TtsSelectOption>>>,
     pub(crate) tuning: TtsTuningControls,
@@ -88,8 +88,7 @@ impl TtsControls {
         }
 
         let source = cx.new(|cx| {
-            InputState::new(window, cx)
-                .multi_line(true)
+            TextareaState::new(window, cx)
                 .soft_wrap(true)
                 .placeholder("Paste text to turn into speech")
         });
