@@ -39,12 +39,16 @@ pub(super) fn render(
         position_ms as f32 / duration_ms as f32
     };
     let detail = match status {
+        PlaybackStatus::Loading if compact => "Loading…".into(),
         PlaybackStatus::Loading => format!("Loading… · {}", format_audio_duration(duration_ms)),
         PlaybackStatus::Playing | PlaybackStatus::Paused => format!(
             "{} / {}",
             format_audio_position(position_ms),
             format_audio_duration(duration_ms)
         ),
+        PlaybackStatus::Idle | PlaybackStatus::Failed if compact => {
+            format_audio_duration(duration_ms)
+        }
         PlaybackStatus::Idle | PlaybackStatus::Failed => {
             format!("Audio · {}", format_audio_duration(duration_ms))
         }
@@ -58,11 +62,15 @@ pub(super) fn render(
             }));
 
     div()
-        .rounded(px(if compact { 11.0 } else { 14.0 }))
-        .border_1()
-        .border_color(cx.theme().border)
-        .bg(palette(cx).panel)
-        .p_2()
+        .when(compact, |player| player.py_1())
+        .when(!compact, |player| {
+            player
+                .rounded(px(14.0))
+                .border_1()
+                .border_color(cx.theme().border)
+                .bg(palette(cx).panel)
+                .p_2()
+        })
         .flex()
         .items_center()
         .child(playback::render(

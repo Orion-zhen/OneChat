@@ -16,8 +16,6 @@ use crate::{
     speech::{RunStatus, SegmentStatus, SpeechRun},
 };
 
-const SEGMENT_LIST_RADIUS: f32 = 15.0;
-
 pub(super) fn render(app: &OneChat, run: &SpeechRun, cx: &mut Context<OneChat>) -> AnyElement {
     let total = run.segments.len();
     let ready = run
@@ -188,39 +186,24 @@ pub(super) fn render(app: &OneChat, run: &SpeechRun, cx: &mut Context<OneChat>) 
         .child(
             div()
                 .flex()
-                .items_end()
+                .items_center()
                 .justify_between()
                 .px_1()
                 .child(
                     div()
-                        .child(
-                            div()
-                                .text_size(px(14.0))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child("Segments"),
-                        )
-                        .child(
-                            div()
-                                .pt_0p5()
-                                .text_size(px(11.0))
-                                .text_color(cx.theme().muted_foreground)
-                                .child("Open a segment to inspect or regenerate it"),
-                        ),
+                        .text_size(px(14.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("Segments"),
                 )
                 .child(
                     div()
                         .text_size(px(11.0))
                         .text_color(cx.theme().muted_foreground)
-                        .child(format!("{total} total")),
+                        .child(format!("{total} segments")),
                 ),
         )
         .child(
             div()
-                .overflow_hidden()
-                .rounded(px(SEGMENT_LIST_RADIUS))
-                .border_1()
-                .border_color(cx.theme().border)
-                .bg(crate::desktop::ui::theme::palette(cx).raised)
                 .flex()
                 .flex_col()
                 .children(run.segments.iter().enumerate().map(|(position, result)| {

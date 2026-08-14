@@ -15,7 +15,7 @@ use crate::{
         ui::{
             icons::{AppIcon, IconTone, render_icon},
             tts::{
-                components::{disclosure_button, tone_color, value_row},
+                components::{tone_color, value_row},
                 player,
             },
         },
@@ -43,7 +43,7 @@ pub(super) fn render(
     )
     .into();
     let status_color = tone_color(tone, cx);
-    let status_badge = div()
+    let status = div()
         .flex_none()
         .flex()
         .items_center()
@@ -60,7 +60,7 @@ pub(super) fn render(
         .with_animation(
             status_id,
             Animation::new(Duration::from_millis(160)).with_easing(ease_out_quint()),
-            move |badge, progress| badge.opacity(progress),
+            move |status, progress| status.opacity(progress),
         );
 
     let active = matches!(
@@ -102,7 +102,7 @@ pub(super) fn render(
                         .rounded_br(px(SEGMENT_ROW_RADIUS))
                 })
                 .w_full()
-                .h(px(66.0))
+                .h(px(54.0))
                 .px_3()
                 .tooltip(if expanded {
                     "Collapse segment"
@@ -118,53 +118,26 @@ pub(super) fn render(
                         .gap_3()
                         .child(
                             div()
-                                .size(px(30.0))
+                                .w(px(22.0))
                                 .flex_none()
-                                .rounded(px(9.0))
-                                .bg(crate::desktop::ui::theme::palette(cx).secondary)
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .text_size(px(11.0))
-                                .font_weight(FontWeight::SEMIBOLD)
+                                .text_right()
+                                .text_size(px(10.0))
+                                .font_weight(FontWeight::MEDIUM)
                                 .text_color(cx.theme().muted_foreground)
-                                .child(format!("{}", index + 1)),
+                                .child(format!("{:02}", index + 1)),
                         )
                         .child(
                             div()
                                 .min_w_0()
                                 .flex_1()
-                                .flex()
-                                .flex_col()
-                                .gap_1()
                                 .text_left()
-                                .child(
-                                    div()
-                                        .min_w_0()
-                                        .truncate()
-                                        .text_size(px(12.0))
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .child(result.segment.text.clone()),
-                                )
-                                .child(
-                                    div()
-                                        .text_size(px(10.0))
-                                        .text_color(cx.theme().muted_foreground)
-                                        .child(if result.attempt == 0 {
-                                            format!(
-                                                "{} characters",
-                                                result.segment.text.chars().count()
-                                            )
-                                        } else {
-                                            format!(
-                                                "{} characters · attempt {}",
-                                                result.segment.text.chars().count(),
-                                                result.attempt
-                                            )
-                                        }),
-                                ),
+                                .text_size(px(12.0))
+                                .line_height(px(18.0))
+                                .font_weight(FontWeight::MEDIUM)
+                                .truncate()
+                                .child(result.segment.text.clone()),
                         )
-                        .child(status_badge)
+                        .child(status)
                         .child(render_icon(
                             if expanded {
                                 AppIcon::ChevronUp
@@ -203,41 +176,28 @@ fn details(
 ) -> AnyElement {
     let index = result.segment.index;
     div()
-        .border_t_1()
-        .border_color(cx.theme().border)
-        .bg(crate::desktop::ui::theme::palette(cx).panel)
-        .p_4()
+        .px_3()
+        .pt_1()
+        .pb_4()
         .flex()
         .flex_col()
         .gap_3()
         .child(
             div()
-                .rounded(px(11.0))
+                .rounded(px(12.0))
                 .bg(crate::desktop::ui::theme::palette(cx).secondary)
-                .p_3()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .child(
-                    div()
-                        .text_size(px(10.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(cx.theme().muted_foreground)
-                        .child("SEGMENT TEXT"),
-                )
-                .child(
-                    div()
-                        .text_size(px(12.0))
-                        .line_height(px(18.0))
-                        .child(result.segment.text.clone()),
-                ),
+                .px_4()
+                .py_3()
+                .text_size(px(12.0))
+                .line_height(px(20.0))
+                .child(result.segment.text.clone()),
         )
         .children(result.clip.as_ref().map(|clip| {
             player::render(
                 app,
                 tts_segment_source_id(app.tts.controller.audio_revision, index),
                 clip,
-                "Segment Audio",
+                "Audio",
                 true,
                 cx,
             )
@@ -260,20 +220,37 @@ fn details(
                 .justify_between()
                 .gap_3()
                 .child(
-                    div()
-                        .text_size(px(10.0))
-                        .text_color(cx.theme().muted_foreground)
-                        .child(format!(
-                            "Attempt {} · Seed {}",
-                            result.attempt,
-                            result
-                                .seed
-                                .map_or_else(|| "Random".into(), |seed| seed.to_string())
-                        )),
+                    Button::new(SharedString::from(format!(
+                        "segment-technical-details-{index}"
+                    )))
+                    .ghost()
+                    .compact()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_1p5()
+                            .text_size(px(10.0))
+                            .text_color(cx.theme().muted_foreground)
+                            .child("Technical details")
+                            .child(render_icon(
+                                if technical {
+                                    AppIcon::ChevronUp
+                                } else {
+                                    AppIcon::ChevronDown
+                                },
+                                IconTone::Muted,
+                                12.0,
+                                cx,
+                            )),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        this.toggle_tts_technical_details(index, cx)
+                    })),
                 )
                 .child(
                     Button::new(SharedString::from(format!("regenerate-segment-{index}")))
-                        .secondary()
+                        .ghost()
                         .compact()
                         .disabled(operation_active)
                         .child(
@@ -289,17 +266,6 @@ fn details(
                         })),
                 ),
         )
-        .child(
-            disclosure_button(
-                SharedString::from(format!("segment-technical-details-{index}")),
-                "Technical Details",
-                technical,
-                cx,
-            )
-            .on_click(
-                cx.listener(move |this, _, _, cx| this.toggle_tts_technical_details(index, cx)),
-            ),
-        )
         .children(technical.then(|| technical_details(result, cx)))
         .into_any_element()
 }
@@ -308,7 +274,15 @@ fn technical_details(result: &SegmentResult, cx: &App) -> AnyElement {
     let mut details = div()
         .rounded(px(10.0))
         .bg(crate::desktop::ui::theme::palette(cx).secondary)
-        .px_3();
+        .px_3()
+        .child(value_row("Attempt", &result.attempt.to_string(), cx))
+        .child(value_row(
+            "Seed",
+            &result
+                .seed
+                .map_or_else(|| "Random".into(), |seed| seed.to_string()),
+            cx,
+        ));
     if let Some(audio) = &result.audio_validation {
         for (label, value) in [
             ("Duration", format!("{:.2} s", audio.duration_sec)),
