@@ -1,4 +1,4 @@
-use crate::*;
+use crate::attachments::*;
 
 pub(crate) fn pptx_fixture() -> Vec<u8> {
     let slide1 = r#"<?xml version="1.0" encoding="UTF-8"?>

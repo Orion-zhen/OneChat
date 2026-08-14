@@ -1,4 +1,4 @@
-use crate::*;
+use crate::attachments::*;
 
 pub(crate) fn office_package(extension: &str, extras: Vec<(String, Vec<u8>)>) -> Vec<u8> {
     let (main_entry, content_type) = match extension {

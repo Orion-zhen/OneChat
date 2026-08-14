@@ -1,4 +1,4 @@
-use crate::*;
+use crate::attachments::*;
 
 pub(crate) fn drawing(resource_id: &str, alt: &str) -> String {
     format!(

@@ -1,6 +1,7 @@
 [package]
 name = "onechat"
 edition = "2024"
+autotests = false
 description = "Your last one chatbox app."
 
 [package.metadata.packager]
@@ -78,6 +79,10 @@ zip = { version = "*", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
 tempfile = "*"
+
+[[test]]
+name = "integration"
+path = "tests/integration.rs"
 
 [target.'cfg(windows)'.build-dependencies]
 embed-resource = "*"

@@ -1,4 +1,4 @@
-use crate::*;
+use crate::attachments::*;
 
 pub(crate) fn minimal_pdf() -> Vec<u8> {
     let objects = [
