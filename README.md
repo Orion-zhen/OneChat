@@ -71,7 +71,7 @@ Build the release binary and package it using the current platform's native form
 cargo package-app
 ```
 
-The default outputs are `.app` and `.dmg` on macOS, an NSIS installer on Windows, and deb, AppImage, and Pacman packages on Linux. Artifacts are written to `target/release/bundle`. macOS packages use an ad-hoc signature for local installation. To create one format only, invoke `cargo packager --release --formats <format>` directly.
+The default outputs are `.app` and `.dmg` on macOS, an NSIS installer on Windows, and deb, AppImage, and Pacman packages on Linux. Artifacts are written to `dist`, which is preserved by `cargo clean`. macOS packages use an ad-hoc signature for local installation. To create one format only, invoke `cargo packager --release --formats <format>` directly.
 
 The primary shortcuts use Command on macOS and Ctrl on Linux/Windows:
 

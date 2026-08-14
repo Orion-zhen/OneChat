@@ -8,7 +8,7 @@ description = "Your last one chatbox app."
 product-name = "OneChat"
 identifier = "com.orion.onechat"
 category = "Productivity"
-out-dir = "target/release/bundle"
+out-dir = "dist"
 before-packaging-command = "cargo build --release"
 icons = [
     "assets/icons/macos/onechat.icns",
