@@ -162,7 +162,7 @@ async fn all_endpoints_use_exact_contract_and_optional_bearer() {
         MockResponse::json(json!({
             "object":"list",
             "data":[
-                {"id":"tts-model","task":"tts","family":"qwen","loaded":true},
+                {"id":"tts-model","task":"tts","family":"qwen","loaded":true,"default_voice":"voice-b"},
                 {"id":"asr-model","task":"asr","mode":"transcription","timing":true}
             ]
         })),
@@ -181,6 +181,7 @@ async fn all_endpoints_use_exact_contract_and_optional_bearer() {
     assert!(backend.health().await.unwrap().ready);
     let catalog = backend.models().await.unwrap();
     assert_eq!(catalog.tts[0].id, "tts-model");
+    assert_eq!(catalog.tts[0].default_voice.as_deref(), Some("voice-b"));
     assert_eq!(catalog.asr[0].id, "asr-model");
     assert_eq!(
         backend.voices("tts-model").await.unwrap(),

@@ -34,6 +34,7 @@ pub struct RemoteModel {
     pub mode: Option<String>,
     pub loaded: Option<bool>,
     pub path: Option<String>,
+    pub default_voice: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]

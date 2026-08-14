@@ -89,15 +89,18 @@ impl OneChat {
                     .any(|model| model.id == config.generation.model)
                     .then(|| config.generation.model.clone())
                     .or_else(|| catalog.tts.first().map(|model| model.id.clone()));
+                let default_voice = model.as_ref().and_then(|selected| {
+                    catalog
+                        .tts
+                        .iter()
+                        .find(|model| &model.id == selected)
+                        .and_then(|model| model.default_voice.as_deref())
+                });
                 let voices = match &model {
                     Some(model) => cancellable(cancellation, backend.voices(model)).await?,
                     None => Vec::new(),
                 };
-                let voice = config
-                    .generation
-                    .voice
-                    .filter(|voice| voices.contains(voice))
-                    .or_else(|| voices.first().cloned());
+                let voice = preferred_voice(config.generation.voice, default_voice, &voices);
                 Ok::<_, SpeechError>(DiscoveryResult {
                     health,
                     catalog,
@@ -184,6 +187,19 @@ impl OneChat {
     }
 }
 
+fn preferred_voice(
+    current: Option<String>,
+    default: Option<&str>,
+    voices: &[String],
+) -> Option<String> {
+    current
+        .filter(|voice| voices.contains(voice))
+        .or_else(|| {
+            default.and_then(|default| voices.iter().find(|voice| *voice == default).cloned())
+        })
+        .or_else(|| voices.first().cloned())
+}
+
 async fn cancellable<T>(
     cancellation: tokio_util::sync::CancellationToken,
     future: impl Future<Output = Result<T, SpeechError>>,
@@ -191,5 +207,44 @@ async fn cancellable<T>(
     tokio::select! {
         _ = cancellation.cancelled() => Err(SpeechError::cancelled()),
         result = future => result,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::preferred_voice;
+
+    #[test]
+    fn model_default_voice_is_preferred_over_the_first_voice() {
+        let voices = vec!["first".into(), "default".into()];
+
+        assert_eq!(
+            preferred_voice(None, Some("default"), &voices).as_deref(),
+            Some("default")
+        );
+    }
+
+    #[test]
+    fn first_voice_is_used_when_the_model_default_is_unavailable() {
+        let voices = vec!["first".into(), "second".into()];
+
+        assert_eq!(
+            preferred_voice(None, None, &voices).as_deref(),
+            Some("first")
+        );
+        assert_eq!(
+            preferred_voice(None, Some("missing"), &voices).as_deref(),
+            Some("first")
+        );
+    }
+
+    #[test]
+    fn refresh_keeps_a_valid_selected_voice() {
+        let voices = vec!["selected".into(), "default".into()];
+
+        assert_eq!(
+            preferred_voice(Some("selected".into()), Some("default"), &voices).as_deref(),
+            Some("selected")
+        );
     }
 }

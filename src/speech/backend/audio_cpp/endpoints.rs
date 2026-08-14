@@ -101,6 +101,9 @@ impl SpeechBackend for AudioCppBackend {
                 mode: optional_string(entry, "mode", ENDPOINT)?,
                 loaded: optional_bool(entry, "loaded", ENDPOINT)?,
                 path: optional_string(entry, "path", ENDPOINT)?,
+                default_voice: optional_string(entry, "default_voice", ENDPOINT)?
+                    .map(|voice| voice.trim().to_owned())
+                    .filter(|voice| !voice.is_empty()),
             };
             match task {
                 ModelTask::Tts => catalog.tts.push(model),
