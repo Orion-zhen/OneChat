@@ -59,6 +59,27 @@ fn handles_cjk_mixed_scripts_emoji_and_paragraphs() {
 }
 
 #[test]
+fn treats_newlines_as_hard_boundaries() {
+    let text = "\nalpha beta\n\ngamma delta\r\n最后一行\n";
+    let segments = plan(text, 30);
+
+    assert_invariants(text, &segments, 30);
+    assert_eq!(
+        segments
+            .iter()
+            .map(|segment| segment.text.as_str())
+            .collect::<Vec<_>>(),
+        ["alpha beta", "gamma delta", "最后一行"]
+    );
+    for segment in &segments {
+        let source = &text[segment.source_range.clone()];
+        for (newline, _) in source.match_indices('\n') {
+            assert!(source[..newline].trim().is_empty() || source[newline + 1..].trim().is_empty());
+        }
+    }
+}
+
+#[test]
 fn hard_splits_long_text_with_and_without_punctuation() {
     for text in [
         "alpha,beta;gamma:delta epsilon zeta eta theta",

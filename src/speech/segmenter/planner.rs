@@ -29,6 +29,47 @@ impl<S: TextSegmenter> ChunkPlanner<S> {
     }
 
     pub fn plan(&self, text: &str) -> Result<Vec<TextSegment>, SpeechError> {
+        if text.trim().is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut segments: Vec<TextSegment> = Vec::new();
+        let mut line_start = 0;
+        for line in text.split_inclusive('\n') {
+            let line_end = line_start + line.len();
+            let content_end = if line.ends_with("\r\n") {
+                line_end - 2
+            } else if line.ends_with('\n') {
+                line_end - 1
+            } else {
+                line_end
+            };
+            let mut planned = self.plan_region(&text[line_start..content_end])?;
+
+            if planned.is_empty() {
+                if let Some(previous) = segments.last_mut() {
+                    previous.source_range.end = line_end;
+                }
+            } else {
+                let index_offset = segments.len();
+                for (index, segment) in planned.iter_mut().enumerate() {
+                    segment.index = index_offset + index;
+                    segment.source_range.start += line_start;
+                    segment.source_range.end += line_start;
+                }
+                if segments.is_empty() {
+                    planned[0].source_range.start = 0;
+                }
+                planned.last_mut().unwrap().source_range.end = line_end;
+                segments.append(&mut planned);
+            }
+
+            line_start = line_end;
+        }
+        Ok(segments)
+    }
+
+    fn plan_region(&self, text: &str) -> Result<Vec<TextSegment>, SpeechError> {
         let natural = self.segmenter.sentence_spans(text)?;
         if natural.is_empty() {
             return Ok(Vec::new());
