@@ -185,27 +185,36 @@ pub(super) fn settings_sidebar(app: &OneChat, width: f32, cx: &mut Context<OneCh
                 Button::new("back-to-chats")
                     .ghost()
                     .w_full()
-                    .h(px(34.0))
-                    .px_2()
-                    .rounded(px(7.0))
+                    .h(px(36.0))
+                    .px_2p5()
+                    .rounded(px(9.0))
                     .tooltip("Back to chats")
-                    .flex()
-                    .items_center()
-                    .justify_between()
                     .child(
                         div()
+                            .w_full()
                             .flex()
                             .items_center()
-                            .gap_2()
-                            .child(render_icon(AppIcon::MessageText, IconTone::Muted, 16.0, cx))
-                            .child("Chats"),
+                            .justify_between()
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap_2()
+                                    .child(render_icon(
+                                        AppIcon::MessageText,
+                                        IconTone::Muted,
+                                        16.0,
+                                        cx,
+                                    ))
+                                    .child("Chats"),
+                            )
+                            .child(render_icon(
+                                AppIcon::ChevronRight,
+                                IconTone::Muted,
+                                14.0,
+                                cx,
+                            )),
                     )
-                    .child(render_icon(
-                        AppIcon::ChevronRight,
-                        IconTone::Muted,
-                        14.0,
-                        cx,
-                    ))
                     .on_click(
                         cx.listener(|this, _, window, cx| this.request_leave_settings(window, cx)),
                     ),

@@ -104,6 +104,7 @@ impl SearchableListItem for FontFamilyItem {
 pub(crate) struct DefaultModelItem {
     value: Option<String>,
     label: SharedString,
+    provider: Option<SharedString>,
     detail: SharedString,
     disabled: bool,
 }
@@ -112,12 +113,14 @@ impl DefaultModelItem {
     pub(crate) fn new(
         value: Option<String>,
         label: impl Into<SharedString>,
+        provider: Option<SharedString>,
         detail: impl Into<SharedString>,
         disabled: bool,
     ) -> Self {
         Self {
             value,
             label: label.into(),
+            provider,
             detail: detail.into(),
             disabled,
         }
@@ -129,6 +132,12 @@ impl SearchableListItem for DefaultModelItem {
 
     fn title(&self) -> SharedString {
         self.label.clone()
+    }
+
+    fn display_title(&self) -> Option<AnyElement> {
+        self.provider
+            .as_ref()
+            .map(|provider| format!("{} · {provider}", self.label).into_any_element())
     }
 
     fn value(&self) -> &Self::Value {

@@ -177,6 +177,7 @@ fn default_model_items(app: &OneChat, role: DefaultModelRole) -> Vec<DefaultMode
         items.push(DefaultModelItem::new(
             None,
             "Use Primary Model",
+            None,
             "Follow the primary model setting",
             false,
         ));
@@ -197,6 +198,7 @@ fn default_model_items(app: &OneChat, role: DefaultModelRole) -> Vec<DefaultMode
         items.push(DefaultModelItem::new(
             Some(model.id.clone()),
             model.display_name.clone(),
+            Some(provider.into()),
             detail,
             availability.is_err(),
         ));
@@ -209,6 +211,7 @@ fn default_model_items(app: &OneChat, role: DefaultModelRole) -> Vec<DefaultMode
         items.push(DefaultModelItem::new(
             Some(selected_id.to_string()),
             format!("Missing · {selected_id}"),
+            None,
             "The configured model no longer exists",
             true,
         ));
