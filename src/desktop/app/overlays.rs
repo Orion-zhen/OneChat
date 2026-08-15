@@ -64,6 +64,7 @@ impl OneChat {
     }
 
     pub(crate) fn set_page(&mut self, page: Page, cx: &mut Context<Self>) {
+        #[cfg(target_os = "macos")]
         self.close_conversation_peek(cx);
         if page != Page::Chat {
             self.cancel_voice_recording(cx);
@@ -173,6 +174,7 @@ impl OneChat {
     }
 
     pub(crate) fn toggle_sidebar(&mut self, cx: &mut Context<Self>) {
+        #[cfg(target_os = "macos")]
         self.close_conversation_peek(cx);
         self.data.snapshot.settings.sidebar_collapsed =
             !self.data.snapshot.settings.sidebar_collapsed;

@@ -131,7 +131,6 @@ objc2-natural-language = { version = "*", default-features = false, features = [
 raw-window-handle = "*"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-cairo-rs = { version = "*", features = ["png"] }
 gtk = "*"
 webkit2gtk = "*"
 

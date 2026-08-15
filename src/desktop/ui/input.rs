@@ -47,7 +47,7 @@ pub(crate) fn textarea(
 }
 
 pub(crate) fn textarea_selection(state: &Entity<TextareaState>, cx: &App) -> Range<usize> {
-    state.read(cx).base_state().read(cx).selected_range()
+    state.read(cx).selected_range()
 }
 
 pub(crate) fn set_textarea_selection(
@@ -55,8 +55,7 @@ pub(crate) fn set_textarea_selection(
     selection: Range<usize>,
     cx: &mut App,
 ) {
-    let input = state.read(cx).base_state().clone();
-    input.update(cx, |input, cx| input.set_selected_range(selection, cx));
+    state.update(cx, |state, cx| state.set_selected_range(selection, cx));
 }
 
 pub(crate) fn textarea_text_size(
@@ -65,9 +64,8 @@ pub(crate) fn textarea_text_size(
     cx: &App,
 ) -> Option<(Size<Pixels>, Pixels)> {
     let state = state.read(cx);
-    let input = state.base_state().read(cx);
-    input
+    state
         .range_to_bounds(&range)
-        .zip(input.line_height())
+        .zip(state.line_height())
         .map(|(bounds, line_height)| (bounds.size, line_height))
 }

@@ -1,4 +1,4 @@
-use std::{cell::RefCell, io::Cursor, rc::Rc, time::Duration};
+use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use gtk::prelude::*;
 use webkit2gtk::{LoadEvent, SnapshotOptions, SnapshotRegion, WebView, WebViewExt as _, glib};
@@ -58,7 +58,7 @@ pub(super) fn render_png(html: String) -> Result<Vec<u8>, String> {
     if result.borrow().is_none() {
         gtk::main();
     }
-    window.destroy();
+    window.close();
 
     let rendered = result.borrow_mut().take();
     rendered.unwrap_or_else(|| Err("WebKitGTK stopped before returning a snapshot".into()))
@@ -72,10 +72,13 @@ fn finish(slot: &Rc<RefCell<Option<Result<Vec<u8>, String>>>>, result: Result<Ve
     }
 }
 
-fn surface_png(surface: cairo::Surface) -> Result<Vec<u8>, String> {
-    let mut output = Cursor::new(Vec::new());
-    surface
-        .write_to_png(&mut output)
-        .map_err(|error| format!("Could not encode the WebKitGTK snapshot: {error}"))?;
-    Ok(output.into_inner())
+fn surface_png(surface: gtk::cairo::Surface) -> Result<Vec<u8>, String> {
+    let surface = gtk::cairo::ImageSurface::try_from(surface)
+        .map_err(|_| "The WebKitGTK snapshot is not an image surface".to_string())?;
+    let pixbuf =
+        gtk::gdk::pixbuf_get_from_surface(&surface, 0, 0, surface.width(), surface.height())
+            .ok_or_else(|| "Could not read the WebKitGTK snapshot".to_string())?;
+    pixbuf
+        .save_to_bufferv("png", &[])
+        .map_err(|error| format!("Could not encode the WebKitGTK snapshot: {error}"))
 }

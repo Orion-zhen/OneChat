@@ -1,6 +1,7 @@
 mod attachments;
 mod bootstrap;
 mod chat;
+#[cfg(target_os = "macos")]
 mod conversation_peek;
 mod conversations;
 mod data;
@@ -20,8 +21,10 @@ mod tts;
 use motion::*;
 pub use navigation::{ConversationGroup, Page};
 pub(crate) use playback::{attachment_source_id, tts_combined_source_id, tts_segment_source_id};
+#[cfg(target_os = "macos")]
+pub(crate) use state::ConversationPeekContent;
 use state::*;
-pub(crate) use state::{ConversationPeekContent, GenerationBorderClock, PickerOverlay};
+pub(crate) use state::{GenerationBorderClock, PickerOverlay};
 pub(crate) use tts::{TtsOperationKind, TtsState};
 
 use std::{

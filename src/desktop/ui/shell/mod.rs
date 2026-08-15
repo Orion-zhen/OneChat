@@ -1,4 +1,5 @@
 mod chat_page;
+#[cfg(target_os = "macos")]
 mod conversation_peek;
 mod pickers;
 mod runtime;
@@ -8,6 +9,7 @@ mod top_bar;
 use std::cell::Cell;
 
 use chat_page::render_chat_page;
+#[cfg(target_os = "macos")]
 use conversation_peek::render_conversation_peek;
 pub(crate) use pickers::{
     CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate, ReasoningPickerDelegate,
@@ -251,6 +253,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
                     }
                 }))
         });
+    #[cfg(target_os = "macos")]
     let conversation_peek = (app.navigation.page == Page::Chat)
         .then(|| {
             render_conversation_peek(
@@ -261,6 +264,8 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
             )
         })
         .flatten();
+    #[cfg(not(target_os = "macos"))]
+    let conversation_peek = None::<AnyElement>;
     let top_bar = render_top_bar(app, current_animated_title, cx);
     let page = match app.navigation.page {
         Page::Chat => render_chat_page(

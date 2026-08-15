@@ -48,6 +48,7 @@ impl SelectionState {
 struct TextRegion {
     layout: gpui::TextLayout,
     source_range: Range<usize>,
+    #[cfg(target_os = "macos")]
     font: Font,
     hitbox: Hitbox,
 }
@@ -144,6 +145,8 @@ impl TextSelection {
             state.selecting = true;
         }
         drop(state);
+        #[cfg(not(target_os = "macos"))]
+        let _ = font;
         self.regions
             .borrow_mut()
             .entry(id)
@@ -151,6 +154,7 @@ impl TextSelection {
             .push(TextRegion {
                 layout,
                 source_range,
+                #[cfg(target_os = "macos")]
                 font,
                 hitbox,
             });

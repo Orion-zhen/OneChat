@@ -87,16 +87,16 @@ pub(super) fn render_conversation_row(
         );
     }
     if hovered {
-        let mut rename_button = icon_button(
+        let rename_button = icon_button(
             SharedString::from(format!("rename-{}", rename_id)),
             AppIcon::Pencil,
             IconTone::Muted,
             cx,
         );
         #[cfg(target_os = "macos")]
-        {
+        let rename_button = {
             let pressure_id = rename_id.clone();
-            rename_button = rename_button
+            rename_button
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _, _, _| {
@@ -118,8 +118,8 @@ pub(super) fn render_conversation_row(
                         this.regenerate_auto_title(pressure_id.clone(), cx);
                         cx.stop_propagation();
                     }
-                }));
-        }
+                }))
+        };
         let rename_button = rename_button.on_click(cx.listener(
             move |this, event: &gpui::ClickEvent, window, cx| {
                 #[cfg(target_os = "macos")]
@@ -154,7 +154,7 @@ pub(super) fn render_conversation_row(
         );
     }
 
-    let mut title_content = div()
+    let title_content = div()
         .id(SharedString::from(format!("select-{}", conversation.id)))
         .min_w_0()
         .flex_1()
@@ -173,9 +173,9 @@ pub(super) fn render_conversation_row(
             FontWeight::NORMAL
         });
     #[cfg(target_os = "macos")]
-    {
+    let title_content = {
         let pressure_id = select_id.clone();
-        title_content = title_content
+        title_content
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| this.begin_conversation_peek_pressure(cx)),
@@ -184,8 +184,8 @@ pub(super) fn render_conversation_row(
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| this.cancel_conversation_peek_pressure(cx)),
             )
-            .on_mouse_pressure(cx.listener(
-                move |this, event: &gpui::MousePressureEvent, _, cx| {
+            .on_mouse_pressure(
+                cx.listener(move |this, event: &gpui::MousePressureEvent, _, cx| {
                     if this.update_conversation_peek_pressure(
                         pressure_id.clone(),
                         f32::from(event.position.y),
@@ -194,9 +194,9 @@ pub(super) fn render_conversation_row(
                     ) {
                         cx.stop_propagation();
                     }
-                },
-            ));
-    }
+                }),
+            )
+    };
     let title = waiting_title(
         title_content
             .on_click(cx.listener(move |this, _, _, cx| {

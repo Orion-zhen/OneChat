@@ -1,8 +1,14 @@
-use gpui::{MousePressureEvent, PressureStage, Window};
+use gpui::Window;
+
+#[cfg(target_os = "macos")]
+use gpui::MousePressureEvent;
+#[cfg(any(target_os = "macos", test))]
+use gpui::PressureStage;
 
 #[cfg(target_os = "macos")]
 mod macos;
 
+#[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ForceClickChange {
     None,
@@ -10,11 +16,13 @@ pub(crate) enum ForceClickChange {
     Released,
 }
 
+#[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ForceClickState {
     triggered: bool,
 }
 
+#[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ForceClickGestureChange<T> {
     None,
@@ -22,6 +30,7 @@ pub(crate) enum ForceClickGestureChange<T> {
     Released(T),
 }
 
+#[cfg(any(target_os = "macos", test))]
 #[derive(Clone, Debug)]
 pub(crate) struct ForceClickGesture<T> {
     force_click: ForceClickState,
@@ -29,6 +38,7 @@ pub(crate) struct ForceClickGesture<T> {
     consumed_target: Option<T>,
 }
 
+#[cfg(any(target_os = "macos", test))]
 impl<T> Default for ForceClickGesture<T> {
     fn default() -> Self {
         Self {
@@ -39,6 +49,7 @@ impl<T> Default for ForceClickGesture<T> {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 impl<T: Clone + PartialEq> ForceClickGesture<T> {
     pub(crate) fn begin(&mut self) {
         self.force_click.cancel();
@@ -46,6 +57,7 @@ impl<T: Clone + PartialEq> ForceClickGesture<T> {
         self.consumed_target = None;
     }
 
+    #[cfg(target_os = "macos")]
     pub(crate) fn update(
         &mut self,
         event: &MousePressureEvent,
@@ -83,7 +95,9 @@ impl<T: Clone + PartialEq> ForceClickGesture<T> {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
 impl ForceClickState {
+    #[cfg(target_os = "macos")]
     pub(crate) fn update(&mut self, event: &MousePressureEvent) -> ForceClickChange {
         self.update_stage(event.stage)
     }

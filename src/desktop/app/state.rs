@@ -27,7 +27,6 @@ use crate::{
         audio_playback::{AudioPlayback, PlaybackSnapshot},
         audio_recording::{AudioRecording, RecordingSnapshot},
         branch_swipe::{BranchSwipeState, BranchSwipeTarget},
-        pressure_touch::ForceClickGesture,
         ui::{
             inspector::{GenerationConfigEditor, InspectorTab},
             selectable_text::TextSelection,
@@ -43,10 +42,13 @@ use crate::{
             stream::HorizontalScrollRegistry,
         },
     },
-    domain::{AttachmentDraft, Turn},
+    domain::AttachmentDraft,
     mcp::{McpManager, McpSnapshot},
     storage::{Storage, StorageSnapshot},
 };
+
+#[cfg(target_os = "macos")]
+use crate::{desktop::pressure_touch::ForceClickGesture, domain::Turn};
 
 pub(super) struct Services {
     pub(super) storage: Arc<Storage>,
@@ -77,6 +79,7 @@ pub(crate) struct NavigationState {
     pub(crate) inspector_motion: DrawerMotion,
 }
 
+#[cfg(target_os = "macos")]
 #[derive(Clone, Debug, Default)]
 pub(crate) enum ConversationPeekContent {
     #[default]
@@ -85,6 +88,7 @@ pub(crate) enum ConversationPeekContent {
     Failed,
 }
 
+#[cfg(target_os = "macos")]
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ConversationPeekState {
     pub(crate) conversation_id: Option<String>,
@@ -100,6 +104,7 @@ pub(crate) struct SidebarState {
     pub(crate) hovered_conversation_id: Option<String>,
     pub(crate) generation_border_epoch: Instant,
     pub(crate) unseen_generations: HashMap<String, UnseenGeneration>,
+    #[cfg(target_os = "macos")]
     pub(crate) conversation_peek: ConversationPeekState,
     pub(super) rename_editor: Option<RenameEditor>,
     #[cfg(target_os = "macos")]
@@ -190,6 +195,7 @@ pub(crate) struct ChatState {
     pub(crate) timeline: TimelineState,
     pub(crate) text_selection: TextSelection,
     pub(crate) branch_swipe: BranchSwipeState<BranchSwipeTarget>,
+    #[cfg(target_os = "macos")]
     pub(crate) response_tab_force_click: ForceClickGesture<String>,
     pub(crate) horizontal_scrolls: HorizontalScrollRegistry,
     pub(crate) thinking_scrolls: HashMap<String, ScrollHandle>,
