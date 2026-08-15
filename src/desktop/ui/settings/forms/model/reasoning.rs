@@ -82,14 +82,7 @@ pub(super) fn model_reasoning_form(
                 Field::new()
                     .label("API Format")
                     .description("Controls how the selected preset is encoded in the request")
-                    .child(
-                        Select::new(&editor.format_select)
-                            .large()
-                            .h(px(40.0))
-                            .px(px(12.0))
-                            .rounded(px(10.0))
-                            .w_full(),
-                    ),
+                    .child(field_control(Select::new(&editor.format_select)).w_full()),
             )
             .child(known_reasoning_presets(editor, cx)),
         ReasoningEditorMode::Custom => content.child(custom_reasoning_presets(editor, cx)),

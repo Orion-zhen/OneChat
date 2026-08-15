@@ -1,11 +1,7 @@
 use super::super::super::*;
 
 pub(super) fn default_prompt_select(app: &OneChat) -> AnyElement {
-    Select::new(&app.settings_ui.default_prompt_select)
-        .large()
-        .h(px(40.0))
-        .px(px(12.0))
-        .rounded(px(10.0))
+    field_control(Select::new(&app.settings_ui.default_prompt_select))
         .placeholder("No Prompt Preset")
         .menu_max_h(px(320.0))
         .w(px(300.0))

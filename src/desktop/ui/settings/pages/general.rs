@@ -156,8 +156,8 @@ fn send_message_shortcut_selector(app: &OneChat, cx: &mut Context<OneChat>) -> A
         .large()
         .w(px(300.0))
         .selected_index(selected)
-        .child(Tab::new().w(px(144.0)).label("Enter"))
-        .child(Tab::new().w(px(144.0)).label(secondary_label))
+        .child(Tab::new().flex_1().label("Enter"))
+        .child(Tab::new().flex_1().label(secondary_label))
         .on_click(cx.listener(|this, index: &usize, _, cx| {
             let shortcut = [
                 SendMessageShortcut::Enter,
@@ -179,9 +179,9 @@ fn theme_selector(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
         .large()
         .w(px(300.0))
         .selected_index(selected)
-        .child(Tab::new().w(px(96.0)).label("System"))
-        .child(Tab::new().w(px(96.0)).label("Light"))
-        .child(Tab::new().w(px(96.0)).label("Dark"))
+        .child(Tab::new().flex_1().label("System"))
+        .child(Tab::new().flex_1().label("Light"))
+        .child(Tab::new().flex_1().label("Dark"))
         .on_click(cx.listener(|this, index: &usize, _, cx| {
             let theme = [Theme::System, Theme::Light, Theme::Dark][*index];
             this.set_theme(theme, cx);
@@ -307,11 +307,7 @@ fn font_stack_editor(app: &OneChat, role: FontRole, cx: &mut Context<OneChat>) -
         .gap_2()
         .child(list)
         .child(
-            Select::new(select)
-                .large()
-                .h(px(40.0))
-                .px(px(12.0))
-                .rounded(px(10.0))
+            field_control(Select::new(select))
                 .icon(Icon::new(IconName::Plus))
                 .placeholder("Add font…")
                 .search_placeholder("Search installed fonts…")

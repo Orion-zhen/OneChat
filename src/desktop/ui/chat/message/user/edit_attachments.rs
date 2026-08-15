@@ -109,7 +109,6 @@ fn edit_attachment_card(
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     div()
-        .relative()
         .w(px(196.0))
         .h(px(68.0))
         .flex_none()
@@ -117,42 +116,51 @@ fn edit_attachment_card(
         .border_1()
         .border_color(cx.theme().border)
         .bg(cx.theme().muted)
-        .p_2()
-        .pr_8()
+        .p(px(5.0))
         .flex()
-        .items_center()
-        .gap_3()
-        .child(
-            div()
-                .size(px(44.0))
-                .flex_none()
-                .overflow_hidden()
-                .rounded(px(11.0))
-                .bg(cx.theme().accent)
-                .child(visual),
-        )
+        .items_start()
+        .gap(px(3.0))
         .child(
             div()
                 .min_w_0()
                 .flex_1()
+                .h_full()
+                .pl(px(3.0))
                 .flex()
-                .flex_col()
-                .gap_1()
+                .items_center()
+                .gap_3()
                 .child(
                     div()
-                        .min_w_0()
-                        .text_size(px(12.0))
-                        .line_height(px(15.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .truncate()
-                        .child(name.to_string()),
+                        .size(px(44.0))
+                        .flex_none()
+                        .overflow_hidden()
+                        .rounded(px(11.0))
+                        .bg(cx.theme().accent)
+                        .child(visual),
                 )
                 .child(
                     div()
-                        .text_size(px(10.0))
-                        .line_height(px(12.0))
-                        .text_color(cx.theme().muted_foreground)
-                        .child(detail),
+                        .min_w_0()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(
+                            div()
+                                .min_w_0()
+                                .text_size(px(12.0))
+                                .line_height(px(15.0))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .truncate()
+                                .child(name.to_string()),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(10.0))
+                                .line_height(px(12.0))
+                                .text_color(cx.theme().muted_foreground)
+                                .child(detail),
+                        ),
                 ),
         )
         .child(edit_remove_button(turn_id, attachment_id, cx))
@@ -170,9 +178,7 @@ fn edit_remove_button(turn_id: &str, attachment_id: &str, cx: &mut Context<OneCh
     .size(px(24.0))
     .p_0()
     .rounded(px(12.0))
-    .absolute()
-    .top(px(5.0))
-    .right(px(5.0))
+    .flex_none()
     .child(render_icon(AppIcon::Close, IconTone::Foreground, 12.0, cx))
     .on_click(cx.listener(move |this, _, _, cx| {
         this.remove_message_edit_attachment(

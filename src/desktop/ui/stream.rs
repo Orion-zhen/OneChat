@@ -1,9 +1,11 @@
 use std::{cell::RefCell, collections::HashMap};
 
-use gpui::{ScrollDelta, ScrollHandle, ScrollWheelEvent};
+use gpui::{AnyElement, App, ElementId, ScrollDelta, ScrollHandle, ScrollWheelEvent, prelude::*};
+use gpui_component::scroll::{Scrollbar, ScrollbarMode};
 
-use crate::desktop::branch_swipe::{
-    horizontal_delta_dominates, should_capture_nested_horizontal_scroll,
+use crate::desktop::{
+    branch_swipe::{horizontal_delta_dominates, should_capture_nested_horizontal_scroll},
+    ui::theme,
 };
 
 pub fn follow_after_scroll(current: bool, delta_y: f32, distance_from_bottom: f32) -> bool {
@@ -43,6 +45,31 @@ impl HorizontalScrollRegistry {
     pub(crate) fn clear(&self) {
         self.handles.borrow_mut().clear();
     }
+}
+
+pub(crate) fn always_horizontal_scrollbar(
+    id: impl Into<ElementId>,
+    scroll: &ScrollHandle,
+    cx: &App,
+) -> AnyElement {
+    let palette = theme::palette(cx);
+    Scrollbar::horizontal(scroll)
+        .id(id)
+        .mode(ScrollbarMode::Always)
+        .styles(|styles| {
+            styles
+                .track(|style| style.bg(gpui::transparent_black()))
+                .track_hover(|style| style.bg(gpui::transparent_black()))
+                .track_active(|style| {
+                    style
+                        .bg(gpui::transparent_black())
+                        .border_color(gpui::transparent_black())
+                })
+                .thumb(|style| style.bg(palette.scrollbar_thumb))
+                .thumb_hover(|style| style.bg(palette.scrollbar_thumb_hover))
+                .thumb_active(|style| style.bg(palette.scrollbar_thumb_active))
+        })
+        .into_any_element()
 }
 
 pub(crate) fn nested_horizontal_scroll_captures(

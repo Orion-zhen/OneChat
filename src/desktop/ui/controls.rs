@@ -1,5 +1,9 @@
-use gpui::{Context, Entity, Window};
-use gpui_component::slider::SliderState;
+use gpui::{Context, Entity, Styled, Window, px};
+use gpui_component::{Sizable, slider::SliderState};
+
+pub(crate) fn field_control<T: Sizable + Styled>(control: T) -> T {
+    control.large().h(px(40.0)).px(px(12.0)).rounded(px(10.0))
+}
 
 use crate::desktop::app::OneChat;
 

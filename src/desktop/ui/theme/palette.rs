@@ -47,6 +47,9 @@ pub(crate) struct AppPalette {
     pub success_active: Hsla,
     pub on_success: Hsla,
     pub control_thumb: Hsla,
+    pub scrollbar_thumb: Hsla,
+    pub scrollbar_thumb_hover: Hsla,
+    pub scrollbar_thumb_active: Hsla,
     pub scrim: Hsla,
     pub floating_glass: Hsla,
     pub floating_border: Hsla,
@@ -123,6 +126,13 @@ pub(super) fn contrast_ratio(a: Hsla, b: Hsla) -> f32 {
         if a > b { (a, b) } else { (b, a) }
     };
     (lighter + 0.05) / (darker + 0.05)
+}
+
+fn subtle_contrasting_control(target: Hsla, background: Hsla, minimum: f32) -> Hsla {
+    (0..=20)
+        .map(|step| mix_toward(background, target, step as f32 * 0.05))
+        .find(|color| contrast_ratio(*color, background) >= minimum)
+        .unwrap_or(target)
 }
 
 fn contrasting_foreground(background: Hsla) -> Hsla {
@@ -250,6 +260,14 @@ impl AppPalette {
             surface: Hsla::white().alpha(if dark { 0.08 } else { 0.44 }),
             selection: accent.alpha(if dark { 0.22 } else { 0.18 }),
         };
+        let scrollbar_target = tinted(foreground, accent, if dark { 0.14 } else { 0.1 });
+        let scrollbar_background = opaque(user_background);
+        let scrollbar_thumb =
+            subtle_contrasting_control(scrollbar_target, scrollbar_background, 3.0);
+        let scrollbar_thumb_hover =
+            subtle_contrasting_control(scrollbar_target, scrollbar_background, 4.5);
+        let scrollbar_thumb_active =
+            subtle_contrasting_control(scrollbar_target, scrollbar_background, 6.0);
 
         Self {
             canvas,
@@ -285,6 +303,9 @@ impl AppPalette {
             success_active,
             on_success: contrasting_foreground(success),
             control_thumb: Hsla::white(),
+            scrollbar_thumb,
+            scrollbar_thumb_hover,
+            scrollbar_thumb_active,
             scrim,
             floating_glass: if dark {
                 rgba(0x2c2c2ef2).into()

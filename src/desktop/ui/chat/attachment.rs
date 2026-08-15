@@ -106,8 +106,16 @@ pub(super) fn render_audio_attachment_card(
     )
     .on_click(cx.listener(move |this, _, _, cx| this.toggle_audio_playback(id.clone(), cx)));
 
-    div()
-        .relative()
+    let playback = playback::render(
+        play_button,
+        title,
+        detail,
+        is_current,
+        progress,
+        &app.playback.seek_slider,
+        cx,
+    );
+    let card = div()
         .w(px(width))
         .h(px(76.0))
         .flex_none()
@@ -115,23 +123,33 @@ pub(super) fn render_audio_attachment_card(
         .border_1()
         .border_color(cx.theme().border)
         .bg(background)
-        .shadow_xs()
-        .p_2()
-        .pr(px(if remove.is_some() { 34.0 } else { 10.0 }))
-        .flex()
-        .items_center()
-        .gap_3()
-        .child(playback::render(
-            play_button,
-            title,
-            detail,
-            is_current,
-            progress,
-            &app.playback.seek_slider,
-            cx,
-        ))
-        .children(remove)
-        .into_any_element()
+        .shadow_xs();
+
+    if let Some(remove) = remove {
+        card.p(px(5.0))
+            .flex()
+            .items_start()
+            .gap(px(5.0))
+            .child(
+                div()
+                    .min_w_0()
+                    .flex_1()
+                    .h_full()
+                    .pl(px(3.0))
+                    .flex()
+                    .items_center()
+                    .child(playback),
+            )
+            .child(remove)
+            .into_any_element()
+    } else {
+        card.p_2()
+            .pr(px(10.0))
+            .flex()
+            .items_center()
+            .child(playback)
+            .into_any_element()
+    }
 }
 
 #[cfg(test)]

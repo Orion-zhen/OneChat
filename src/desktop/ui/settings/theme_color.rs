@@ -347,21 +347,34 @@ fn slider_row(
         )
         .child(
             div()
-                .relative()
                 .h(px(24.0))
-                .flex()
+                .grid()
+                .grid_cols(1)
+                .grid_rows(1)
                 .items_center()
-                .child(track)
-                .child(Slider::new(state).w_full().bg(cx.theme().transparent)),
+                .child(
+                    div()
+                        .col_start(1)
+                        .row_start(1)
+                        .size_full()
+                        .flex()
+                        .items_center()
+                        .child(track),
+                )
+                .child(
+                    Slider::new(state)
+                        .col_start(1)
+                        .row_start(1)
+                        .w_full()
+                        .bg(cx.theme().transparent),
+                ),
         )
         .into_any_element()
 }
 
 fn track(contents: impl IntoElement) -> AnyElement {
     div()
-        .absolute()
-        .left_0()
-        .right_0()
+        .w_full()
         .h(px(8.0))
         .rounded_full()
         .overflow_hidden()

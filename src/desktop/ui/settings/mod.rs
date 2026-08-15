@@ -61,7 +61,7 @@ use gpui_component::{
 
 use super::{
     badges::{StatusPillBackground, status_pill},
-    controls::sync_slider,
+    controls::{field_control, sync_slider},
     copy_button::CopyButton,
     icons::{AppIcon, IconActionSize::Compact, IconTone, render_icon},
     input::{

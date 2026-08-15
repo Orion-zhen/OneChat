@@ -23,13 +23,12 @@ pub(crate) fn prompt_variable_dialog(
     let close_app = app.clone();
     let save_app = app.clone();
     let header = div()
-        .relative()
         .w_full()
         .h(px(52.0))
         .flex_none()
+        .px(px(12.0))
         .flex()
         .items_center()
-        .justify_center()
         .border_b_1()
         .border_color(cx.theme().border)
         .child(
@@ -41,9 +40,7 @@ pub(crate) fn prompt_variable_dialog(
                     "Cancel",
                     cx,
                 )
-                .absolute()
-                .left(px(12.0))
-                .top(px(11.0))
+                .flex_none()
                 .on_click(move |_, window, cx| {
                     close_app.update(cx, |app, cx| app.cancel_prompt_variable_edit(cx));
                     window.close_dialog(cx);
@@ -51,7 +48,9 @@ pub(crate) fn prompt_variable_dialog(
         )
         .child(
             div()
-                .px(px(52.0))
+                .min_w_0()
+                .flex_1()
+                .text_center()
                 .text_size(px(15.0))
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(title),
@@ -59,9 +58,7 @@ pub(crate) fn prompt_variable_dialog(
         .child(
             Compact
                 .primary_icon_action("save-prompt-variable", AppIcon::Save, "Save", cx)
-                .absolute()
-                .right(px(12.0))
-                .top(px(11.0))
+                .flex_none()
                 .on_click(move |_, window, cx| {
                     if save_app.update(cx, |app, cx| app.save_prompt_variable(cx)) {
                         window.close_dialog(cx);

@@ -149,26 +149,23 @@ impl SearchableListItem for DefaultModelItem {
     }
 
     fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        crate::desktop::ui::spaced_select_item(
-            div()
-                .min_w_0()
-                .child(
-                    div()
-                        .truncate()
-                        .text_base()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(self.label.clone()),
-                )
-                .child(
-                    div()
-                        .pt_0p5()
-                        .truncate()
-                        .text_sm()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(self.detail.clone()),
-                ),
-            cx,
-        )
+        div()
+            .min_w_0()
+            .child(
+                div()
+                    .truncate()
+                    .text_base()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .child(self.label.clone()),
+            )
+            .child(
+                div()
+                    .pt_0p5()
+                    .truncate()
+                    .text_sm()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(self.detail.clone()),
+            )
     }
 }
 
@@ -198,8 +195,8 @@ impl SearchableListItem for ReasoningPresetSelectItem {
         &self.value
     }
 
-    fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        crate::desktop::ui::spaced_select_item(self.title(), cx)
+    fn render(&self, _: &mut Window, _: &mut App) -> impl IntoElement {
+        self.title()
     }
 }
 
@@ -239,8 +236,8 @@ impl SearchableListItem for PromptSelectItem {
         self.disabled
     }
 
-    fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        crate::desktop::ui::spaced_select_item(div().text_base().child(self.label.clone()), cx)
+    fn render(&self, _: &mut Window, _: &mut App) -> impl IntoElement {
+        div().text_base().child(self.label.clone())
     }
 }
 
@@ -264,8 +261,8 @@ impl SearchableListItem for ProviderKindItem {
         &self.0
     }
 
-    fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        crate::desktop::ui::spaced_select_item(self.title(), cx)
+    fn render(&self, _: &mut Window, _: &mut App) -> impl IntoElement {
+        self.title()
     }
 }
 
@@ -327,31 +324,28 @@ impl SearchableListItem for ModelIdItem {
         .flatten()
         .collect::<Vec<_>>()
         .join(" · ");
-        crate::desktop::ui::spaced_select_item(
-            div()
-                .w_full()
-                .min_w_0()
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap_3()
-                .child(div().min_w_0().truncate().child(self.id.clone()))
-                .children((!capabilities.is_empty()).then(|| {
-                    div()
-                        .flex_none()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(capabilities)
-                }))
-                .children(self.custom.then(|| {
-                    div()
-                        .flex_none()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child("Use this ID")
-                })),
-            cx,
-        )
+        div()
+            .w_full()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_3()
+            .child(div().min_w_0().truncate().child(self.id.clone()))
+            .children((!capabilities.is_empty()).then(|| {
+                div()
+                    .flex_none()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(capabilities)
+            }))
+            .children(self.custom.then(|| {
+                div()
+                    .flex_none()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("Use this ID")
+            }))
     }
 }
 

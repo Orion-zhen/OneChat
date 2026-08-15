@@ -63,11 +63,7 @@ pub(in crate::desktop::ui::settings) fn model_form(
                         .description(model_id_detail)
                         .col_span(2)
                         .child(
-                            Combobox::new(&editor.remote_id)
-                                .large()
-                                .h(px(40.0))
-                                .px(px(12.0))
-                                .rounded(px(10.0))
+                            field_control(Combobox::new(&editor.remote_id))
                                 .placeholder("Enter or select a model ID…")
                                 .search_placeholder("Search or enter a model ID…")
                                 .menu_max_h(px(260.0))

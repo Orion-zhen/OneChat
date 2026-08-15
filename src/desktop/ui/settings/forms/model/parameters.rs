@@ -62,15 +62,13 @@ pub(super) fn reasoning_parameter_list(
                     ReasoningParameterPathEditor::Request(input) => {
                         form_input(input, "Parameter path").into_any_element()
                     }
-                    ReasoningParameterPathEditor::ChatTemplate(input) => Combobox::new(input)
-                        .large()
-                        .h(px(40.0))
-                        .px(px(12.0))
-                        .rounded(px(10.0))
-                        .placeholder("Select or enter a parameter…")
-                        .search_placeholder("Search or enter a parameter…")
-                        .menu_max_h(px(260.0))
-                        .into_any_element(),
+                    ReasoningParameterPathEditor::ChatTemplate(input) => {
+                        field_control(Combobox::new(input))
+                            .placeholder("Select or enter a parameter…")
+                            .search_placeholder("Search or enter a parameter…")
+                            .menu_max_h(px(260.0))
+                            .into_any_element()
+                    }
                 };
                 let value_type_control = if mapped_type.is_some() {
                     div()
@@ -93,12 +91,11 @@ pub(super) fn reasoning_parameter_list(
                         .into_any_element()
                 };
                 let value = match value_type {
-                    ReasoningParameterType::Boolean => Select::new(&parameter.boolean_value)
-                        .w_full()
-                        .h(px(40.0))
-                        .px(px(12.0))
-                        .rounded(px(10.0))
-                        .into_any_element(),
+                    ReasoningParameterType::Boolean => {
+                        field_control(Select::new(&parameter.boolean_value))
+                            .w_full()
+                            .into_any_element()
+                    }
                     ReasoningParameterType::Null => div()
                         .w_full()
                         .h(px(40.0))

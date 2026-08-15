@@ -23,8 +23,8 @@ pub(super) fn render_message_header(
                     cx.stop_propagation();
                 }
             })
+            .w_full()
             .min_w_0()
-            .flex_1()
             .flex()
             .items_center()
             .gap_1()
@@ -100,7 +100,17 @@ pub(super) fn render_message_header(
                 this.show_response(tab_turn_id.clone(), tab_response_id.clone(), cx);
             })));
         }
-        tabs.into_any_element()
+        div()
+            .relative()
+            .min_w_0()
+            .flex_1()
+            .child(tabs)
+            .child(always_horizontal_scrollbar(
+                SharedString::from(format!("response-tabs-scrollbar-{}", turn.id)),
+                &tabs_scroll,
+                cx,
+            ))
+            .into_any_element()
     } else {
         div()
             .text_size(px(typography.metadata_size))

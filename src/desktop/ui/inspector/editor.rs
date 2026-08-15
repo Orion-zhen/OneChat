@@ -19,8 +19,8 @@ impl SearchableListItem for ReasoningPresetItem {
         &self.value
     }
 
-    fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        crate::desktop::ui::spaced_select_item(self.title(), cx)
+    fn render(&self, _: &mut Window, _: &mut App) -> impl IntoElement {
+        self.title()
     }
 }
 
@@ -126,8 +126,8 @@ impl SearchableListItem for GenerationParameterItem {
         &self.0
     }
 
-    fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        crate::desktop::ui::spaced_select_item(self.title(), cx)
+    fn render(&self, _: &mut Window, _: &mut App) -> impl IntoElement {
+        self.title()
     }
 }
 

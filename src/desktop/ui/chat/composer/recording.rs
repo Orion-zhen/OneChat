@@ -16,13 +16,12 @@ pub(super) fn render_recording_status(app: &OneChat, cx: &App) -> AnyElement {
     let recording = snapshot.status == RecordingStatus::Recording;
 
     div()
-        .h(px(48.0))
         .w_full()
-        .pl(px(96.0))
-        .pr(px(96.0))
+        .min_w_0()
+        .px_2()
         .flex()
         .items_center()
-        .gap_4()
+        .gap_3()
         .child(render_recording_indicator(recording, cx))
         .child(
             div()
@@ -71,13 +70,16 @@ fn render_recording_indicator(recording: bool, cx: &App) -> AnyElement {
         cx.theme().muted_foreground
     };
     let indicator = div()
-        .relative()
         .size(px(14.0))
         .flex_none()
+        .grid()
+        .grid_cols(1)
+        .grid_rows(1)
         .child(
             div()
-                .absolute()
-                .inset_0()
+                .col_start(1)
+                .row_start(1)
+                .size_full()
                 .rounded_full()
                 .bg(color)
                 .map(|halo| {
@@ -98,9 +100,10 @@ fn render_recording_indicator(recording: bool, cx: &App) -> AnyElement {
         )
         .child(
             div()
-                .absolute()
-                .left(px(4.0))
-                .top(px(4.0))
+                .col_start(1)
+                .row_start(1)
+                .mt(px(4.0))
+                .ml(px(4.0))
                 .size(px(6.0))
                 .rounded_full()
                 .bg(color),

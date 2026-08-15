@@ -3,11 +3,7 @@ use super::*;
 pub(in crate::desktop::ui::settings) fn provider_kind_select(
     editor: &ProviderEditor,
 ) -> AnyElement {
-    Select::new(&editor.kind)
-        .large()
-        .h(px(40.0))
-        .px(px(12.0))
-        .rounded(px(10.0))
+    field_control(Select::new(&editor.kind))
         .placeholder("Provider type")
         .w_full()
         .into_any_element()

@@ -2,15 +2,24 @@ use super::*;
 
 pub(super) fn render_attachments(app: &OneChat, cx: &mut Context<OneChat>) -> Option<AnyElement> {
     (!app.chat.attachments.is_empty() || app.chat.attachments_loading).then(|| {
-        div()
+        let attachment_scroll = app.chat.horizontal_scrolls.handle("composer-attachments");
+        let boundary_scroll = attachment_scroll.clone();
+
+        let attachments = div()
             .id("composer-attachments")
             .w_full()
             .min_w_0()
+            .track_scroll(&attachment_scroll)
+            .on_scroll_wheel(move |event, _, cx| {
+                if nested_horizontal_scroll_captures(event, &boundary_scroll) {
+                    cx.stop_propagation();
+                }
+            })
             .overflow_x_scroll()
             .restrict_scroll_to_axis()
             .px_3()
             .pt_3()
-            .pb_1()
+            .pb_5()
             .flex()
             .items_start()
             .gap_3()
@@ -24,7 +33,18 @@ pub(super) fn render_attachments(app: &OneChat, cx: &mut Context<OneChat>) -> Op
                 app.chat
                     .attachments_loading
                     .then(|| render_loading_attachment(cx)),
-            )
+            );
+
+        div()
+            .relative()
+            .w_full()
+            .min_w_0()
+            .child(attachments)
+            .child(always_horizontal_scrollbar(
+                "composer-attachments-scrollbar",
+                &attachment_scroll,
+                cx,
+            ))
             .into_any_element()
     })
 }
@@ -126,7 +146,13 @@ fn render_visual_attachment(
                 .text_color(cx.theme().muted_foreground)
                 .child(detail),
         )
-        .child(remove_attachment_button(attachment, cx))
+        .child(
+            div()
+                .absolute()
+                .top(px(5.0))
+                .right(px(5.0))
+                .child(remove_attachment_button(attachment, cx)),
+        )
         .into_any_element()
 }
 
@@ -158,7 +184,6 @@ fn render_file_attachment(
         attachment.audio.as_ref(),
     );
     div()
-        .relative()
         .w(px(196.0))
         .h(px(68.0))
         .flex_none()
@@ -166,44 +191,53 @@ fn render_file_attachment(
         .border_1()
         .border_color(cx.theme().border)
         .bg(cx.theme().muted)
-        .p_2()
-        .pr_8()
+        .p(px(5.0))
         .flex()
-        .items_center()
-        .gap_3()
-        .child(
-            div()
-                .size(px(42.0))
-                .flex_none()
-                .rounded(px(11.0))
-                .bg(cx.theme().accent)
-                .flex()
-                .items_center()
-                .justify_center()
-                .child(render_icon(AppIcon::FileText, IconTone::Accent, 21.0, cx)),
-        )
+        .items_start()
+        .gap(px(3.0))
         .child(
             div()
                 .min_w_0()
                 .flex_1()
+                .h_full()
+                .pl(px(3.0))
                 .flex()
-                .flex_col()
-                .gap_1()
+                .items_center()
+                .gap_3()
                 .child(
                     div()
-                        .min_w_0()
-                        .text_size(px(12.0))
-                        .line_height(px(15.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .truncate()
-                        .child(attachment.name.clone()),
+                        .size(px(42.0))
+                        .flex_none()
+                        .rounded(px(11.0))
+                        .bg(cx.theme().accent)
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(render_icon(AppIcon::FileText, IconTone::Accent, 21.0, cx)),
                 )
                 .child(
                     div()
-                        .text_size(px(10.0))
-                        .line_height(px(12.0))
-                        .text_color(cx.theme().muted_foreground)
-                        .child(detail),
+                        .min_w_0()
+                        .flex_1()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(
+                            div()
+                                .min_w_0()
+                                .text_size(px(12.0))
+                                .line_height(px(15.0))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .truncate()
+                                .child(attachment.name.clone()),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(10.0))
+                                .line_height(px(12.0))
+                                .text_color(cx.theme().muted_foreground)
+                                .child(detail),
+                        ),
                 ),
         )
         .child(remove_attachment_button(attachment, cx))
@@ -224,9 +258,7 @@ fn remove_attachment_button(
     .size(px(24.0))
     .p_0()
     .rounded(px(12.0))
-    .absolute()
-    .top(px(5.0))
-    .right(px(5.0))
+    .flex_none()
     .border_1()
     .border_color(cx.theme().border)
     .bg(cx.theme().popover)

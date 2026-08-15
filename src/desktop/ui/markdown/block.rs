@@ -6,7 +6,11 @@ use super::{
     render_formula_element, render_inlines, selectable,
 };
 use crate::{
-    desktop::ui::{copy_button::CopyButton, stream::nested_horizontal_scroll_captures, theme},
+    desktop::ui::{
+        copy_button::CopyButton,
+        stream::{always_horizontal_scrollbar, nested_horizontal_scroll_captures},
+        theme,
+    },
     markdown::{Block, Inline, TableAlignment},
 };
 
@@ -103,6 +107,9 @@ pub(super) fn render_block(
             let copy_button_id =
                 SharedString::from(format!("copy-code-block-{message_id}-{content_text_index}"));
             let content_to_copy = content.clone();
+            let code_scrollbar_id = SharedString::from(format!(
+                "markdown-code-scrollbar-{message_id}-{content_text_index}"
+            ));
             let code_scroll = context
                 .horizontal_scrolls
                 .handle(format!("markdown-code:{message_id}:{content_text_index}"));
@@ -144,48 +151,62 @@ pub(super) fn render_block(
                 )
                 .child(
                     div()
-                        .id(element_key("code", content))
-                        .track_scroll(&code_scroll)
-                        .on_scroll_wheel(move |event, _, cx| {
-                            if nested_horizontal_scroll_captures(event, &boundary_scroll) {
-                                cx.stop_propagation();
-                            }
-                        })
+                        .relative()
                         .w_full()
                         .min_w_0()
-                        .when(context.code_block_wrap, |element| {
-                            element.overflow_hidden().whitespace_normal()
-                        })
-                        .when(!context.code_block_wrap, |element| {
-                            element.overflow_x_scroll().whitespace_nowrap()
-                        })
-                        .p_3()
-                        .font(theme::code_font(cx))
-                        .text_size(px(typography.code_size))
-                        .line_height(px(typography.code_line_height))
                         .child(
-                            selectable(
-                                message_id,
-                                content_text_index,
-                                content.clone(),
-                                selection,
-                                palette,
-                            )
-                            .with_highlights(
-                                if cx.theme().is_dark() {
-                                    &highlights.dark
-                                } else {
-                                    &highlights.light
-                                }
-                                .iter()
-                                .map(|highlight| {
-                                    (
-                                        highlight.range.clone(),
-                                        HighlightStyle::from(rgba(highlight.rgba)),
+                            div()
+                                .id(element_key("code", content))
+                                .track_scroll(&code_scroll)
+                                .on_scroll_wheel(move |event, _, cx| {
+                                    if nested_horizontal_scroll_captures(event, &boundary_scroll) {
+                                        cx.stop_propagation();
+                                    }
+                                })
+                                .w_full()
+                                .min_w_0()
+                                .when(context.code_block_wrap, |element| {
+                                    element.overflow_hidden().whitespace_normal()
+                                })
+                                .when(!context.code_block_wrap, |element| {
+                                    element.overflow_x_scroll().whitespace_nowrap()
+                                })
+                                .p_3()
+                                .font(theme::code_font(cx))
+                                .text_size(px(typography.code_size))
+                                .line_height(px(typography.code_line_height))
+                                .child(
+                                    selectable(
+                                        message_id,
+                                        content_text_index,
+                                        content.clone(),
+                                        selection,
+                                        palette,
                                     )
-                                }),
-                            ),
-                        ),
+                                    .with_highlights(
+                                        if cx.theme().is_dark() {
+                                            &highlights.dark
+                                        } else {
+                                            &highlights.light
+                                        }
+                                        .iter()
+                                        .map(|highlight| {
+                                            (
+                                                highlight.range.clone(),
+                                                HighlightStyle::from(rgba(highlight.rgba)),
+                                            )
+                                        }),
+                                    ),
+                                )
+                                .when(!context.code_block_wrap, |element| element.pb_6()),
+                        )
+                        .when(!context.code_block_wrap, |element| {
+                            element.child(always_horizontal_scrollbar(
+                                code_scrollbar_id,
+                                &code_scroll,
+                                cx,
+                            ))
+                        }),
                 )
                 .into_any_element()
         }
@@ -224,10 +245,10 @@ fn render_table(
 ) -> AnyElement {
     let typography = context.typography;
     let palette = context.palette;
-    let table_scroll = context.horizontal_scrolls.handle(format!(
-        "markdown-table:{}:{}",
-        context.message_id, *text_index
-    ));
+    let cx = context.cx;
+    let table_key = format!("markdown-table:{}:{}", context.message_id, *text_index);
+    let table_scroll = context.horizontal_scrolls.handle(table_key.clone());
+    let table_scrollbar_id = SharedString::from(format!("{table_key}-scrollbar"));
     let boundary_scroll = table_scroll.clone();
 
     let columns = table
@@ -277,36 +298,50 @@ fn render_table(
     };
 
     div()
-        .id(element_key(
-            "table",
-            table
-                .header
-                .first()
-                .and_then(|cell| cell.first())
-                .and_then(|inline| match inline {
-                    Inline::Text { content, .. } => Some(content.as_str()),
-                    _ => None,
-                })
-                .unwrap_or("empty"),
-        ))
-        .track_scroll(&table_scroll)
-        .on_scroll_wheel(move |event, _, cx| {
-            if nested_horizontal_scroll_captures(event, &boundary_scroll) {
-                cx.stop_propagation();
-            }
-        })
+        .relative()
         .w_full()
-        .overflow_x_scroll()
-        .restrict_scroll_to_axis()
+        .overflow_hidden()
         .rounded_lg()
         .border_1()
         .border_color(palette.border)
         .child(
             div()
-                .flex()
-                .flex_col()
-                .children((!table.header.is_empty()).then(|| render_row(table.header, true)))
-                .children(table.rows.iter().map(|row| render_row(row, false))),
+                .id(element_key(
+                    "table",
+                    table
+                        .header
+                        .first()
+                        .and_then(|cell| cell.first())
+                        .and_then(|inline| match inline {
+                            Inline::Text { content, .. } => Some(content.as_str()),
+                            _ => None,
+                        })
+                        .unwrap_or("empty"),
+                ))
+                .track_scroll(&table_scroll)
+                .on_scroll_wheel(move |event, _, cx| {
+                    if nested_horizontal_scroll_captures(event, &boundary_scroll) {
+                        cx.stop_propagation();
+                    }
+                })
+                .w_full()
+                .overflow_x_scroll()
+                .restrict_scroll_to_axis()
+                .pb_4()
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .children(
+                            (!table.header.is_empty()).then(|| render_row(table.header, true)),
+                        )
+                        .children(table.rows.iter().map(|row| render_row(row, false))),
+                ),
         )
+        .child(always_horizontal_scrollbar(
+            table_scrollbar_id,
+            &table_scroll,
+            cx,
+        ))
         .into_any_element()
 }

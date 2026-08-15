@@ -25,22 +25,8 @@ pub(super) fn render_composer(
             .current_model()
             .is_some_and(|model| model.capabilities.audio_input);
     let show_context_indicator = app.current_model().is_some();
-    let single_line_left_padding = if show_microphone { 88.0 } else { 46.0 };
-    let single_line_right_padding = if show_context_indicator { 88.0 } else { 46.0 };
-    let multiline =
-        composer_is_multiline(app, single_line_left_padding, single_line_right_padding, cx);
+    let multiline = composer_is_multiline(app, cx);
     let expanded = multiline && app.chat.composer_expanded.get();
-    let context_indicator = show_context_indicator.then(|| {
-        div()
-            .absolute()
-            .right(px(if multiline { 91.0 } else { 49.0 }))
-            .bottom(px(7.0))
-            .child(render_context_indicator(
-                app,
-                context_usage_popover_progress,
-                cx,
-            ))
-    });
     let can_send = (!app.chat.composer.read(cx).value().trim().is_empty()
         || !app.chat.attachments.is_empty())
         && !app.chat.attachments_loading
@@ -48,8 +34,7 @@ pub(super) fn render_composer(
         && app.attachment_context_supported()
         && app.current_model().is_some()
         && app.current_conversation().is_some();
-    let action = render_primary_action(generating, recording_active, can_send, cx);
-    let expand = render_expand_action(multiline, expanded, recording_active, cx);
+    let attachments = render_attachments(app, cx);
     let add = render_add_action(
         generating,
         recording_active,
@@ -57,10 +42,74 @@ pub(super) fn render_composer(
         cx,
     );
     let microphone = render_microphone_action(app, show_microphone, recording_status, cx);
-    let attachments = render_attachments(app, cx);
+    let left_actions = div()
+        .flex_none()
+        .flex()
+        .items_center()
+        .gap_2()
+        .child(add)
+        .children(microphone);
+
+    let context_indicator = show_context_indicator
+        .then(|| render_context_indicator(app, context_usage_popover_progress, cx));
+    let expand = render_expand_action(multiline, expanded, recording_active, cx);
+    let action = render_primary_action(generating, recording_active, can_send, cx);
+    let right_actions = div()
+        .flex_none()
+        .flex()
+        .items_center()
+        .gap_2()
+        .children(context_indicator)
+        .children(expand)
+        .child(action);
+
+    let editor = if recording_active {
+        div()
+            .relative()
+            .min_w_0()
+            .flex_1()
+            .child(
+                Textarea::new(&app.chat.composer)
+                    .aria_label("Message")
+                    .appearance(false)
+                    .absolute()
+                    .inset_0(),
+            )
+            .child(
+                div()
+                    .relative()
+                    .w_full()
+                    .bg(cx.theme().popover)
+                    .child(render_recording_status(app, cx)),
+            )
+            .into_any_element()
+    } else {
+        let input = Textarea::new(&app.chat.composer)
+            .aria_label("Message")
+            .appearance(false)
+            .w_full()
+            .text_size(px(typography.body_size))
+            .line_height(px(typography.body_line_height));
+        let input = if expanded { input.h(px(480.0)) } else { input };
+        div().min_w_0().flex_1().child(input).into_any_element()
+    };
+
+    let editor_row = div()
+        .min_w_0()
+        .w_full()
+        .px(px(7.0))
+        .flex()
+        .gap_2()
+        .child(left_actions)
+        .child(editor)
+        .child(right_actions);
+    let editor_row = if multiline && !recording_active {
+        editor_row.py(px(7.0)).items_end()
+    } else {
+        editor_row.h(px(48.0)).items_center()
+    };
 
     let input = div()
-        .relative()
         .min_w_0()
         .flex_1()
         .overflow_hidden()
@@ -93,61 +142,7 @@ pub(super) fn render_composer(
             }
         }))
         .children(attachments)
-        .child(if recording_active {
-            div()
-                .relative()
-                .w_full()
-                .h(px(48.0))
-                .child(
-                    Textarea::new(&app.chat.composer)
-                        .aria_label("Message")
-                        .appearance(false)
-                        .w_full()
-                        .my(px(4.0)),
-                )
-                .child(
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .overflow_hidden()
-                        .rounded(px(21.0))
-                        .bg(cx.theme().popover)
-                        .child(render_recording_status(app, cx)),
-                )
-                .into_any_element()
-        } else {
-            let input = Textarea::new(&app.chat.composer)
-                .aria_label("Message")
-                .appearance(false)
-                .text_size(px(typography.body_size))
-                .line_height(px(typography.body_line_height));
-
-            if multiline {
-                let input = if expanded { input.h(px(480.0)) } else { input };
-                div()
-                    .w_full()
-                    .min_w_0()
-                    .pt(px(4.0))
-                    .pr(px(4.0))
-                    .child(input)
-                    .into_any_element()
-            } else {
-                input
-                    .pl(px(single_line_left_padding))
-                    .pr(px(single_line_right_padding))
-                    .my(px(4.0))
-                    .into_any_element()
-            }
-        })
-        .children(
-            (multiline && !recording_active)
-                .then(|| div().h(px(if expanded { 56.0 } else { 40.0 })).flex_none()),
-        )
-        .child(add)
-        .children(microphone)
-        .child(action)
-        .children(expand)
-        .children(context_indicator);
+        .child(editor_row);
 
     div()
         .flex_none()
@@ -165,14 +160,7 @@ pub(super) fn render_composer(
         .into_any_element()
 }
 
-fn composer_is_multiline(
-    app: &OneChat,
-    single_line_left_padding: f32,
-    single_line_right_padding: f32,
-    cx: &App,
-) -> bool {
-    const HYSTERESIS: f32 = 8.0;
-
+fn composer_is_multiline(app: &OneChat, cx: &App) -> bool {
     let current = app.chat.composer_multiline.get();
     let composer = app.chat.composer.read(cx);
     let value = composer.value();
@@ -198,23 +186,7 @@ fn composer_is_multiline(
     let Some(line_height) = composer.line_height() else {
         return current;
     };
-    let wrapped = text_bounds.size.height > line_height + px(0.5);
-
-    let multiline = if current && !wrapped {
-        // The multiline layout gives text the full row. Only collapse when that text also fits in
-        // the narrower single-line layout. The extra gap absorbs font/pixel rounding differences.
-        let Some(viewport) = composer.text_bounds() else {
-            return current;
-        };
-        let single_line_width = px((viewport.size.width.as_f32()
-            - single_line_left_padding
-            - single_line_right_padding
-            - HYSTERESIS)
-            .max(0.0));
-        text_bounds.size.width > single_line_width
-    } else {
-        wrapped
-    };
+    let multiline = text_bounds.size.height > line_height + px(0.5);
 
     app.chat.composer_multiline.set(multiline);
     if !multiline {

@@ -58,14 +58,7 @@ pub(super) fn render_model(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEleme
                         .font_weight(FontWeight::SEMIBOLD)
                         .child("Reasoning"),
                 )
-                .child(
-                    Select::new(&editor.reasoning_select)
-                        .large()
-                        .h(px(40.0))
-                        .px(px(12.0))
-                        .rounded(px(10.0))
-                        .w_full(),
-                ),
+                .child(field_control(Select::new(&editor.reasoning_select)).w_full()),
         );
     }
 

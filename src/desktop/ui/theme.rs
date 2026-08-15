@@ -58,6 +58,29 @@ mod tests {
     }
 
     #[test]
+    fn scrollbar_colors_are_subtle_readable_and_stateful() {
+        for seed in ["#007AFF", "#FFD60A", "#34C759", "#AF52DE", "#808080"] {
+            for mode in [ComponentThemeMode::Light, ComponentThemeMode::Dark] {
+                let palette = AppPalette::generate(mode, parse_theme_color(seed));
+                for background in [
+                    palette.canvas,
+                    palette.panel,
+                    palette.user_message.background,
+                ] {
+                    let normal = contrast_ratio(palette.scrollbar_thumb, background);
+                    let hover = contrast_ratio(palette.scrollbar_thumb_hover, background);
+                    let active = contrast_ratio(palette.scrollbar_thumb_active, background);
+
+                    assert!(normal >= 3.0);
+                    assert!(hover >= 4.5);
+                    assert!(active >= 6.0);
+                    assert!(normal < hover && hover < active);
+                }
+            }
+        }
+    }
+
+    #[test]
     fn perceptual_adaptation_preserves_muted_theme_colors() {
         let seed = parse_theme_color("#A9B8C7");
         for mode in [ComponentThemeMode::Light, ComponentThemeMode::Dark] {

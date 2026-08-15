@@ -15,9 +15,6 @@ pub(super) fn render_primary_action(
             .tooltip("Stop generating")
             .size(px(34.0))
             .p_0()
-            .absolute()
-            .right(px(7.0))
-            .bottom(px(7.0))
             .child(render_icon(AppIcon::Stop, IconTone::OnAccent, 16.0, cx))
             .on_click(cx.listener(|this, _, _, cx| this.stop_current_generation(cx)))
             .into_any_element()
@@ -28,9 +25,6 @@ pub(super) fn render_primary_action(
             .tooltip("Cancel recording")
             .size(px(34.0))
             .p_0()
-            .absolute()
-            .right(px(7.0))
-            .bottom(px(7.0))
             .child(render_icon(AppIcon::Close, IconTone::Muted, 17.0, cx))
             .on_click(cx.listener(|this, _, _, cx| this.cancel_voice_recording(cx)))
             .into_any_element()
@@ -42,9 +36,6 @@ pub(super) fn render_primary_action(
             .disabled(!can_send)
             .size(px(34.0))
             .p_0()
-            .absolute()
-            .right(px(7.0))
-            .bottom(px(7.0))
             .child(render_icon(
                 AppIcon::ArrowUp,
                 if can_send {
@@ -77,9 +68,6 @@ pub(super) fn render_expand_action(
             })
             .size(px(34.0))
             .p_0()
-            .absolute()
-            .right(px(49.0))
-            .bottom(px(7.0))
             .child(render_icon(
                 if expanded {
                     AppIcon::Minimize
@@ -126,9 +114,6 @@ pub(super) fn render_add_action(
         .disabled(generating || recording_active || attachments_loading)
         .size(px(34.0))
         .p_0()
-        .absolute()
-        .left(px(7.0))
-        .bottom(px(7.0))
         .child(render_icon(AppIcon::Plus, IconTone::Muted, 20.0, cx))
         .on_click(cx.listener(|this, _, _, cx| this.add_attachments(cx)))
 }
@@ -161,9 +146,6 @@ pub(super) fn render_microphone_action(
             .disabled(!recording && !can_start)
             .size(px(34.0))
             .p_0()
-            .absolute()
-            .left(px(49.0))
-            .bottom(px(7.0))
             .child(render_icon(
                 if recording {
                     AppIcon::Stop

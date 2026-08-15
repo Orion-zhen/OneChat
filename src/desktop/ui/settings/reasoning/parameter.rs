@@ -44,8 +44,8 @@ impl SearchableListItem for ReasoningParameterTypeItem {
         &self.0
     }
 
-    fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        crate::desktop::ui::spaced_select_item(self.title(), cx)
+    fn render(&self, _: &mut Window, _: &mut App) -> impl IntoElement {
+        self.title()
     }
 }
 
@@ -63,8 +63,8 @@ impl SearchableListItem for ReasoningBooleanItem {
         &self.0
     }
 
-    fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        crate::desktop::ui::spaced_select_item(self.title(), cx)
+    fn render(&self, _: &mut Window, _: &mut App) -> impl IntoElement {
+        self.title()
     }
 }
 
@@ -161,36 +161,33 @@ impl SearchableListItem for ChatTemplateParameterItem {
     }
 
     fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        crate::desktop::ui::spaced_select_item(
-            div()
-                .w_full()
-                .min_w_0()
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap_3()
-                .child(
-                    div()
-                        .min_w_0()
-                        .flex()
-                        .flex_col()
-                        .child(div().truncate().child(self.path.clone()))
-                        .child(
-                            div()
-                                .text_xs()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(self.description),
-                        ),
-                )
-                .children(self.custom.then(|| {
-                    div()
-                        .flex_none()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child("Use custom")
-                })),
-            cx,
-        )
+        div()
+            .w_full()
+            .min_w_0()
+            .flex()
+            .items_center()
+            .justify_between()
+            .gap_3()
+            .child(
+                div()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .child(div().truncate().child(self.path.clone()))
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(self.description),
+                    ),
+            )
+            .children(self.custom.then(|| {
+                div()
+                    .flex_none()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child("Use custom")
+            }))
     }
 }
 

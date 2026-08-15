@@ -5,7 +5,7 @@ mod provider;
 use super::*;
 
 fn form_input(state: &Entity<InputState>, label: &'static str) -> Input {
-    Input::new(state).large().max_h(px(40.0)).aria_label(label)
+    field_control(Input::new(state)).aria_label(label)
 }
 
 fn single_input_row(input: Input, action: Button) -> Div {

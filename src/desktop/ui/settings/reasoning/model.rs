@@ -30,8 +30,8 @@ impl SearchableListItem for KnownReasoningFormatItem {
         &self.0
     }
 
-    fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        crate::desktop::ui::spaced_select_item(self.title(), cx)
+    fn render(&self, _: &mut Window, _: &mut App) -> impl IntoElement {
+        self.title()
     }
 }
 

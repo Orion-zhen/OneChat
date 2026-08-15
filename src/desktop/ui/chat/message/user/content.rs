@@ -72,7 +72,7 @@ pub(super) fn render_message_content(
                     ),
             )
             .children(has_attachments.then(|| {
-                div()
+                let attachments = div()
                     .id(SharedString::from(format!(
                         "edit-user-attachments-{}",
                         turn.id
@@ -87,7 +87,7 @@ pub(super) fn render_message_content(
                     })
                     .overflow_x_scroll()
                     .restrict_scroll_to_axis()
-                    .pb_3()
+                    .pb_6()
                     .flex()
                     .items_center()
                     .gap_2()
@@ -103,7 +103,18 @@ pub(super) fn render_message_content(
                             cx,
                         )
                     }))
-                    .children(attachments_loading.then(|| render_edit_attachment_loading(cx)))
+                    .children(attachments_loading.then(|| render_edit_attachment_loading(cx)));
+
+                div()
+                    .relative()
+                    .w_full()
+                    .min_w_0()
+                    .child(attachments)
+                    .child(always_horizontal_scrollbar(
+                        SharedString::from(format!("edit-user-attachments-scrollbar-{}", turn.id)),
+                        &attachment_scroll,
+                        cx,
+                    ))
             }))
             .child(
                 div()

@@ -179,15 +179,18 @@ fn capacity_ring(remaining_ratio: Option<f32>, color: Hsla, cx: &App) -> AnyElem
     let track = cx.theme().border;
     let ring = circular_progress(remaining_ratio.unwrap_or(0.0), track, color);
     div()
-        .relative()
         .size(px(18.0))
         .flex_none()
-        .child(ring)
+        .grid()
+        .grid_cols(1)
+        .grid_rows(1)
+        .child(div().col_start(1).row_start(1).size_full().child(ring))
         .children(remaining_ratio.is_none().then(|| {
             div()
-                .absolute()
-                .left(px(6.0))
-                .top(px(8.0))
+                .col_start(1)
+                .row_start(1)
+                .mt(px(8.0))
+                .ml(px(6.0))
                 .w(px(6.0))
                 .h(px(1.5))
                 .rounded_full()

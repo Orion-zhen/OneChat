@@ -220,44 +220,19 @@ pub(crate) fn render_picker_overlay(
         .flex_col()
         .gap_2()
         .on_any_mouse_down(|_, _, cx| cx.stop_propagation())
-        .child(
-            div()
-                .relative()
-                .w_full()
-                .pr(px(40.0))
-                .flex()
-                .flex_col()
-                .gap_1()
-                .child(
-                    div()
-                        .text_size(px(19.0))
-                        .line_height(px(24.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(title),
-                )
-                .child(
-                    div()
-                        .text_size(px(12.0))
-                        .line_height(px(18.0))
-                        .text_color(cx.theme().muted_foreground)
-                        .child(subtitle),
-                )
-                .child(
-                    Button::new("close-picker-overlay")
-                        .absolute()
-                        .top_0()
-                        .right_0()
-                        .ghost()
-                        .tooltip("Close")
-                        .size(px(36.0))
-                        .p_0()
-                        .rounded(px(11.0))
-                        .child(Icon::new(IconName::Close).size(px(18.0)))
-                        .on_click(
-                            cx.listener(|this, _, _, cx| this.close_picker_overlay(true, cx)),
-                        ),
-                ),
-        )
+        .child(picker_header(
+            title,
+            subtitle,
+            Button::new("close-picker-overlay")
+                .ghost()
+                .tooltip("Close")
+                .size(px(36.0))
+                .p_0()
+                .rounded(px(11.0))
+                .child(Icon::new(IconName::Close).size(px(18.0)))
+                .on_click(cx.listener(|this, _, _, cx| this.close_picker_overlay(true, cx))),
+            cx,
+        ))
         .child(body)
         .child(footer);
     let offset = if reduce_motion {
@@ -309,11 +284,36 @@ fn picker_dialog(
         .bg(crate::desktop::ui::theme::palette(cx).overlay_panel)
         .shadow_xl()
         .close_button(false)
-        .title(
+        .title(picker_header(
+            title,
+            subtitle,
+            Button::new("close-picker-dialog")
+                .ghost()
+                .tooltip("Close")
+                .size(px(36.0))
+                .p_0()
+                .rounded(px(11.0))
+                .child(Icon::new(IconName::Close).size(px(18.0)))
+                .on_click(|_, window, cx| window.close_dialog(cx)),
+            cx,
+        ))
+}
+
+fn picker_header(
+    title: &'static str,
+    subtitle: &'static str,
+    close: impl IntoElement,
+    cx: &App,
+) -> gpui::Div {
+    div()
+        .w_full()
+        .flex()
+        .items_start()
+        .child(
             div()
-                .relative()
-                .w_full()
-                .pr(px(40.0))
+                .min_w_0()
+                .flex_1()
+                .pr(px(4.0))
                 .flex()
                 .flex_col()
                 .gap_1()
@@ -331,21 +331,9 @@ fn picker_dialog(
                         .font_weight(FontWeight::NORMAL)
                         .text_color(cx.theme().muted_foreground)
                         .child(subtitle),
-                )
-                .child(
-                    Button::new("close-picker-dialog")
-                        .absolute()
-                        .top(px(0.0))
-                        .right(px(0.0))
-                        .ghost()
-                        .tooltip("Close")
-                        .size(px(36.0))
-                        .p_0()
-                        .rounded(px(11.0))
-                        .child(Icon::new(IconName::Close).size(px(18.0)))
-                        .on_click(|_, window, cx| window.close_dialog(cx)),
                 ),
         )
+        .child(div().flex_none().child(close))
 }
 
 fn picker_list<D: ListDelegate + 'static>(

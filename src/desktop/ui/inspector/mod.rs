@@ -36,7 +36,7 @@ use crate::{
     desktop::app::OneChat,
     desktop::ui::{
         badges::{StatusPillBackground, status_pill},
-        controls::sync_slider,
+        controls::{field_control, sync_slider},
         icons::{AppIcon, IconActionSize::Regular, IconTone, render_icon},
         input::textarea as multiline_input,
         mcp::tool_row as mcp_tool_row,
@@ -78,10 +78,10 @@ pub(crate) fn render(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
         .large()
         .w_full()
         .selected_index(selected_tab)
-        .child(Tab::new().w(px(76.0)).label("Model"))
-        .child(Tab::new().w(px(76.0)).label("Context"))
-        .child(Tab::new().w(px(76.0)).label("Tools"))
-        .child(Tab::new().w(px(76.0)).label("Info"))
+        .child(Tab::new().flex_1().label("Model"))
+        .child(Tab::new().flex_1().label("Context"))
+        .child(Tab::new().flex_1().label("Tools"))
+        .child(Tab::new().flex_1().label("Info"))
         .on_click(cx.listener(|this, index: &usize, _, cx| {
             let tab = [
                 InspectorTab::Model,
