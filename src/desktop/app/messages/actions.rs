@@ -2,8 +2,8 @@ use gpui::{App, Context, Entity, TouchPhase, Window, prelude::*};
 use gpui_component::input::{InputEvent, TextareaState};
 
 use super::super::{
-    AssistantOutputEditor, MessageEditor, MessageEditorTarget, OneChat, PendingFocus,
-    multiline_input,
+    AssistantOutputEditor, CONTENT_EDITOR_MAX_ROWS, MessageEditor, MessageEditorTarget, OneChat,
+    PendingFocus, multiline_input,
 };
 use crate::{
     application::generation::PreparedGeneration,
@@ -14,8 +14,6 @@ use crate::{
     },
     domain::{AssistantBlock, AssistantResponse, Turn, new_id, now_timestamp},
 };
-
-const ASSISTANT_EDITOR_MAX_ROWS: usize = 24;
 
 #[derive(Debug, PartialEq, Eq)]
 struct SwipeNeighbors {
@@ -425,7 +423,7 @@ impl OneChat {
                 multiline_input(
                     content,
                     "Edit assistant output",
-                    ASSISTANT_EDITOR_MAX_ROWS,
+                    CONTENT_EDITOR_MAX_ROWS,
                     window,
                     cx,
                 )

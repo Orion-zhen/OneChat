@@ -112,6 +112,8 @@ pub(crate) struct MessageEditor {
     pub(crate) attachment_load_id: Option<String>,
 }
 
+const CONTENT_EDITOR_MAX_ROWS: usize = 24;
+
 fn multiline_input(
     value: impl Into<String>,
     placeholder: impl Into<gpui::SharedString>,

@@ -2,7 +2,10 @@ use std::{collections::BTreeSet, time::Duration};
 
 use gpui::{Context, Window, prelude::*};
 
-use super::{DestructiveAction, OneChat, PendingFocus, SystemPromptMode, multiline_input};
+use super::{
+    CONTENT_EDITOR_MAX_ROWS, DestructiveAction, OneChat, PendingFocus, SystemPromptMode,
+    multiline_input,
+};
 use crate::{
     desktop::ui::inspector::GenerationParameter,
     domain::{Theme, ToolRef, ToolSelection, now_timestamp},
@@ -37,23 +40,6 @@ impl OneChat {
     }
 
     pub(crate) fn begin_edit_system_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.begin_edit_prompt_setup(PendingFocus::SystemPrompt, window, cx);
-    }
-
-    pub(crate) fn begin_edit_assistant_opening(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.begin_edit_prompt_setup(PendingFocus::AssistantOpening, window, cx);
-    }
-
-    fn begin_edit_prompt_setup(
-        &mut self,
-        focus: PendingFocus,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
         if self.is_current_generating() {
             return;
         }
@@ -66,7 +52,7 @@ impl OneChat {
             multiline_input(
                 system_prompt,
                 "Describe how the assistant should respond",
-                8,
+                CONTENT_EDITOR_MAX_ROWS,
                 window,
                 cx,
             )
@@ -75,14 +61,41 @@ impl OneChat {
             multiline_input(
                 assistant_opening,
                 "Optional first assistant message",
-                6,
+                CONTENT_EDITOR_MAX_ROWS,
                 window,
                 cx,
             )
         }));
         self.chat.system_prompt_mode = SystemPromptMode::Editing;
         self.set_inspector_open(false, true, cx);
-        self.navigation.pending_focus = Some(focus);
+        self.navigation.pending_focus = Some(PendingFocus::SystemPrompt);
+        cx.notify();
+    }
+
+    pub(crate) fn begin_edit_assistant_opening(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.is_current_generating() || self.chat.system_prompt_mode == SystemPromptMode::Editing
+        {
+            return;
+        }
+        let Some(conversation) = self.current_conversation() else {
+            return;
+        };
+        let assistant_opening = conversation.assistant_opening.clone();
+        self.chat.assistant_opening_editor = Some(cx.new(|cx| {
+            multiline_input(
+                assistant_opening,
+                "Optional first assistant message",
+                CONTENT_EDITOR_MAX_ROWS,
+                window,
+                cx,
+            )
+        }));
+        self.set_inspector_open(false, true, cx);
+        self.navigation.pending_focus = Some(PendingFocus::AssistantOpening);
         cx.notify();
     }
 
@@ -92,6 +105,34 @@ impl OneChat {
         self.chat.system_prompt_mode = SystemPromptMode::Compact;
         self.navigation.pending_focus = Some(PendingFocus::Composer);
         cx.notify();
+    }
+
+    pub(crate) fn cancel_assistant_opening_edit(&mut self, cx: &mut Context<Self>) {
+        self.chat.assistant_opening_editor = None;
+        self.navigation.pending_focus = Some(PendingFocus::Composer);
+        cx.notify();
+    }
+
+    pub(crate) fn save_assistant_opening(&mut self, cx: &mut Context<Self>) {
+        if self.is_current_generating() || self.chat.system_prompt_mode == SystemPromptMode::Editing
+        {
+            return;
+        }
+        let Some(editor) = self.chat.assistant_opening_editor.as_ref() else {
+            return;
+        };
+        let assistant_opening = editor.read(cx).value().trim().to_string();
+        let Some(mut conversation) = self.current_conversation().cloned() else {
+            return;
+        };
+        conversation.assistant_opening = assistant_opening;
+        conversation.updated_at = now_timestamp();
+        self.chat.assistant_opening_editor = None;
+        self.navigation.pending_focus = Some(PendingFocus::Composer);
+        self.mutate_and_reload(
+            move |storage| storage.update_conversation(&conversation),
+            cx,
+        );
     }
 
     pub(crate) fn save_system_prompt(&mut self, cx: &mut Context<Self>) {

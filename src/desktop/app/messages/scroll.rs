@@ -6,11 +6,11 @@ use crate::desktop::ui::stream::follow_after_scroll;
 impl OneChat {
     fn message_editor_item(&self) -> Option<usize> {
         let target = &self.chat.message_editor.as_ref()?.target;
-        let has_system_prompt = self
-            .current_conversation()
-            .is_some_and(|conversation| !conversation.system_prompt.trim().is_empty())
-            || self.chat.system_prompt_mode == SystemPromptMode::Editing;
-        let mut item = usize::from(has_system_prompt);
+        let has_prompt_setup = self.current_conversation().is_some_and(|conversation| {
+            !conversation.system_prompt.trim().is_empty()
+                || !conversation.assistant_opening.trim().is_empty()
+        }) || self.chat.system_prompt_mode == SystemPromptMode::Editing;
+        let mut item = usize::from(has_prompt_setup);
 
         for turn in self.current_turns() {
             if matches!(target, MessageEditorTarget::User(id) if id == &turn.id) {
