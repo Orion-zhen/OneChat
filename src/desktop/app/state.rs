@@ -211,6 +211,7 @@ pub(crate) struct ChatState {
     pub(crate) generation_config_save_revision: u64,
     pub(crate) parameter_error: Option<String>,
     pub(crate) composer: Entity<TextareaState>,
+    pub(crate) composer_committed_value: String,
     pub(crate) composer_multiline: Cell<bool>,
     pub(crate) composer_expanded: Cell<bool>,
     pub(crate) context_usage_popover_open: bool,

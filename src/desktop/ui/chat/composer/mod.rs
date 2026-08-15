@@ -24,9 +24,12 @@ pub(super) fn render_composer(
         || app
             .current_model()
             .is_some_and(|model| model.capabilities.audio_input);
-    let multiline = composer_is_multiline(app, message_max_width, cx);
-    let expanded = multiline && app.chat.composer_expanded.get();
     let show_context_indicator = app.current_model().is_some();
+    let single_line_left_padding = if show_microphone { 88.0 } else { 46.0 };
+    let single_line_right_padding = if show_context_indicator { 88.0 } else { 46.0 };
+    let multiline =
+        composer_is_multiline(app, single_line_left_padding, single_line_right_padding, cx);
+    let expanded = multiline && app.chat.composer_expanded.get();
     let context_indicator = show_context_indicator.then(|| {
         div()
             .absolute()
@@ -130,8 +133,8 @@ pub(super) fn render_composer(
                     .into_any_element()
             } else {
                 input
-                    .pl(px(if show_microphone { 88.0 } else { 46.0 }))
-                    .pr(px(if show_context_indicator { 88.0 } else { 46.0 }))
+                    .pl(px(single_line_left_padding))
+                    .pr(px(single_line_right_padding))
                     .my(px(4.0))
                     .into_any_element()
             }
@@ -162,8 +165,23 @@ pub(super) fn render_composer(
         .into_any_element()
 }
 
-fn composer_is_multiline(app: &OneChat, width: f32, cx: &App) -> bool {
-    let value = app.chat.composer.read(cx).value();
+fn composer_is_multiline(
+    app: &OneChat,
+    single_line_left_padding: f32,
+    single_line_right_padding: f32,
+    cx: &App,
+) -> bool {
+    const HYSTERESIS: f32 = 8.0;
+
+    let current = app.chat.composer_multiline.get();
+    let composer = app.chat.composer.read(cx);
+    let value = composer.value();
+
+    // Preedit changes are not InputEvent::Change events. Keep the outer layout fixed while the
+    // IME owns temporary text, otherwise every candidate update can move its own anchor.
+    if value != app.chat.composer_committed_value {
+        return current;
+    }
     if value.is_empty() {
         app.chat.composer_multiline.set(false);
         app.chat.composer_expanded.set(false);
@@ -174,12 +192,30 @@ fn composer_is_multiline(app: &OneChat, width: f32, cx: &App) -> bool {
         return true;
     }
 
-    let Some((size, line_height)) = textarea_text_size(&app.chat.composer, 0..value.len(), cx)
-    else {
-        return app.chat.composer_multiline.get();
+    let Some(text_bounds) = composer.range_to_bounds(&(0..value.len())) else {
+        return current;
     };
-    let multiline =
-        size.height > line_height + px(0.5) || size.width > px((width - 112.0).max(0.0));
+    let Some(line_height) = composer.line_height() else {
+        return current;
+    };
+    let wrapped = text_bounds.size.height > line_height + px(0.5);
+
+    let multiline = if current && !wrapped {
+        // The multiline layout gives text the full row. Only collapse when that text also fits in
+        // the narrower single-line layout. The extra gap absorbs font/pixel rounding differences.
+        let Some(viewport) = composer.text_bounds() else {
+            return current;
+        };
+        let single_line_width = px((viewport.size.width.as_f32()
+            - single_line_left_padding
+            - single_line_right_padding
+            - HYSTERESIS)
+            .max(0.0));
+        text_bounds.size.width > single_line_width
+    } else {
+        wrapped
+    };
+
     app.chat.composer_multiline.set(multiline);
     if !multiline {
         app.chat.composer_expanded.set(false);

@@ -21,11 +21,16 @@ pub(super) fn input_controls(window: &mut Window, cx: &mut Context<OneChat>) -> 
             .soft_wrap(true)
             .placeholder("Message")
     });
-    cx.subscribe_in(&composer, window, |_, _, event: &InputEvent, _, cx| {
-        if matches!(event, InputEvent::Change) {
-            cx.notify();
-        }
-    })
+    cx.subscribe_in(
+        &composer,
+        window,
+        |this, composer, event: &InputEvent, _, cx| {
+            if matches!(event, InputEvent::Change) {
+                this.chat.composer_committed_value = composer.read(cx).value().to_string();
+                cx.notify();
+            }
+        },
+    )
     .detach();
 
     let mcp_json_import = cx.new(|cx| {

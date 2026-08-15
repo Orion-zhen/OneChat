@@ -178,6 +178,7 @@ impl OneChat {
                 generation_config_save_revision: 0,
                 parameter_error: None,
                 composer,
+                composer_committed_value: String::new(),
                 composer_multiline: Cell::new(false),
                 composer_expanded: Cell::new(false),
                 context_usage_popover_open: false,

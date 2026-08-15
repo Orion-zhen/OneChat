@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use gpui::{App, AppContext as _, Context, Entity, Pixels, Size, Window};
+use gpui::{App, AppContext as _, Context, Entity, Window};
 use gpui_component::input::{InputState, TextareaState};
 
 use crate::desktop::app::OneChat;
@@ -56,16 +56,4 @@ pub(crate) fn set_textarea_selection(
     cx: &mut App,
 ) {
     state.update(cx, |state, cx| state.set_selected_range(selection, cx));
-}
-
-pub(crate) fn textarea_text_size(
-    state: &Entity<TextareaState>,
-    range: Range<usize>,
-    cx: &App,
-) -> Option<(Size<Pixels>, Pixels)> {
-    let state = state.read(cx);
-    state
-        .range_to_bounds(&range)
-        .zip(state.line_height())
-        .map(|(bounds, line_height)| (bounds.size, line_height))
 }

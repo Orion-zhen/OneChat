@@ -29,7 +29,7 @@ use gpui_component::{
 use super::{
     copy_button::CopyButton,
     icons::{AppIcon, IconTone, render_icon},
-    input::{set_textarea_selection, textarea_selection, textarea_text_size},
+    input::{set_textarea_selection, textarea_selection},
     markdown,
     motion::translated_y,
     selectable_text::{SelectableText, selection_color},
