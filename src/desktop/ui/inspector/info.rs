@@ -120,6 +120,42 @@ pub(super) fn render_info(app: &OneChat, cx: &App) -> AnyElement {
             content = content.child(prompt_block("Prompt variables", &evaluations, cx));
         }
     }
+    if let Some(opening) = &request.assistant_opening {
+        if opening.template != opening.resolved && !opening.template.is_empty() {
+            content = content.child(prompt_block(
+                "Assistant opening template",
+                &opening.template,
+                cx,
+            ));
+        }
+        content = content.child(prompt_block(
+            "Resolved assistant opening",
+            if opening.resolved.is_empty() {
+                "—"
+            } else {
+                &opening.resolved
+            },
+            cx,
+        ));
+        if !opening.variables.is_empty() {
+            let evaluations = opening
+                .variables
+                .iter()
+                .map(|variable| {
+                    format!(
+                        "{} · {} · {} ms",
+                        variable.name, variable.source, variable.duration_ms
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            content = content.child(prompt_block(
+                "Assistant opening variables",
+                &evaluations,
+                cx,
+            ));
+        }
+    }
     if let Some(error) = &request.error {
         content = content
             .child(inspector_field("Error category", &error.kind, cx))

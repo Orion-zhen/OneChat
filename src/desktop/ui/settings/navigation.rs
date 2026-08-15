@@ -113,8 +113,8 @@ pub(super) fn settings_sidebar(app: &OneChat, width: f32, cx: &mut Context<OneCh
                     settings_nav_row(
                         "settings-system-prompts",
                         AppIcon::MessageText,
-                        "System Prompts",
-                        "Default instructions",
+                        "Prompts",
+                        "Presets and variables",
                         prompts_selected,
                         cx,
                     )

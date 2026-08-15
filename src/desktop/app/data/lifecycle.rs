@@ -233,6 +233,7 @@ impl OneChat {
         self.chat.draft_model_id = None;
         self.chat.system_prompt_mode = SystemPromptMode::Compact;
         self.chat.system_prompt_editor = None;
+        self.chat.assistant_opening_editor = None;
         self.chat.selected_request_id = None;
         self.chat.visible_response_ids.clear();
         self.overlays.response_model_turn_id = None;
@@ -371,6 +372,18 @@ impl OneChat {
 
 fn markdown_sources(snapshot: &StorageSnapshot) -> HashMap<String, String> {
     let mut sources = HashMap::new();
+    if let Some(conversation_id) = snapshot.settings.current_conversation_id.as_deref()
+        && let Some(conversation) = snapshot
+            .conversations
+            .iter()
+            .find(|conversation| conversation.id == conversation_id)
+        && !conversation.assistant_opening.is_empty()
+    {
+        sources.insert(
+            format!("assistant-opening-{}", conversation.id),
+            conversation.assistant_opening.clone(),
+        );
+    }
     for turn in &snapshot.current_turns {
         sources.insert(turn.user.id.clone(), turn.user.content.clone());
         for response in &turn.responses {

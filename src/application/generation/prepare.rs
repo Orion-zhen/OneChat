@@ -5,7 +5,7 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     application::{
         context_usage::estimate_input_tokens,
-        prompt::{PromptContext, PromptRenderError, render_prompt},
+        prompt::{PromptContext, PromptRenderError, render_prompt_templates},
     },
     domain::{
         AssistantResponse, Attachment, Conversation, GenerationConfig, GenerationError,
@@ -72,8 +72,24 @@ pub struct PreparedGeneration {
     pub new_attachments: Vec<Attachment>,
     pub(super) history_groups: Vec<PreparedHistoryGroup>,
     pub(super) current_message_requirements: InputRequirements,
+    history_start_index: usize,
+    assistant_opening_template: Option<String>,
     prompt_variables: BTreeMap<String, PromptVariableSource>,
     prompt_context: PromptContext,
+}
+
+fn prepend_assistant_opening(
+    context: &mut history::PreparedContext,
+    conversation: &Conversation,
+) -> usize {
+    if conversation.assistant_opening.is_empty() {
+        return 0;
+    }
+    context.messages.insert(
+        0,
+        Message::assistant(conversation.assistant_opening.clone()),
+    );
+    1
 }
 
 impl PreparedGeneration {
@@ -88,13 +104,14 @@ impl PreparedGeneration {
     ) -> Result<Self, String> {
         let response = AssistantResponse::new(model, provider);
         let mut turn = Turn::new(conversation, parent_response_id.clone(), user, response);
-        let context = prepare_context(
+        let mut context = prepare_context(
             turns,
             parent_response_id.as_deref(),
             &turn.user,
             context_policy.history_limit,
             context_policy.user_message,
         )?;
+        let history_start_index = prepend_assistant_opening(&mut context, conversation);
         let response = &mut turn.responses[0];
         let mut request_info = prepare_response(
             &conversation.id,
@@ -127,6 +144,9 @@ impl PreparedGeneration {
             new_attachments: Vec::new(),
             history_groups: context.history_groups,
             current_message_requirements: context.current_message_requirements,
+            history_start_index,
+            assistant_opening_template: (history_start_index == 1)
+                .then(|| conversation.assistant_opening.clone()),
             prompt_variables: BTreeMap::new(),
             prompt_context: PromptContext::default(),
         }
@@ -147,30 +167,45 @@ impl PreparedGeneration {
         self.prompt_context = context;
     }
 
-    pub async fn render_system_prompt(
+    pub async fn render_prompt_setup(
         &mut self,
         cancellation: CancellationToken,
     ) -> Result<(), PromptRenderError> {
-        let template = self.provider_request.system_prompt.clone();
-        let snapshot = render_prompt(
-            template.clone(),
+        let system_template = self.provider_request.system_prompt.clone();
+        let mut templates = vec![system_template.clone()];
+        templates.extend(self.assistant_opening_template.clone());
+        let snapshots = render_prompt_templates(
+            templates,
             std::mem::take(&mut self.prompt_variables),
             std::mem::take(&mut self.prompt_context),
             cancellation,
         )
         .await;
-        let snapshot = match snapshot {
-            Ok(snapshot) => snapshot,
+        let mut snapshots = match snapshots {
+            Ok(snapshots) => snapshots,
             Err(error) => {
                 self.request_info.system_prompt = Some(crate::domain::PromptSnapshot {
-                    template,
+                    template: system_template,
                     ..Default::default()
                 });
+                self.request_info.assistant_opening =
+                    self.assistant_opening_template.clone().map(|template| {
+                        crate::domain::PromptSnapshot {
+                            template,
+                            ..Default::default()
+                        }
+                    });
                 return Err(error);
             }
         };
-        self.provider_request.system_prompt = snapshot.resolved.clone();
-        self.request_info.system_prompt = Some(snapshot);
+        let system_snapshot = snapshots.remove(0);
+        self.provider_request.system_prompt = system_snapshot.resolved.clone();
+        self.request_info.system_prompt = Some(system_snapshot);
+        if let Some(opening_snapshot) = snapshots.pop() {
+            self.provider_request.messages[0] =
+                Message::assistant(opening_snapshot.resolved.clone());
+            self.request_info.assistant_opening = Some(opening_snapshot);
+        }
         update_input_token_estimate(&mut self.request_info, &self.provider_request);
         Ok(())
     }
@@ -183,7 +218,9 @@ impl PreparedGeneration {
                 && !self.history_groups.is_empty()
             {
                 let group = self.history_groups.remove(0);
-                self.provider_request.messages.drain(..group.message_count);
+                self.provider_request.messages.drain(
+                    self.history_start_index..self.history_start_index + group.message_count,
+                );
                 self.provider_request.audio_duration_ms = self
                     .provider_request
                     .audio_duration_ms
@@ -198,7 +235,7 @@ impl PreparedGeneration {
             if self.estimated_input_tokens() > u64::from(context_window) {
                 return Err(GenerationError::new(
                     GenerationErrorKind::ContextLengthExceeded,
-                    "System prompt and current message exceed the model context window",
+                    "Prompt setup and current message exceed the model context window",
                 )
                 .with_detail(format!(
                     "Estimated {} input tokens for a configured {}-token context window",
@@ -225,6 +262,7 @@ impl PreparedGeneration {
                 .iter()
                 .map(|group| group.message_count)
                 .sum::<usize>()
+                + self.history_start_index
                 + 1,
             self.provider_request.messages.len()
         );
@@ -320,13 +358,14 @@ impl PreparedGeneration {
         context_policy: ContextPolicy<'_>,
     ) -> Result<Self, String> {
         let (conversation, provider, model) = target;
-        let context = prepare_context(
+        let mut context = prepare_context(
             turns,
             turn.parent_response_id.as_deref(),
             &turn.user,
             context_policy.history_limit,
             context_policy.user_message,
         )?;
+        let history_start_index = prepend_assistant_opening(&mut context, conversation);
         let mut request_info = prepare_response(
             &conversation.id,
             &turn.id,
@@ -357,6 +396,9 @@ impl PreparedGeneration {
             new_attachments: Vec::new(),
             history_groups: context.history_groups,
             current_message_requirements: context.current_message_requirements,
+            history_start_index,
+            assistant_opening_template: (history_start_index == 1)
+                .then(|| conversation.assistant_opening.clone()),
             prompt_variables: BTreeMap::new(),
             prompt_context: PromptContext::default(),
         }
@@ -369,6 +411,7 @@ impl PreparedGeneration {
                 .iter()
                 .map(|group| group.message_count)
                 .sum::<usize>()
+                + self.history_start_index
                 + 1,
             self.provider_request.messages.len()
         );

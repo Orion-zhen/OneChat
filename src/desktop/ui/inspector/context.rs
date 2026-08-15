@@ -9,7 +9,12 @@ pub(super) fn render_context(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEle
     } else {
         conversation.system_prompt.clone()
     };
-    let source = app.system_prompt_label(&conversation.system_prompt);
+    let opening = if conversation.assistant_opening.trim().is_empty() {
+        "None".to_string()
+    } else {
+        conversation.assistant_opening.clone()
+    };
+    let source = app.prompt_setup_label(conversation);
     let estimated_tokens = estimate_context_tokens(app);
     let history_preview = crate::application::generation::history_preview_for_new_turn(
         &app.data.snapshot.current_turns,
@@ -31,7 +36,8 @@ pub(super) fn render_context(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEle
             cx,
         ))
         .child(inspector_field("System Prompt", &prompt, cx))
-        .child(inspector_field("Prompt source", &source, cx))
+        .child(inspector_field("Assistant Opening", &opening, cx))
+        .child(inspector_field("Prompt preset", &source, cx))
         .child(inspector_field(
             "Messages",
             &app.current_context_messages().len().to_string(),
@@ -75,7 +81,7 @@ pub(super) fn render_context(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEle
                         .primary_icon_action(
                             "context-edit-system-prompt",
                             AppIcon::Pencil,
-                            "Edit system prompt",
+                            "Edit prompt setup",
                             cx,
                         )
                         .on_click(cx.listener(|this, _, window, cx| {

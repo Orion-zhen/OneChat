@@ -34,6 +34,10 @@ impl TimelineXray {
         }
     }
 
+    pub(super) fn assistant_opening(content: &str) -> Self {
+        Self::assistant("Opening", content, MessageStatus::Completed)
+    }
+
     pub(super) fn assistant(model: &str, content: &str, status: MessageStatus) -> Self {
         Self::Assistant {
             model: model.to_string(),

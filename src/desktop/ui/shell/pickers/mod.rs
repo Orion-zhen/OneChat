@@ -188,8 +188,8 @@ pub(crate) fn render_picker_overlay(
                 );
             (
                 640.0,
-                "Choose System Prompt",
-                "Apply reusable instructions to this conversation.",
+                "Choose Prompt Preset",
+                "Apply a system prompt and optional assistant opening to this conversation.",
                 picker_list(
                     &list,
                     "Search prompts…",

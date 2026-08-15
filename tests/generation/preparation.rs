@@ -6,6 +6,7 @@ fn generation_preparation_uses_the_selected_history_and_model_capabilities() {
     let mut model = Model::new(&provider.id, "test-model", "Test Model");
     model.capabilities.top_k = false;
     let mut conversation = Conversation::new("Chat", Some(&model), "  Be concise.  ");
+    conversation.assistant_opening = "Welcome, {{owner}}.".into();
     conversation.generation_config = GenerationConfig {
         temperature: Some(0.4),
         top_k: Some(20),
@@ -54,10 +55,54 @@ fn generation_preparation_uses_the_selected_history_and_model_capabilities() {
     assert_eq!(prepared.provider_request.config.top_k, None);
 
     let messages = serialized_messages(&prepared.provider_request.messages);
-    assert_eq!(messages.len(), 3);
-    assert!(messages[0].contains("first question"));
-    assert!(messages[1].contains("first answer"));
-    assert!(messages[2].contains("follow-up"));
+    assert_eq!(messages.len(), 4);
+    assert!(messages[0].contains("Welcome, {{owner}}."));
+    assert!(messages[1].contains("first question"));
+    assert!(messages[2].contains("first answer"));
+    assert!(messages[3].contains("follow-up"));
+}
+
+#[tokio::test]
+async fn assistant_opening_variables_are_resolved_and_snapshotted() {
+    let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let mut conversation = Conversation::new("Chat", Some(&model), "For {{owner}}");
+    conversation.assistant_opening = "Welcome, {{owner}} on {{onechat.os}}.".into();
+    let mut prepared = PreparedGeneration::new(
+        &conversation,
+        &provider,
+        &model,
+        &[],
+        None,
+        UserMessage::new("Hello", Vec::new()),
+        ContextPolicy::new(HistoryLimit::Unlimited, &|user| {
+            Ok(Message::user(user.content.clone()))
+        }),
+    )
+    .unwrap();
+    prepared.configure_prompt(
+        BTreeMap::from([(
+            "owner".into(),
+            PromptVariableSource::Text {
+                value: "Orion".into(),
+            },
+        )]),
+        PromptContext::default(),
+    );
+
+    prepared
+        .render_prompt_setup(CancellationToken::new())
+        .await
+        .unwrap();
+
+    assert_eq!(prepared.provider_request.system_prompt, "For Orion");
+    let messages = serialized_messages(&prepared.provider_request.messages);
+    assert!(messages[0].contains("Welcome, Orion on"));
+    assert!(messages[1].contains("Hello"));
+    let opening = prepared.request_info.assistant_opening.unwrap();
+    assert_eq!(opening.template, conversation.assistant_opening);
+    assert!(opening.resolved.contains("Welcome, Orion on"));
+    assert_eq!(opening.variables.len(), 2);
 }
 
 #[test]

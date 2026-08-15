@@ -9,18 +9,19 @@ mod reasoning;
 mod theme_color;
 
 pub(crate) use controls::sync_controls;
-pub(crate) use dialog::{prompt_preset_dialog, prompt_variable_dialog};
+pub(crate) use dialog::prompt_variable_dialog;
 pub(crate) use editors::{
     Capability, DefaultModelItem, FontFamilyItem, McpServerEditor, McpServerEditorMode,
     McpServerTransportEditor, ModelEditor, ModelFetchStatus, ModelIdDelegate, PromptPresetEditor,
-    PromptSelectItem, PromptVariableEditor, PromptVariableKind, PromptVariableTestStatus,
-    ProviderEditor, ProviderKindItem, ReasoningPresetSelectItem, SearchableItems, SettingsSection,
+    PromptPresetSection, PromptPresetWorkspace, PromptPresetWorkspaceMode, PromptSelectItem,
+    PromptVariableEditor, PromptVariableKind, PromptVariableTestStatus, ProviderEditor,
+    ProviderKindItem, ReasoningPresetSelectItem, SearchableItems, SettingsSection,
     font_family_label,
 };
 use forms::{mcp_server_form, model_form, provider_form, provider_form_actions};
 use navigation::settings_sidebar;
 use pages::{
-    default_models_page, general_page, mcp_page, prompt_preset_dialog_body,
+    default_models_page, general_page, mcp_page, prompt_preset_workspace,
     prompt_variable_dialog_body, system_prompts_page,
 };
 use providers::{new_provider_page, provider_page};
@@ -73,11 +74,11 @@ use super::{
 use crate::{
     desktop::app::{ConnectionTestStatus, DefaultModelRole, FontRole, OneChat},
     domain::{
-        CustomReasoningPreset, DEFAULT_PROMPT_COMMAND_TIMEOUT_MS,
+        BUILTIN_PROMPT_VARIABLES, CustomReasoningPreset, DEFAULT_PROMPT_COMMAND_TIMEOUT_MS,
         DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, KnownReasoningFormat, KnownReasoningPreset, Model,
-        ModelCapabilities, ModelReasoningConfig, PROVIDER_DEFAULT_REASONING_PRESET,
+        ModelCapabilities, ModelReasoningConfig, PROVIDER_DEFAULT_REASONING_PRESET, PromptPreset,
         PromptVariableSource, Provider, ProviderKind, ReasoningLevel, ReasoningParameter,
-        ReasoningParameterValue, SendMessageShortcut, SystemPromptPreset, Theme, now_timestamp,
+        ReasoningParameterValue, SendMessageShortcut, Theme, now_timestamp,
         prompt_variable_name_is_valid,
     },
     mcp::{
@@ -88,20 +89,24 @@ use crate::{
 };
 
 pub(crate) fn render(app: &OneChat, sidebar_width: f32, cx: &mut Context<OneChat>) -> AnyElement {
-    let detail = match &app.settings_ui.section {
-        SettingsSection::General => general_page(app, cx),
-        SettingsSection::DefaultModels => default_models_page(app, cx),
-        SettingsSection::SystemPrompts => system_prompts_page(app, cx),
-        SettingsSection::Mcp => mcp_page(app, cx),
-        SettingsSection::Provider(provider_id) => app
-            .data
-            .snapshot
-            .providers
-            .iter()
-            .find(|provider| provider.id == *provider_id)
-            .map(|provider| provider_page(app, provider, cx))
-            .unwrap_or_else(|| general_page(app, cx)),
-        SettingsSection::NewProvider => new_provider_page(app, cx),
+    let detail = if app.settings_ui.prompt_preset_workspace.is_some() {
+        prompt_preset_workspace(app, cx)
+    } else {
+        match &app.settings_ui.section {
+            SettingsSection::General => general_page(app, cx),
+            SettingsSection::DefaultModels => default_models_page(app, cx),
+            SettingsSection::SystemPrompts => system_prompts_page(app, cx),
+            SettingsSection::Mcp => mcp_page(app, cx),
+            SettingsSection::Provider(provider_id) => app
+                .data
+                .snapshot
+                .providers
+                .iter()
+                .find(|provider| provider.id == *provider_id)
+                .map(|provider| provider_page(app, provider, cx))
+                .unwrap_or_else(|| general_page(app, cx)),
+            SettingsSection::NewProvider => new_provider_page(app, cx),
+        }
     };
 
     div()

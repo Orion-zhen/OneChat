@@ -11,7 +11,7 @@ use crate::{
             PromptPresetEditor, PromptVariableEditor, PromptVariableKind, PromptVariableTestStatus,
         },
     },
-    domain::{DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, PromptVariableSource, SystemPromptPreset},
+    domain::{DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, PromptVariableSource},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -19,3 +19,4 @@ mod defaults;
 mod presets;
 mod title;
 mod variables;
+mod workspace;

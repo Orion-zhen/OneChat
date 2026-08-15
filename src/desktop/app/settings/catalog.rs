@@ -9,7 +9,7 @@ use gpui_component::{
 
 use crate::{
     desktop::{
-        app::{ConnectionTestStatus, DestructiveAction, OneChat, ProviderEditorExit},
+        app::{ConnectionTestStatus, DestructiveAction, OneChat, SettingsDestination},
         ui::settings::{
             Capability, KnownReasoningFormatItem, ModelEditor, ProviderEditor, ReasoningEditorMode,
             ReasoningParameterScope, SettingsSection,

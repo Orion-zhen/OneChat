@@ -46,14 +46,28 @@ fn catalog_settings_and_prompt_presets_round_trip() {
     storage.save_settings(&settings).unwrap();
 
     storage
-        .insert_prompt_preset(&SystemPromptPreset::new("Concise", " Be brief. "))
+        .insert_prompt_preset(&PromptPreset::new(
+            "Concise",
+            " Be brief. ",
+            "Welcome, {{owner}}.",
+        ))
         .unwrap();
     storage
         .update_prompt_preset(
             "Concise",
-            &SystemPromptPreset::new("Direct", "Answer directly."),
+            &PromptPreset::new("Direct", "Answer directly.", "How can I help?"),
         )
         .unwrap();
+    let prompts = storage.settings_path().parent().unwrap().join("prompts");
+    assert!(!prompts.join("Concise").exists());
+    assert_eq!(
+        fs::read_to_string(prompts.join("Direct/Direct.md")).unwrap(),
+        "Answer directly.\n"
+    );
+    assert_eq!(
+        fs::read_to_string(prompts.join("Direct/Direct.opening.md")).unwrap(),
+        "How can I help?\n"
+    );
 
     let snapshot = storage.load_snapshot().unwrap();
     assert_eq!(snapshot.providers, vec![provider.clone()]);
@@ -61,7 +75,11 @@ fn catalog_settings_and_prompt_presets_round_trip() {
     assert_eq!(snapshot.conversations, vec![conversation]);
     assert_eq!(
         snapshot.prompt_presets,
-        vec![SystemPromptPreset::new("Direct", "Answer directly.")]
+        vec![PromptPreset::new(
+            "Direct",
+            "Answer directly.",
+            "How can I help?"
+        )]
     );
     assert_eq!(snapshot.settings.primary_model_id, Some(model.id.clone()));
     assert!(snapshot.settings.code_block_wrap);
@@ -77,6 +95,22 @@ fn catalog_settings_and_prompt_presets_round_trip() {
             .title_generation_reasoning_preset
             .as_deref(),
         Some("low")
+    );
+
+    storage
+        .update_prompt_preset(
+            "Direct",
+            &PromptPreset::new("Direct", "Answer directly.", ""),
+        )
+        .unwrap();
+    assert!(!prompts.join("Direct/Direct.opening.md").exists());
+    assert_eq!(
+        storage
+            .load_prompt_preset("Direct")
+            .unwrap()
+            .unwrap()
+            .assistant_opening,
+        ""
     );
 
     storage.delete_provider(&provider.id).unwrap();

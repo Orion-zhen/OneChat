@@ -31,9 +31,9 @@ use crate::{
             inspector::{GenerationConfigEditor, InspectorTab},
             selectable_text::TextSelection,
             settings::{
-                DefaultModelItem, FontFamilyItem, McpServerEditor, ModelEditor, PromptPresetEditor,
-                PromptSelectItem, PromptVariableEditor, ProviderEditor, ReasoningPresetSelectItem,
-                SearchableItems, SettingsSection,
+                DefaultModelItem, FontFamilyItem, McpServerEditor, ModelEditor,
+                PromptPresetWorkspace, PromptSelectItem, PromptVariableEditor, ProviderEditor,
+                ReasoningPresetSelectItem, SearchableItems, SettingsSection,
             },
             shell::{
                 CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate,
@@ -204,6 +204,7 @@ pub(crate) struct ChatState {
     pub(crate) follow_latest: bool,
     pub(crate) system_prompt_mode: SystemPromptMode,
     pub(crate) system_prompt_editor: Option<Entity<TextareaState>>,
+    pub(crate) assistant_opening_editor: Option<Entity<TextareaState>>,
     pub(crate) generation_config_editor: Option<GenerationConfigEditor>,
     pub(crate) history_limit_slider: Entity<SliderState>,
     pub(crate) history_limit_preview: Option<crate::domain::HistoryLimit>,
@@ -228,7 +229,7 @@ pub(crate) struct ChatState {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) enum ProviderEditorExit {
+pub(crate) enum SettingsDestination {
     Section(SettingsSection),
     Page(Page),
     AddProvider,
@@ -253,8 +254,8 @@ pub(crate) struct SettingsState {
     pub(crate) synced_title_models: Vec<DefaultModelItem>,
     pub(crate) synced_title_reasoning_presets: Vec<ReasoningPresetSelectItem>,
     pub(crate) synced_prompts: Vec<PromptSelectItem>,
-    pub(crate) viewed_prompt_preset: Option<String>,
-    pub(crate) prompt_preset_editor: Option<PromptPresetEditor>,
+    pub(crate) prompt_preset_workspace: Option<PromptPresetWorkspace>,
+    pub(crate) pending_prompt_preset_exit: Option<SettingsDestination>,
     pub(crate) prompt_variable_editor: Option<PromptVariableEditor>,
     pub(crate) prompt_variable_test_revision: u64,
     pub(crate) prompt_builtins_expanded: bool,
@@ -267,7 +268,7 @@ pub(crate) struct SettingsState {
     pub(crate) connection_tests: BTreeMap<String, ConnectionTestStatus>,
     pub(crate) provider_drop_target: Option<(String, bool)>,
     pub(crate) provider_editor: Option<ProviderEditor>,
-    pub(crate) pending_provider_exit: Option<ProviderEditorExit>,
+    pub(crate) pending_provider_exit: Option<SettingsDestination>,
     pub(crate) model_editor: Option<ModelEditor>,
     pub(super) model_fetch_revision: u64,
     pub(crate) form_error: Option<String>,

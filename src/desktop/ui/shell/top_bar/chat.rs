@@ -28,7 +28,7 @@ pub(super) fn render_chat_top_bar(
         .unwrap_or_else(|| "Choose Model".into());
     let model_capabilities = selected_model.map(|model| &model.capabilities);
     let prompt_label = current_conversation
-        .map(|conversation| app.system_prompt_label(&conversation.system_prompt))
+        .map(|conversation| app.prompt_setup_label(conversation))
         .unwrap_or_else(|| "None".into());
     let reasoning_label = current_conversation.and_then(|conversation| {
         let reasoning = selected_model?.reasoning.as_ref()?;
@@ -182,7 +182,7 @@ pub(super) fn render_chat_top_bar(
                         .h(px(40.0))
                         .px(px(14.0))
                         .rounded(px(12.0))
-                        .tooltip("Choose system prompt")
+                        .tooltip("Choose prompt preset")
                         .disabled(!can_choose_prompt)
                         .max_w(px(190.0))
                         .flex()

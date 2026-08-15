@@ -255,6 +255,8 @@ pub struct RequestInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub system_prompt: Option<super::PromptSnapshot>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assistant_opening: Option<super::PromptSnapshot>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context: Option<RequestContextInfo>,
 }
 
@@ -285,6 +287,7 @@ impl RequestInfo {
             tool_duration_ms: None,
             duration_ms: None,
             system_prompt: None,
+            assistant_opening: None,
             context: None,
         }
     }

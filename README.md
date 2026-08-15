@@ -95,12 +95,12 @@ OneChat stores plain, editable JSONC/JSON files instead of a database. App setti
 - macOS and Linux: `~/.config/onechat/settings.jsonc`
 - Windows: `%APPDATA%\OneChat\settings.jsonc`
 
-Reusable system prompt presets are plain Markdown files under:
+Reusable prompt presets are stored in one directory per preset:
 
-- macOS and Linux: `~/.config/onechat/prompts/*.md`
-- Windows: `%APPDATA%\OneChat\prompts\*.md`
+- macOS and Linux: `~/.config/onechat/prompts/<preset-name>/`
+- Windows: `%APPDATA%\OneChat\prompts\<preset-name>\`
 
-The Markdown extension is for editor convenience; OneChat sends each file as plain text without parsing it.
+Each directory contains `<preset-name>.md` for the system prompt and may contain `<preset-name>.opening.md` for an optional assistant opening. The Markdown extension is for editor convenience; OneChat sends both files as plain text without parsing them.
 
 Each conversation has its own directory containing `<conversation-id>.json`, including its messages and request history:
 
@@ -154,9 +154,9 @@ The composer shows a compact context-capacity ring beside the send button. Its d
 
 ## System prompt variables
 
-Conversation system prompts support runtime placeholders such as `{{owner}}`. Custom variables are managed under **Settings → System Prompts** and can read fixed text, an environment variable, or the stdout of a local shell command. Only referenced variables are evaluated; use `\{{owner}}` for a literal placeholder. Command variables have a working directory, a timeout, and a 64 KiB output limit. Unknown variables and failed commands stop the request before it reaches the model.
+Conversation system prompts and assistant openings support runtime placeholders such as `{{owner}}`. Custom variables are managed under **Settings → Prompts** and can read fixed text, an environment variable, or the stdout of a local shell command. Only referenced variables are evaluated; use `\{{owner}}` for a literal placeholder. Command variables have a working directory, a timeout, and a 64 KiB output limit. Unknown variables and failed commands stop the request before it reaches the model.
 
-Built-in variables include `{{onechat.date}}`, `{{onechat.datetime}}`, `{{onechat.os}}`, `{{onechat.conversation.id}}`, `{{onechat.conversation.title}}`, `{{onechat.model.name}}`, and `{{onechat.provider.name}}`. The resolved prompt and variable timings are stored with each request and shown in the Info inspector.
+Built-in variables include `{{onechat.date}}`, `{{onechat.datetime}}`, `{{onechat.os}}`, `{{onechat.conversation.id}}`, `{{onechat.conversation.title}}`, `{{onechat.model.name}}`, and `{{onechat.provider.name}}`. The resolved system prompt, assistant opening, and variable timings are stored with each request and shown in the Info inspector.
 
 ## Reasoning presets
 

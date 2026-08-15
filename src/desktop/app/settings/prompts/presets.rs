@@ -1,4 +1,5 @@
 use super::*;
+use crate::desktop::ui::settings::PromptPresetWorkspace;
 
 impl OneChat {
     pub(crate) fn select_default_prompt(&mut self, name: Option<String>, cx: &mut Context<Self>) {
@@ -8,11 +9,11 @@ impl OneChat {
         {
             return;
         }
-        if self.data.snapshot.settings.default_system_prompt_preset == name {
+        if self.data.snapshot.settings.default_prompt_preset == name {
             cx.notify();
             return;
         }
-        self.data.snapshot.settings.default_system_prompt_preset = name;
+        self.data.snapshot.settings.default_prompt_preset = name;
         self.save_settings(cx);
         cx.notify();
     }
@@ -23,16 +24,18 @@ impl OneChat {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.prompt_preset(&name).is_none() {
+        let Some(preset) = self.prompt_preset(&name).cloned() else {
             return;
-        }
-        self.settings_ui.viewed_prompt_preset = Some(name);
-        self.open_prompt_preset_dialog(window, cx);
-        cx.notify();
+        };
+        let editor = PromptPresetEditor::new(Some(preset), window, cx);
+        self.install_prompt_preset_workspace(PromptPresetWorkspace::view(editor), window, cx);
     }
 
     pub(crate) fn begin_add_prompt_preset(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.begin_prompt_preset_edit(None, window, cx);
+        let editor = PromptPresetEditor::new(None, window, cx);
+        self.install_prompt_preset_workspace(PromptPresetWorkspace::edit(editor), window, cx);
+        self.navigation.pending_focus = Some(PendingFocus::SettingsPrompt);
+        cx.notify();
     }
 
     pub(crate) fn begin_edit_prompt_preset(
@@ -44,42 +47,20 @@ impl OneChat {
         let Some(preset) = self.prompt_preset(&name).cloned() else {
             return;
         };
-        self.begin_prompt_preset_edit(Some(preset), window, cx);
-    }
-
-    fn begin_prompt_preset_edit(
-        &mut self,
-        preset: Option<SystemPromptPreset>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let editor = PromptPresetEditor::new(preset, window, cx);
-        self.settings_ui.viewed_prompt_preset = None;
-        self.settings_ui.prompt_preset_editor = Some(editor);
-        self.settings_ui.form_error = None;
+        let editor = PromptPresetEditor::new(Some(preset), window, cx);
+        self.install_prompt_preset_workspace(PromptPresetWorkspace::edit(editor), window, cx);
         self.navigation.pending_focus = Some(PendingFocus::SettingsPrompt);
-        self.open_prompt_preset_dialog(window, cx);
-        cx.notify();
-    }
-
-    fn open_prompt_preset_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.chat.text_selection.clear(window);
-        let app = cx.entity();
-        window.open_dialog(cx, move |dialog, window, cx| {
-            crate::desktop::ui::settings::prompt_preset_dialog(dialog, app.clone(), window, cx)
-        });
-    }
-
-    pub(crate) fn cancel_prompt_preset_edit(&mut self, cx: &mut Context<Self>) {
-        self.settings_ui.prompt_preset_editor = None;
-        self.settings_ui.form_error = None;
         cx.notify();
     }
 
     pub(crate) fn save_prompt_preset(&mut self, cx: &mut Context<Self>) -> bool {
-        let Some(editor) = self.settings_ui.prompt_preset_editor.as_ref() else {
+        let Some(workspace) = self.settings_ui.prompt_preset_workspace.as_ref() else {
             return false;
         };
+        if !workspace.is_editing() {
+            return false;
+        }
+        let editor = &workspace.editor;
         let preset = match editor.build(cx) {
             Ok(preset) => preset,
             Err(error) => {
@@ -101,12 +82,13 @@ impl OneChat {
         }
         let mut settings = self.data.snapshot.settings.clone();
         if let Some(original_name) = original_name.as_deref()
-            && settings.default_system_prompt_preset.as_deref() == Some(original_name)
+            && settings.default_prompt_preset.as_deref() == Some(original_name)
         {
-            settings.default_system_prompt_preset = Some(preset.name.clone());
+            settings.default_prompt_preset = Some(preset.name.clone());
         }
         self.data.snapshot.settings = settings.clone();
-        self.settings_ui.prompt_preset_editor = None;
+        self.settings_ui.prompt_preset_workspace = None;
+        self.settings_ui.pending_prompt_preset_exit = None;
         self.settings_ui.form_error = None;
         self.mutate_and_reload(
             move |storage| {
@@ -128,20 +110,20 @@ impl OneChat {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.settings_ui.viewed_prompt_preset = None;
-        self.settings_ui.prompt_preset_editor = None;
+        self.settings_ui.prompt_preset_workspace = None;
+        self.settings_ui.pending_prompt_preset_exit = None;
         self.settings_ui.form_error = None;
         self.request_destructive_action(DestructiveAction::DeletePromptPreset { name }, window, cx);
     }
 
     pub(crate) fn delete_prompt_preset(&mut self, name: String, cx: &mut Context<Self>) {
         let mut settings = self.data.snapshot.settings.clone();
-        if settings.default_system_prompt_preset.as_deref() == Some(&name) {
-            settings.default_system_prompt_preset = None;
+        if settings.default_prompt_preset.as_deref() == Some(&name) {
+            settings.default_prompt_preset = None;
         }
         self.data.snapshot.settings = settings.clone();
-        self.settings_ui.viewed_prompt_preset = None;
-        self.settings_ui.prompt_preset_editor = None;
+        self.settings_ui.prompt_preset_workspace = None;
+        self.settings_ui.pending_prompt_preset_exit = None;
         self.mutate_and_reload(
             move |storage| {
                 storage.delete_prompt_preset(&name)?;
@@ -152,7 +134,8 @@ impl OneChat {
     }
 
     pub(crate) fn reload_prompt_presets(&mut self, cx: &mut Context<Self>) {
-        self.settings_ui.viewed_prompt_preset = None;
+        self.settings_ui.prompt_preset_workspace = None;
+        self.settings_ui.pending_prompt_preset_exit = None;
         self.reload_snapshot(cx);
     }
 }

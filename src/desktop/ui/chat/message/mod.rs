@@ -11,12 +11,14 @@ const SENT_IMAGE_MAX_HEIGHT: f32 = 360.0;
 
 mod assistant;
 mod attachments;
+mod opening;
 mod reasoning;
 mod tools;
 mod user;
 
 pub(super) use assistant::render_assistant_turn;
 use attachments::{render_sent_attachment, user_editor_width};
+pub(super) use opening::render_assistant_opening;
 use reasoning::{render_reasoning, render_reasoning_block};
 use tools::{render_tool_execution, render_tool_executions, render_tool_placeholder};
 pub(super) use user::render_user_turn;

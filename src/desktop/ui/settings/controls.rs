@@ -141,7 +141,7 @@ pub(crate) fn sync_controls(app: &mut OneChat, window: &mut Window, cx: &mut Con
             .default_prompt_select
             .update(cx, |select, cx| select.set_items(prompt_items, window, cx));
     }
-    let prompt_value = Some(app.settings().default_system_prompt_preset.clone());
+    let prompt_value = Some(app.settings().default_prompt_preset.clone());
     if prompts_changed
         || app
             .settings_ui
@@ -154,11 +154,7 @@ pub(crate) fn sync_controls(app: &mut OneChat, window: &mut Window, cx: &mut Con
         app.settings_ui
             .default_prompt_select
             .update(cx, |select, cx| {
-                select.set_selected_value(
-                    &app.settings().default_system_prompt_preset.clone(),
-                    window,
-                    cx,
-                )
+                select.set_selected_value(&app.settings().default_prompt_preset.clone(), window, cx)
             });
     }
 
@@ -220,8 +216,8 @@ fn default_model_items(app: &OneChat, role: DefaultModelRole) -> Vec<DefaultMode
 }
 
 fn default_prompt_items(app: &OneChat) -> Vec<PromptSelectItem> {
-    let selected = app.settings().default_system_prompt_preset.as_deref();
-    let mut items = vec![PromptSelectItem::new(None, "No System Prompt", false)];
+    let selected = app.settings().default_prompt_preset.as_deref();
+    let mut items = vec![PromptSelectItem::new(None, "No Prompt Preset", false)];
     items.extend(app.data.snapshot.prompt_presets.iter().map(|preset| {
         PromptSelectItem::new(Some(preset.name.clone()), preset.name.clone(), false)
     }));

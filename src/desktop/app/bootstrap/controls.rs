@@ -95,7 +95,7 @@ pub(super) fn picker_controls(window: &mut Window, cx: &mut Context<OneChat>) ->
             };
             let name = picker.read(cx).delegate().selected_name(*index);
             if let Some(name) = name {
-                this.select_system_prompt_preset(name, cx);
+                this.select_prompt_preset(name, cx);
                 this.close_picker_overlay(true, cx);
             }
         },

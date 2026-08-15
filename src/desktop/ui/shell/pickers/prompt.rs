@@ -7,6 +7,7 @@ struct PromptPickerItem {
     excerpt: String,
     selected: bool,
     default: bool,
+    has_opening: bool,
 }
 
 #[derive(Clone)]
@@ -26,17 +27,18 @@ impl PromptPickerDelegate {
     }
 
     pub(crate) fn from_app(app: &OneChat) -> Self {
-        let current_prompt = app
-            .current_conversation()
-            .map(|conversation| conversation.system_prompt.as_str())
-            .unwrap_or_default();
-        let none_selected = current_prompt.trim().is_empty();
+        let current_setup = app.current_conversation();
+        let none_selected = current_setup.is_none_or(|conversation| {
+            conversation.system_prompt.trim().is_empty()
+                && conversation.assistant_opening.trim().is_empty()
+        });
         let mut all = vec![PromptPickerItem {
             name: None,
-            title: "No System Prompt".into(),
-            excerpt: "Continue without reusable instructions.".into(),
+            title: "No Prompt Preset".into(),
+            excerpt: "Continue without a reusable conversation setup.".into(),
             selected: none_selected,
             default: false,
+            has_opening: false,
         }];
         all.extend(
             app.data
@@ -46,10 +48,14 @@ impl PromptPickerDelegate {
                 .map(|preset| PromptPickerItem {
                     name: Some(preset.name.clone()),
                     title: preset.name.clone(),
-                    excerpt: text_summary(&preset.content, 100, Some("Empty prompt")),
-                    selected: !none_selected && preset.content == current_prompt,
-                    default: app.settings().default_system_prompt_preset.as_deref()
+                    excerpt: text_summary(&preset.system_prompt, 100, Some("Empty system prompt")),
+                    selected: current_setup.is_some_and(|conversation| {
+                        preset.system_prompt == conversation.system_prompt
+                            && preset.assistant_opening == conversation.assistant_opening
+                    }),
+                    default: app.settings().default_prompt_preset.as_deref()
                         == Some(preset.name.as_str()),
+                    has_opening: !preset.assistant_opening.is_empty(),
                 }),
         );
         Self {
@@ -154,6 +160,16 @@ impl ListDelegate for PromptPickerDelegate {
                                             .text_size(px(10.0))
                                             .text_color(cx.theme().primary)
                                             .child("Default")
+                                    }))
+                                    .children(item.has_opening.then(|| {
+                                        div()
+                                            .rounded_full()
+                                            .bg(cx.theme().accent)
+                                            .px_2()
+                                            .py_1()
+                                            .text_size(px(10.0))
+                                            .text_color(cx.theme().primary)
+                                            .child("Assistant Opening")
                                     })),
                             )
                             .child(
@@ -176,6 +192,6 @@ impl ListDelegate for PromptPickerDelegate {
         _: &mut Window,
         cx: &mut Context<ListState<Self>>,
     ) -> impl IntoElement {
-        empty_notice("No prompts match this search.", cx)
+        empty_notice("No prompt presets match this search.", cx)
     }
 }

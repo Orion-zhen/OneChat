@@ -1,5 +1,4 @@
 use super::super::super::*;
-use super::components::{field_label, readonly_field};
 
 pub(super) fn default_prompt_select(app: &OneChat) -> AnyElement {
     Select::new(&app.settings_ui.default_prompt_select)
@@ -7,7 +6,7 @@ pub(super) fn default_prompt_select(app: &OneChat) -> AnyElement {
         .h(px(40.0))
         .px(px(12.0))
         .rounded(px(10.0))
-        .placeholder("No System Prompt")
+        .placeholder("No Prompt Preset")
         .menu_max_h(px(320.0))
         .w(px(300.0))
         .into_any_element()
@@ -27,14 +26,14 @@ pub(super) fn prompt_presets_content(app: &OneChat, cx: &mut Context<OneChat>) -
                 div()
                     .text_sm()
                     .font_weight(FontWeight::SEMIBOLD)
-                    .child("No prompts yet"),
+                    .child("No presets yet"),
             )
             .child(
                 div()
                     .pt_1()
                     .text_size(px(12.0))
                     .text_color(cx.theme().muted_foreground)
-                    .child("Create reusable instructions for new conversations."),
+                    .child("Create reusable conversation setups for new chats."),
             )
             .into_any_element();
     }
@@ -47,8 +46,8 @@ pub(super) fn prompt_presets_content(app: &OneChat, cx: &mut Context<OneChat>) -
             let view_name = preset.name.clone();
             let edit_name = preset.name.clone();
             let delete_name = preset.name.clone();
-            let default = app.settings().default_system_prompt_preset.as_deref()
-                == Some(preset.name.as_str());
+            let default =
+                app.settings().default_prompt_preset.as_deref() == Some(preset.name.as_str());
             div()
                 .id(SharedString::from(format!(
                     "prompt-preset-card-{}",
@@ -95,6 +94,14 @@ pub(super) fn prompt_presets_content(app: &OneChat, cx: &mut Context<OneChat>) -
                                 )
                                 .children(default.then(|| {
                                     status_pill("Default", true, StatusPillBackground::Muted, cx)
+                                }))
+                                .children((!preset.assistant_opening.is_empty()).then(|| {
+                                    status_pill(
+                                        "Assistant Opening",
+                                        true,
+                                        StatusPillBackground::Background,
+                                        cx,
+                                    )
                                 })),
                         )
                         .child(
@@ -105,7 +112,7 @@ pub(super) fn prompt_presets_content(app: &OneChat, cx: &mut Context<OneChat>) -
                                 .text_ellipsis()
                                 .text_size(px(12.0))
                                 .text_color(cx.theme().muted_foreground)
-                                .child(text_summary(&preset.content, 420, None)),
+                                .child(text_summary(&preset.system_prompt, 420, None)),
                         ),
                 )
                 .child(
@@ -114,7 +121,7 @@ pub(super) fn prompt_presets_content(app: &OneChat, cx: &mut Context<OneChat>) -
                             SharedString::from(format!("view-prompt-{}", preset.name)),
                             AppIcon::Eye,
                             IconTone::Muted,
-                            "View prompt",
+                            "View preset",
                             cx,
                         )
                         .on_click(cx.listener(move |this, _, window, cx| {
@@ -127,7 +134,7 @@ pub(super) fn prompt_presets_content(app: &OneChat, cx: &mut Context<OneChat>) -
                             SharedString::from(format!("edit-prompt-{}", preset.name)),
                             AppIcon::Pencil,
                             IconTone::Muted,
-                            "Edit prompt",
+                            "Edit preset",
                             cx,
                         )
                         .on_click(cx.listener(move |this, _, window, cx| {
@@ -140,7 +147,7 @@ pub(super) fn prompt_presets_content(app: &OneChat, cx: &mut Context<OneChat>) -
                             SharedString::from(format!("delete-prompt-{}", preset.name)),
                             AppIcon::Trash,
                             IconTone::Danger,
-                            "Delete prompt",
+                            "Delete preset",
                             cx,
                         )
                         .on_click(cx.listener(move |this, _, window, cx| {
@@ -148,78 +155,5 @@ pub(super) fn prompt_presets_content(app: &OneChat, cx: &mut Context<OneChat>) -
                         })),
                 )
         }))
-        .into_any_element()
-}
-
-fn prompt_preset_name_field(input: &Entity<InputState>) -> Field {
-    Field::new().label("Name").required(true).child(
-        Input::new(input)
-            .aria_label("Name")
-            .large()
-            .rounded(px(12.0)),
-    )
-}
-
-fn prompt_preset_content_field(input: &Entity<TextareaState>) -> Field {
-    Field::new().label("Prompt").required(true).child(
-        Textarea::new(input)
-            .aria_label("Prompt")
-            .rounded(px(12.0))
-            .h(px(240.0)),
-    )
-}
-
-pub(in crate::desktop::ui::settings) fn prompt_preset_dialog_body(
-    app: &OneChat,
-    cx: &App,
-) -> AnyElement {
-    if let Some(editor) = &app.settings_ui.prompt_preset_editor {
-        return stretching_column()
-            .px_5()
-            .pb_5()
-            .gap_3()
-            .child(
-                Form::vertical()
-                    .child(prompt_preset_name_field(&editor.name))
-                    .child(prompt_preset_content_field(&editor.content)),
-            )
-            .children(app.settings_ui.form_error.as_deref().map(error_banner))
-            .into_any_element();
-    }
-
-    let preset = app
-        .settings_ui
-        .viewed_prompt_preset
-        .as_deref()
-        .and_then(|name| app.prompt_preset(name))
-        .expect("prompt preset dialog requires a viewed preset or editor");
-    stretching_column()
-        .px_5()
-        .pb_5()
-        .gap_4()
-        .child(readonly_field("Name", preset.name.clone(), cx))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .child(field_label("Prompt", cx))
-                .child(
-                    div()
-                        .id("viewed-prompt-content")
-                        .min_h(px(200.0))
-                        .max_h(px(300.0))
-                        .overflow_y_scroll()
-                        .rounded_lg()
-                        .border_1()
-                        .border_color(cx.theme().border)
-                        .bg(cx.theme().muted)
-                        .p_3()
-                        .whitespace_normal()
-                        .text_sm()
-                        .line_height(px(22.0))
-                        .child(preset.content.clone()),
-                ),
-        )
         .into_any_element()
 }

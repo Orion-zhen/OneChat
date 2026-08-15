@@ -31,6 +31,14 @@ pub fn conversation_markdown(
     output.push_str(&format_timestamp(exported_at));
     output.push_str("\n\n");
 
+    if !conversation.assistant_opening.is_empty() {
+        output.push_str("## Assistant · Opening\n\n> ");
+        output.push_str(&format_timestamp(conversation.created_at));
+        output.push_str("\n\n");
+        append_content(&mut output, &conversation.assistant_opening);
+        output.push('\n');
+    }
+
     for (turn, response) in turns {
         output.push_str("## User\n\n> ");
         output.push_str(&format_timestamp(turn.user.created_at));
@@ -87,6 +95,14 @@ pub fn conversation_html(
         format_display_timestamp(conversation.created_at),
         turns.len(),
     );
+
+    if !conversation.assistant_opening.is_empty() {
+        output.push_str("<article class=\"turn\">\n<section class=\"assistant-message\" aria-label=\"Assistant opening\">\n<header class=\"message-header\"><span class=\"message-author\">Assistant · Opening</span><time class=\"message-time\">");
+        output.push_str(&format_display_timestamp(conversation.created_at));
+        output.push_str("</time></header>\n<div class=\"assistant-content prose\">\n");
+        output.push_str(&markdown::to_html(&conversation.assistant_opening));
+        output.push_str("</div>\n</section>\n</article>\n");
+    }
 
     for (turn, response) in turns {
         output.push_str("<article class=\"turn\">\n<section class=\"user-message\" aria-label=\"User message\">\n<header class=\"message-header\"><span class=\"message-author\">You</span><time class=\"message-time\">");
@@ -288,6 +304,31 @@ mod tests {
     }
 
     #[test]
+    fn exports_the_assistant_opening_before_user_turns() {
+        let (mut conversation, first, _) = fixture();
+        conversation.assistant_opening = "Welcome **home**.".into();
+
+        let markdown = conversation_markdown(
+            &conversation,
+            &[(&first, &first.responses[0])],
+            1_700_000_040,
+        );
+        let html = conversation_html(
+            &conversation,
+            &[(&first, &first.responses[0])],
+            1_700_000_040,
+            "#007AFF",
+            ExportTheme::Auto,
+            |_| None,
+        );
+
+        assert!(markdown.find("Assistant · Opening").unwrap() < markdown.find("## User").unwrap());
+        assert!(markdown.contains("Welcome **home**."));
+        assert!(html.find("Assistant · Opening").unwrap() < html.find("First question").unwrap());
+        assert!(html.contains("Welcome <strong>home</strong>."));
+    }
+
+    #[test]
     fn html_escapes_titles_attachment_names_and_raw_message_html() {
         let (mut conversation, mut first, _) = fixture();
         conversation.title = "<Title & test>".into();
@@ -315,6 +356,7 @@ mod tests {
             title: "Export *test*".into(),
             model_id: None,
             system_prompt: "secret system prompt".into(),
+            assistant_opening: String::new(),
             generation_config: GenerationConfig::default(),
             tool_selection: ToolSelection::default(),
             history_limit_override: None,

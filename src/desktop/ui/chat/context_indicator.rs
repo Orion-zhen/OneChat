@@ -71,6 +71,17 @@ fn current_context_usage(app: &OneChat, cx: &App) -> Option<ContextUsage> {
     let conversation = app.current_conversation()?;
     let model = app.current_model()?;
     let mut messages = app.current_context_messages();
+    let reference_request = app.current_request().filter(|request| {
+        request.status == crate::domain::RequestStatus::Completed
+            && request.model_id.as_deref() == Some(model.id.as_str())
+            && request.provider_id.as_deref() == Some(model.provider_id.as_str())
+    });
+    if let Some(opening) = reference_request
+        .and_then(|request| request.assistant_opening.as_ref())
+        .filter(|opening| opening.template == conversation.assistant_opening)
+    {
+        messages[0] = crate::domain::Message::assistant(opening.resolved.clone());
+    }
     let mut audio_duration_ms = app.current_context_audio_duration_ms();
     let draft = app.chat.composer.read(cx).value();
     if !draft.is_empty() || !app.chat.attachments.is_empty() {
@@ -84,11 +95,6 @@ fn current_context_usage(app: &OneChat, cx: &App) -> Option<ContextUsage> {
                 duration_ms.saturating_add(audio.duration_ms)
             });
     }
-    let reference_request = app.current_request().filter(|request| {
-        request.status == crate::domain::RequestStatus::Completed
-            && request.model_id.as_deref() == Some(model.id.as_str())
-            && request.provider_id.as_deref() == Some(model.provider_id.as_str())
-    });
     let system_prompt = reference_request
         .and_then(|request| request.system_prompt.as_ref())
         .filter(|prompt| prompt.template == conversation.system_prompt)
@@ -137,11 +143,17 @@ fn request_usage_reference(
                 crate::domain::HistoryLimit::Last(context.included_history_turns)
             }
         });
-    let messages = crate::application::generation::history_for_turn(
+    let mut messages = crate::application::generation::history_for_turn(
         &app.data.snapshot.current_turns,
         turn,
         history_limit,
     );
+    if let Some(opening) = request.assistant_opening.as_ref() {
+        messages.insert(
+            0,
+            crate::domain::Message::assistant(opening.resolved.clone()),
+        );
+    }
     let audio_duration_ms = crate::application::generation::history_audio_duration_ms_for_turn(
         &app.data.snapshot.current_turns,
         turn,

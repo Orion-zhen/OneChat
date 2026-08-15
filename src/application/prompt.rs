@@ -54,7 +54,26 @@ pub async fn render_prompt(
     context: PromptContext,
     cancellation: CancellationToken,
 ) -> Result<PromptSnapshot, PromptRenderError> {
-    let references = referenced_variables(&template)?;
+    let mut snapshots =
+        render_prompt_templates(vec![template], variables, context, cancellation).await?;
+    Ok(snapshots.remove(0))
+}
+
+pub async fn render_prompt_templates(
+    templates: Vec<String>,
+    variables: BTreeMap<String, PromptVariableSource>,
+    context: PromptContext,
+    cancellation: CancellationToken,
+) -> Result<Vec<PromptSnapshot>, PromptRenderError> {
+    let template_references = templates
+        .iter()
+        .map(|template| referenced_prompt_variables(template))
+        .collect::<Result<Vec<_>, _>>()?;
+    let references = template_references
+        .iter()
+        .flatten()
+        .cloned()
+        .collect::<BTreeSet<_>>();
     let now = Local::now();
     let builtins: BTreeMap<String, String> = BTreeMap::from([
         ("onechat.date".into(), now.format("%Y-%m-%d").to_string()),
@@ -83,19 +102,28 @@ pub async fn render_prompt(
     .await;
 
     let mut values = BTreeMap::new();
-    let mut records = Vec::with_capacity(evaluations.len());
+    let mut records = BTreeMap::new();
     for evaluation in evaluations {
         let (record, value) = evaluation?;
         values.insert(record.name.clone(), value);
-        records.push(record);
+        records.insert(record.name.clone(), record);
     }
 
-    let resolved = substitute(&template, &values)?;
-    Ok(PromptSnapshot {
-        template,
-        resolved,
-        variables: records,
-    })
+    templates
+        .into_iter()
+        .zip(template_references)
+        .map(|(template, references)| {
+            let resolved = substitute(&template, &values)?;
+            Ok(PromptSnapshot {
+                template,
+                resolved,
+                variables: references
+                    .iter()
+                    .filter_map(|name| records.get(name).cloned())
+                    .collect(),
+            })
+        })
+        .collect()
 }
 
 async fn evaluate_variable(
@@ -214,7 +242,7 @@ async fn run_command(
     Ok(output.trim_end_matches(['\r', '\n']).to_string())
 }
 
-fn referenced_variables(template: &str) -> Result<BTreeSet<String>, PromptRenderError> {
+pub fn referenced_prompt_variables(template: &str) -> Result<BTreeSet<String>, PromptRenderError> {
     let mut references = BTreeSet::new();
     walk_template(template, |name| {
         references.insert(name.to_string());
@@ -255,7 +283,7 @@ fn walk_template(
         if let Some(placeholder) = remaining.strip_prefix("{{") {
             let Some(end) = placeholder.find("}}") else {
                 return Err(PromptRenderError::InvalidTemplate(
-                    "System prompt contains an unclosed variable placeholder".into(),
+                    "Prompt template contains an unclosed variable placeholder".into(),
                 ));
             };
             let name = &placeholder[..end];
@@ -312,6 +340,33 @@ mod tests {
         assert!(snapshot.resolved.starts_with("Hello Orion on "));
         assert!(snapshot.resolved.ends_with("; {{name}}; {{name}}"));
         assert_eq!(snapshot.variables.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn shared_variables_are_evaluated_once_across_prompt_templates() {
+        let directory = tempfile::tempdir().unwrap();
+        let marker = directory.path().join("evaluations");
+        let script = format!("printf x >> '{}'; printf Orion", marker.display());
+        let snapshots = render_prompt_templates(
+            vec!["System for {{owner}}".into(), "Welcome, {{owner}}".into()],
+            BTreeMap::from([(
+                "owner".into(),
+                PromptVariableSource::Command {
+                    script,
+                    cwd: None,
+                    timeout_ms: 1_000,
+                },
+            )]),
+            PromptContext::default(),
+            CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(snapshots[0].resolved, "System for Orion");
+        assert_eq!(snapshots[1].resolved, "Welcome, Orion");
+        assert_eq!(std::fs::read_to_string(marker).unwrap(), "x");
+        assert_eq!(snapshots[0].variables, snapshots[1].variables);
     }
 
     #[tokio::test]

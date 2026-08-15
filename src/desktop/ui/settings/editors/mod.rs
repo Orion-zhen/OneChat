@@ -12,7 +12,9 @@ pub(crate) use items::{
     ReasoningPresetSelectItem, SearchableItems, SettingsSection, font_family_label,
 };
 pub(crate) use mcp::{McpServerEditor, McpServerEditorMode, McpServerTransportEditor};
-pub(crate) use prompt::PromptPresetEditor;
+pub(crate) use prompt::{
+    PromptPresetEditor, PromptPresetSection, PromptPresetWorkspace, PromptPresetWorkspaceMode,
+};
 pub(crate) use prompt_variable::{
     PromptVariableEditor, PromptVariableKind, PromptVariableTestStatus,
 };

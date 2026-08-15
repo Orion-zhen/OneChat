@@ -10,7 +10,7 @@ use gpui_component::{
     dialog::DialogFooter,
 };
 
-use super::{OneChat, Page, ProviderEditorExit};
+use super::{OneChat, Page, SettingsDestination};
 use crate::desktop::ui::{
     icons::{AppIcon, IconTone, render_icon},
     settings::SettingsSection,
@@ -23,38 +23,52 @@ impl OneChat {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.settings_ui.section == section {
+        if self.settings_ui.section == section && self.settings_ui.prompt_preset_workspace.is_none()
+        {
             return;
         }
-        self.request_provider_editor_exit(ProviderEditorExit::Section(section), window, cx);
+        self.request_settings_destination(SettingsDestination::Section(section), window, cx);
     }
 
     pub(crate) fn request_add_provider(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.settings_ui.section == SettingsSection::NewProvider {
             return;
         }
-        self.request_provider_editor_exit(ProviderEditorExit::AddProvider, window, cx);
+        self.request_settings_destination(SettingsDestination::AddProvider, window, cx);
     }
 
     pub(crate) fn request_leave_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.request_provider_editor_exit(ProviderEditorExit::Page(Page::Chat), window, cx);
+        self.request_settings_destination(SettingsDestination::Page(Page::Chat), window, cx);
+    }
+
+    fn request_settings_destination(
+        &mut self,
+        destination: SettingsDestination,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.settings_ui.prompt_preset_workspace.is_some() {
+            self.request_prompt_preset_exit(destination, window, cx);
+        } else {
+            self.request_provider_editor_exit(destination, window, cx);
+        }
     }
 
     pub(in crate::desktop::app) fn request_provider_editor_exit(
         &mut self,
-        destination: ProviderEditorExit,
+        destination: SettingsDestination,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(editor) = &self.settings_ui.provider_editor else {
-            self.apply_provider_editor_exit(destination, window, cx);
+            self.apply_settings_destination(destination, window, cx);
             return;
         };
         if editor.saving {
             return;
         }
         if !editor.is_dirty(cx) {
-            self.apply_provider_editor_exit(destination, window, cx);
+            self.apply_settings_destination(destination, window, cx);
             return;
         }
 
@@ -120,23 +134,25 @@ impl OneChat {
 
     fn confirm_provider_editor_exit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(destination) = self.settings_ui.pending_provider_exit.take() {
-            self.apply_provider_editor_exit(destination, window, cx);
+            self.apply_settings_destination(destination, window, cx);
         }
     }
 
-    pub(in crate::desktop::app) fn apply_provider_editor_exit(
+    pub(in crate::desktop::app) fn apply_settings_destination(
         &mut self,
-        destination: ProviderEditorExit,
+        destination: SettingsDestination,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.settings_ui.pending_provider_exit = None;
+        self.settings_ui.pending_prompt_preset_exit = None;
         self.settings_ui.provider_editor = None;
+        self.settings_ui.prompt_preset_workspace = None;
         self.settings_ui.form_error = None;
         match destination {
-            ProviderEditorExit::Section(section) => self.select_settings_section(section, cx),
-            ProviderEditorExit::Page(page) => self.set_page(page, cx),
-            ProviderEditorExit::AddProvider => self.begin_add_provider(window, cx),
+            SettingsDestination::Section(section) => self.select_settings_section(section, cx),
+            SettingsDestination::Page(page) => self.set_page(page, cx),
+            SettingsDestination::AddProvider => self.begin_add_provider(window, cx),
         }
         cx.notify();
     }
@@ -154,11 +170,11 @@ impl OneChat {
             return;
         }
         self.settings_ui.section = section;
-        self.settings_ui.viewed_prompt_preset = None;
+        self.settings_ui.prompt_preset_workspace = None;
+        self.settings_ui.pending_prompt_preset_exit = None;
         self.settings_ui.provider_editor = None;
         self.settings_ui.pending_provider_exit = None;
         self.settings_ui.model_editor = None;
-        self.settings_ui.prompt_preset_editor = None;
         self.settings_ui.title_prompt_editor = None;
         self.settings_ui.mcp_server_editor = None;
         self.settings_ui.mcp_error = None;

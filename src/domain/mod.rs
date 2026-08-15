@@ -30,8 +30,8 @@ pub use preferences::{
     MIN_MESSAGE_WIDTH_RATIO, SendMessageShortcut, Theme, normalize_font_families,
 };
 pub use prompt::{
-    DEFAULT_PROMPT_COMMAND_TIMEOUT_MS, PromptEvaluation, PromptSnapshot, PromptVariableSource,
-    SystemPromptPreset, prompt_variable_name_is_valid,
+    BUILTIN_PROMPT_VARIABLES, DEFAULT_PROMPT_COMMAND_TIMEOUT_MS, PromptEvaluation, PromptPreset,
+    PromptSnapshot, PromptVariableSource, prompt_variable_name_is_valid,
 };
 pub use reasoning::{
     CustomReasoningPreset, KnownReasoningFormat, KnownReasoningPreset, ModelReasoningConfig,

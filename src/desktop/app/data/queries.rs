@@ -4,8 +4,8 @@ use gpui::Window;
 
 use super::super::OneChat;
 use crate::domain::{
-    AssistantResponse, Conversation, HistoryLimit, Message, Model, Provider, RequestInfo,
-    SystemPromptPreset, Turn, active_turns, user_branches,
+    AssistantResponse, Conversation, HistoryLimit, Message, Model, PromptPreset, Provider,
+    RequestInfo, Turn, active_turns, user_branches,
 };
 
 impl OneChat {
@@ -46,7 +46,7 @@ impl OneChat {
             .find(|conversation| conversation.id == id)
     }
 
-    pub(crate) fn prompt_preset(&self, name: &str) -> Option<&SystemPromptPreset> {
+    pub(crate) fn prompt_preset(&self, name: &str) -> Option<&PromptPreset> {
         self.data
             .snapshot
             .prompt_presets
@@ -54,29 +54,35 @@ impl OneChat {
             .find(|preset| preset.name == name)
     }
 
-    pub(crate) fn prompt_preset_for_content(&self, content: &str) -> Option<&SystemPromptPreset> {
-        let content = content.trim();
+    pub(crate) fn prompt_preset_for_setup(
+        &self,
+        system_prompt: &str,
+        assistant_opening: &str,
+    ) -> Option<&PromptPreset> {
+        let matches = |preset: &&PromptPreset| {
+            preset.system_prompt == system_prompt.trim()
+                && preset.assistant_opening == assistant_opening.trim()
+        };
         self.settings()
-            .default_system_prompt_preset
+            .default_prompt_preset
             .as_deref()
             .and_then(|name| self.prompt_preset(name))
-            .filter(|preset| preset.content == content)
-            .or_else(|| {
-                self.data
-                    .snapshot
-                    .prompt_presets
-                    .iter()
-                    .find(|preset| preset.content == content)
-            })
+            .filter(matches)
+            .or_else(|| self.data.snapshot.prompt_presets.iter().find(matches))
     }
 
-    pub(crate) fn system_prompt_label(&self, content: &str) -> String {
-        if content.trim().is_empty() {
+    pub(crate) fn prompt_setup_label(&self, conversation: &Conversation) -> String {
+        if conversation.system_prompt.trim().is_empty()
+            && conversation.assistant_opening.trim().is_empty()
+        {
             "None".into()
         } else {
-            self.prompt_preset_for_content(content)
-                .map(|preset| preset.name.clone())
-                .unwrap_or_else(|| "Custom".into())
+            self.prompt_preset_for_setup(
+                &conversation.system_prompt,
+                &conversation.assistant_opening,
+            )
+            .map(|preset| preset.name.clone())
+            .unwrap_or_else(|| "Custom".into())
         }
     }
 
@@ -261,10 +267,18 @@ impl OneChat {
 
     pub(crate) fn current_context_messages(&self) -> Vec<Message> {
         let limit = self.displayed_history_limit();
-        crate::application::generation::history_for_new_turn(
+        let mut messages = crate::application::generation::history_for_new_turn(
             &self.data.snapshot.current_turns,
             limit,
-        )
+        );
+        if let Some(opening) = self
+            .current_conversation()
+            .map(|conversation| conversation.assistant_opening.trim())
+            .filter(|opening| !opening.is_empty())
+        {
+            messages.insert(0, Message::assistant(opening.to_string()));
+        }
+        messages
     }
 
     pub(crate) fn current_context_audio_duration_ms(&self) -> u64 {

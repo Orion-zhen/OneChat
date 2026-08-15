@@ -366,8 +366,12 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
         .on_action(cx.listener(|this, _: &OpenSettings, _, cx| this.set_page(Page::Settings, cx)))
         .on_action(cx.listener(|this, _: &SaveSettingsEdit, window, cx| {
-            if this.navigation.page == Page::Settings && this.settings_ui.provider_editor.is_some()
-            {
+            if this.navigation.page != Page::Settings {
+                return;
+            }
+            if this.settings_ui.prompt_preset_workspace.is_some() {
+                this.save_prompt_preset(cx);
+            } else if this.settings_ui.provider_editor.is_some() {
                 this.save_provider(window, cx);
             }
         }))

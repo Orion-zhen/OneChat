@@ -59,20 +59,22 @@ impl OneChat {
         let mut settings = self.data.snapshot.settings.clone();
         settings.current_conversation_id = Some(id);
         let default_prompt_name = settings
-            .default_system_prompt_preset
+            .default_prompt_preset
             .clone()
             .filter(|name| self.prompt_preset(name).is_some());
         self.navigation.pending_focus = Some(PendingFocus::Composer);
         self.mutate_and_reload(
             move |storage| {
                 let mut conversation = conversation;
-                conversation.system_prompt = default_prompt_name
+                if let Some(preset) = default_prompt_name
                     .as_deref()
                     .map(|name| storage.load_prompt_preset(name))
                     .transpose()?
                     .flatten()
-                    .map(|preset| preset.content)
-                    .unwrap_or_default();
+                {
+                    conversation.system_prompt = preset.system_prompt;
+                    conversation.assistant_opening = preset.assistant_opening;
+                }
                 storage.insert_conversation(&conversation)?;
                 storage.save_settings(&settings)
             },

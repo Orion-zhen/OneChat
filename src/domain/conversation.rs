@@ -56,6 +56,8 @@ pub struct Conversation {
     pub title: String,
     pub model_id: Option<String>,
     pub system_prompt: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub assistant_opening: String,
     pub generation_config: GenerationConfig,
     #[serde(default)]
     pub tool_selection: ToolSelection,
@@ -76,6 +78,7 @@ impl Conversation {
             title: title.into(),
             model_id: model.map(|model| model.id.clone()),
             system_prompt,
+            assistant_opening: String::new(),
             generation_config: GenerationConfig::default(),
             tool_selection: ToolSelection::default(),
             history_limit_override: None,

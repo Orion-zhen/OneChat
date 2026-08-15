@@ -291,7 +291,7 @@ impl OneChat {
         } else {
             self.settings_ui.section.clone()
         };
-        self.request_provider_editor_exit(ProviderEditorExit::Section(destination), window, cx);
+        self.request_provider_editor_exit(SettingsDestination::Section(destination), window, cx);
     }
 
     pub(crate) fn request_delete_provider(

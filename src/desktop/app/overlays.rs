@@ -154,9 +154,8 @@ impl OneChat {
         if window.has_active_dialog(cx) {
             self.overlays.response_model_turn_id = None;
             self.overlays.destructive_action = None;
-            self.settings_ui.prompt_preset_editor = None;
-            self.settings_ui.viewed_prompt_preset = None;
             self.settings_ui.pending_provider_exit = None;
+            self.settings_ui.pending_prompt_preset_exit = None;
             self.settings_ui.form_error = None;
             window.close_dialog(cx);
         } else if self.tts.view.connection_popover_open {
@@ -166,6 +165,8 @@ impl OneChat {
             self.set_tts_inspector_open(false, cx);
         } else if self.overlays.picker.is_some() {
             self.close_picker_overlay(false, cx);
+        } else if self.settings_ui.prompt_preset_workspace.is_some() {
+            self.request_close_prompt_preset_workspace(window, cx);
         } else if self.settings_ui.provider_editor.is_some() {
             self.cancel_provider_editor(window, cx);
         } else if self.settings_ui.title_prompt_editor.is_some() {
@@ -348,11 +349,7 @@ impl OneChat {
         cx.notify();
     }
 
-    pub(crate) fn select_system_prompt_preset(
-        &mut self,
-        name: Option<String>,
-        cx: &mut Context<Self>,
-    ) {
+    pub(crate) fn select_prompt_preset(&mut self, name: Option<String>, cx: &mut Context<Self>) {
         if self.is_current_generating() {
             return;
         }
@@ -361,17 +358,20 @@ impl OneChat {
         };
         self.mutate_and_reload(
             move |storage| {
-                let content = match name {
+                let (system_prompt, assistant_opening) = match name {
                     Some(name) => storage
                         .load_prompt_preset(&name)?
-                        .map(|preset| preset.content)
+                        .map(|preset| (preset.system_prompt, preset.assistant_opening))
                         .ok_or_else(|| {
                             StorageError::InvalidData(format!("prompt preset not found: {name}"))
                         })?,
-                    None => String::new(),
+                    None => (String::new(), String::new()),
                 };
-                if conversation.system_prompt != content {
-                    conversation.system_prompt = content;
+                if conversation.system_prompt != system_prompt
+                    || conversation.assistant_opening != assistant_opening
+                {
+                    conversation.system_prompt = system_prompt;
+                    conversation.assistant_opening = assistant_opening;
                     conversation.updated_at = now_timestamp();
                     storage.update_conversation(&conversation)?;
                 }

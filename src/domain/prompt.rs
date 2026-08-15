@@ -2,17 +2,33 @@ use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_PROMPT_COMMAND_TIMEOUT_MS: u64 = 3_000;
 
+pub const BUILTIN_PROMPT_VARIABLES: [(&str, &str); 7] = [
+    ("onechat.date", "Current local date"),
+    ("onechat.datetime", "Current local date and time"),
+    ("onechat.os", "Operating system"),
+    ("onechat.conversation.id", "Conversation identifier"),
+    ("onechat.conversation.title", "Conversation title"),
+    ("onechat.model.name", "Selected model"),
+    ("onechat.provider.name", "Selected provider"),
+];
+
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SystemPromptPreset {
+pub struct PromptPreset {
     pub name: String,
-    pub content: String,
+    pub system_prompt: String,
+    pub assistant_opening: String,
 }
 
-impl SystemPromptPreset {
-    pub fn new(name: impl Into<String>, content: impl Into<String>) -> Self {
+impl PromptPreset {
+    pub fn new(
+        name: impl Into<String>,
+        system_prompt: impl Into<String>,
+        assistant_opening: impl Into<String>,
+    ) -> Self {
         Self {
             name: name.into().trim().to_string(),
-            content: content.into().trim().to_string(),
+            system_prompt: system_prompt.into().trim().to_string(),
+            assistant_opening: assistant_opening.into().trim().to_string(),
         }
     }
 }

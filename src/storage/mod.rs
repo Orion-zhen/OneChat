@@ -12,9 +12,7 @@ use std::{
     sync::{Mutex, MutexGuard},
 };
 
-use crate::domain::{
-    AppSettings, Conversation, Model, Provider, RequestInfo, SystemPromptPreset, Turn,
-};
+use crate::domain::{AppSettings, Conversation, Model, PromptPreset, Provider, RequestInfo, Turn};
 use catalog::SettingsFile;
 use codec::{read_jsonc, write_json};
 use serde::{Deserialize, Serialize};
@@ -58,7 +56,7 @@ impl From<serde_json::Error> for StorageError {
 pub struct StorageSnapshot {
     pub providers: Vec<Provider>,
     pub models: Vec<Model>,
-    pub prompt_presets: Vec<SystemPromptPreset>,
+    pub prompt_presets: Vec<PromptPreset>,
     pub conversations: Vec<Conversation>,
     pub current_turns: Vec<Turn>,
     pub current_requests: Vec<RequestInfo>,

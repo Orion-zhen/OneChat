@@ -65,9 +65,22 @@ pub(super) fn prepare_render(
                 .system_prompt_editor
                 .as_ref()
                 .map(|input| input.read(cx).focus_handle(cx)),
+            PendingFocus::AssistantOpening => app
+                .chat
+                .assistant_opening_editor
+                .as_ref()
+                .map(|input| input.read(cx).focus_handle(cx)),
             PendingFocus::SettingsPrompt => {
-                if let Some(editor) = &app.settings_ui.prompt_preset_editor {
-                    Some(editor.focus_handle(cx))
+                if let Some(workspace) = &app.settings_ui.prompt_preset_workspace {
+                    if workspace.is_editing() {
+                        if workspace.editor.original_name().is_none() {
+                            Some(workspace.editor.name.read(cx).focus_handle(cx))
+                        } else {
+                            Some(workspace.editor.focus_handle(workspace.section, cx))
+                        }
+                    } else {
+                        None
+                    }
                 } else if let Some(editor) = &app.settings_ui.prompt_variable_editor {
                     Some(editor.focus_handle(cx))
                 } else {

@@ -1,15 +1,5 @@
 use super::super::super::*;
 
-const BUILTIN_VARIABLES: [(&str, &str); 7] = [
-    ("onechat.date", "Current local date"),
-    ("onechat.datetime", "Current local date and time"),
-    ("onechat.os", "Operating system"),
-    ("onechat.conversation.id", "Conversation identifier"),
-    ("onechat.conversation.title", "Conversation title"),
-    ("onechat.model.name", "Selected model"),
-    ("onechat.provider.name", "Selected provider"),
-];
-
 pub(super) fn prompt_variables_content(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
     div()
         .w_full()
@@ -45,7 +35,7 @@ fn variable_privacy_notice(cx: &App) -> AnyElement {
                 .line_height(px(18.0))
                 .text_color(cx.theme().muted_foreground)
                 .child(
-                    "Resolved values become part of the system prompt and are sent to the selected model provider.",
+                    "Resolved values become part of the system prompt or assistant opening and are sent to the selected model provider.",
                 ),
         )
         .into_any_element()
@@ -216,7 +206,7 @@ fn builtin_variables_content(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEle
                                 .child("Built-in Variables"),
                         )
                         .child(status_pill(
-                            BUILTIN_VARIABLES.len().to_string(),
+                            BUILTIN_PROMPT_VARIABLES.len().to_string(),
                             false,
                             StatusPillBackground::Muted,
                             cx,
@@ -250,7 +240,7 @@ fn builtin_variables_content(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEle
                     .rounded_lg()
                     .border_1()
                     .border_color(cx.theme().border)
-                    .children(BUILTIN_VARIABLES.iter().enumerate().map(
+                    .children(BUILTIN_PROMPT_VARIABLES.iter().enumerate().map(
                         |(index, (name, description))| {
                             let placeholder = format!("{{{{{name}}}}}");
                             div()
@@ -259,7 +249,7 @@ fn builtin_variables_content(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEle
                                 .flex()
                                 .items_center()
                                 .gap_3()
-                                .when(index + 1 < BUILTIN_VARIABLES.len(), |row| {
+                                .when(index + 1 < BUILTIN_PROMPT_VARIABLES.len(), |row| {
                                     row.border_b_1().border_color(cx.theme().border)
                                 })
                                 .child(

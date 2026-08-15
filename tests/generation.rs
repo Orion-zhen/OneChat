@@ -5,10 +5,13 @@ use std::{
 };
 
 use onechat::{
-    application::generation::{
-        ContextPolicy, GenerationManager, GenerationStart, GenerationUpdate, PreparedGeneration,
-        apply_event, history_for_new_turn, history_for_turn, history_preview_for_new_turn,
-        run_generation,
+    application::{
+        generation::{
+            ContextPolicy, GenerationManager, GenerationStart, GenerationUpdate,
+            PreparedGeneration, apply_event, history_for_new_turn, history_for_turn,
+            history_preview_for_new_turn, run_generation,
+        },
+        prompt::PromptContext,
     },
     domain::{
         AssistantBlock, AssistantResponse, Attachment, AttachmentDraft, AttachmentDraftFile,

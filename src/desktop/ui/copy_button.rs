@@ -31,12 +31,6 @@ impl CopyButton {
             icon_size: 17.0,
         }
     }
-
-    pub(crate) fn large(mut self) -> Self {
-        self.size = 36.0;
-        self.icon_size = 20.0;
-        self
-    }
 }
 
 #[derive(Default)]

@@ -37,31 +37,58 @@ impl OneChat {
     }
 
     pub(crate) fn begin_edit_system_prompt(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.begin_edit_prompt_setup(PendingFocus::SystemPrompt, window, cx);
+    }
+
+    pub(crate) fn begin_edit_assistant_opening(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.begin_edit_prompt_setup(PendingFocus::AssistantOpening, window, cx);
+    }
+
+    fn begin_edit_prompt_setup(
+        &mut self,
+        focus: PendingFocus,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.is_current_generating() {
             return;
         }
         let Some(conversation) = self.current_conversation() else {
             return;
         };
-        let value = conversation.system_prompt.clone();
-        let editor = cx.new(|cx| {
+        let system_prompt = conversation.system_prompt.clone();
+        let assistant_opening = conversation.assistant_opening.clone();
+        self.chat.system_prompt_editor = Some(cx.new(|cx| {
             multiline_input(
-                value,
+                system_prompt,
                 "Describe how the assistant should respond",
                 8,
                 window,
                 cx,
             )
-        });
-        self.chat.system_prompt_editor = Some(editor);
+        }));
+        self.chat.assistant_opening_editor = Some(cx.new(|cx| {
+            multiline_input(
+                assistant_opening,
+                "Optional first assistant message",
+                6,
+                window,
+                cx,
+            )
+        }));
         self.chat.system_prompt_mode = SystemPromptMode::Editing;
         self.set_inspector_open(false, true, cx);
-        self.navigation.pending_focus = Some(PendingFocus::SystemPrompt);
+        self.navigation.pending_focus = Some(focus);
         cx.notify();
     }
 
     pub(crate) fn cancel_system_prompt_edit(&mut self, cx: &mut Context<Self>) {
         self.chat.system_prompt_editor = None;
+        self.chat.assistant_opening_editor = None;
         self.chat.system_prompt_mode = SystemPromptMode::Compact;
         self.navigation.pending_focus = Some(PendingFocus::Composer);
         cx.notify();
@@ -74,13 +101,21 @@ impl OneChat {
         let Some(editor) = self.chat.system_prompt_editor.as_ref() else {
             return;
         };
-        let content = editor.read(cx).value().trim().to_string();
+        let system_prompt = editor.read(cx).value().trim().to_string();
+        let assistant_opening = self
+            .chat
+            .assistant_opening_editor
+            .as_ref()
+            .map(|editor| editor.read(cx).value().trim().to_string())
+            .unwrap_or_default();
         let Some(mut conversation) = self.current_conversation().cloned() else {
             return;
         };
-        conversation.system_prompt = content;
+        conversation.system_prompt = system_prompt;
+        conversation.assistant_opening = assistant_opening;
         conversation.updated_at = now_timestamp();
         self.chat.system_prompt_editor = None;
+        self.chat.assistant_opening_editor = None;
         self.chat.system_prompt_mode = SystemPromptMode::Compact;
         self.navigation.pending_focus = Some(PendingFocus::Composer);
         self.mutate_and_reload(

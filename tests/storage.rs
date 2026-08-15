@@ -5,9 +5,9 @@ use onechat::{
     domain::{
         AppSettings, AssistantResponse, AttachmentDraft, AttachmentDraftFile, AttachmentFileKind,
         AttachmentKind, AudioAttachmentMetadata, AudioAttachmentSource, AutoTitleState,
-        Conversation, HistoryLimit, MessageStatus, Model, PromptVariableSource, Provider,
-        ProviderKind, RequestContextInfo, RequestInfo, RequestStatus, SystemPromptPreset,
-        ToolExecution, ToolExecutionStatus, Turn, UserMessage, active_turns,
+        Conversation, HistoryLimit, MessageStatus, Model, PromptPreset, PromptVariableSource,
+        Provider, ProviderKind, RequestContextInfo, RequestInfo, RequestStatus, ToolExecution,
+        ToolExecutionStatus, Turn, UserMessage, active_turns,
     },
     storage::{Storage, WindowMode, WindowState},
 };

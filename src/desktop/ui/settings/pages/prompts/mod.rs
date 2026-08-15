@@ -3,14 +3,15 @@ mod presets;
 mod titles;
 mod variable_dialog;
 mod variables;
+mod workspace;
 
 use super::super::*;
 use presets::{default_prompt_select, prompt_presets_content};
 use titles::title_prompt_content;
 use variables::prompt_variables_content;
 
-pub(in crate::desktop::ui::settings) use presets::prompt_preset_dialog_body;
 pub(in crate::desktop::ui::settings) use variable_dialog::prompt_variable_dialog_body;
+pub(in crate::desktop::ui::settings) use workspace::prompt_preset_workspace;
 
 pub(in crate::desktop::ui::settings) fn system_prompts_page(
     app: &OneChat,
@@ -20,9 +21,9 @@ pub(in crate::desktop::ui::settings) fn system_prompts_page(
     let preset_count_label = format!(
         "{preset_count} {}",
         if preset_count == 1 {
-            "prompt"
+            "preset"
         } else {
-            "prompts"
+            "presets"
         }
     );
     let library_actions = div()
@@ -42,14 +43,14 @@ pub(in crate::desktop::ui::settings) fn system_prompts_page(
                     "reload-prompt-presets",
                     AppIcon::Regenerate,
                     IconTone::Muted,
-                    "Reload prompts",
+                    "Reload presets",
                     cx,
                 )
                 .on_click(cx.listener(|this, _, _, cx| this.reload_prompt_presets(cx))),
         )
         .child(
             Compact
-                .primary_icon_action("add-prompt-preset", AppIcon::Plus, "New prompt", cx)
+                .primary_icon_action("add-prompt-preset", AppIcon::Plus, "New preset", cx)
                 .on_click(
                     cx.listener(|this, _, window, cx| this.begin_add_prompt_preset(window, cx)),
                 ),
@@ -63,8 +64,8 @@ pub(in crate::desktop::ui::settings) fn system_prompts_page(
         .flex()
         .flex_col()
         .child(setting_row(
-            "Default Prompt",
-            "Copied into each new conversation.",
+            "Default Prompt Preset",
+            "Copies its system prompt and optional assistant opening into each new conversation.",
             default_prompt_select(app),
             cx,
         ))
@@ -85,14 +86,14 @@ pub(in crate::desktop::ui::settings) fn system_prompts_page(
                             div()
                                 .text_sm()
                                 .font_weight(FontWeight::SEMIBOLD)
-                                .child("Prompt Library"),
+                                .child("Preset Library"),
                         )
                         .child(
                             div()
                                 .pt_1()
                                 .text_size(px(12.0))
                                 .text_color(cx.theme().muted_foreground)
-                                .child("Reusable Markdown instructions."),
+                                .child("Reusable system prompts with optional assistant openings."),
                         ),
                 )
                 .child(library_actions),
@@ -105,13 +106,13 @@ pub(in crate::desktop::ui::settings) fn system_prompts_page(
             .flex_col()
             .gap_6()
             .child(page_header(
-                "System Prompts",
-                "Create reusable instructions and add context at runtime.",
+                "Prompts",
+                "Create reusable conversation presets and add context at runtime.",
                 cx,
             ))
             .child(section(
-                "Conversation Prompts",
-                Some("Choose what new conversations know before the first message."),
+                "Conversation Presets",
+                Some("Choose the system prompt and optional assistant opening for new conversations."),
                 conversation_prompts,
                 cx,
             ))

@@ -4,7 +4,8 @@ use super::*;
 fn model_context_window_trims_only_complete_oldest_turns_and_updates_request_info() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
     let model = Model::new(&provider.id, "test-model", "Test Model");
-    let conversation = Conversation::new("Chat", Some(&model), "system");
+    let mut conversation = Conversation::new("Chat", Some(&model), "system");
+    conversation.assistant_opening = "opening context".into();
     let mut root = completed_turn(
         &conversation,
         None,
@@ -55,12 +56,12 @@ fn model_context_window_trims_only_complete_oldest_turns_and_updates_request_inf
 
     let mut unknown_window = full.clone();
     unknown_window.finalize_context().unwrap();
-    assert_eq!(unknown_window.provider_request.messages.len(), 6);
+    assert_eq!(unknown_window.provider_request.messages.len(), 7);
 
     let mut exact_window = full.clone();
     exact_window.provider_request.model.context_window_tokens = Some(full_tokens as u32);
     exact_window.finalize_context().unwrap();
-    assert_eq!(exact_window.provider_request.messages.len(), 6);
+    assert_eq!(exact_window.provider_request.messages.len(), 7);
     assert!(
         !exact_window
             .request_info
@@ -76,6 +77,7 @@ fn model_context_window_trims_only_complete_oldest_turns_and_updates_request_inf
     assert!(!messages.contains("old tool question"));
     assert!(!messages.contains("old tool call"));
     assert!(!messages.contains("old tool result"));
+    assert!(messages.contains("opening context"));
     assert!(messages.contains("recent question"));
     let context = one_removed.request_info.context.unwrap();
     assert_eq!(context.available_history_turns, 2);
@@ -90,7 +92,8 @@ fn model_context_window_trims_only_complete_oldest_turns_and_updates_request_inf
     all_removed.provider_request.model.context_window_tokens = Some(current_tokens as u32);
     all_removed.finalize_context().unwrap();
     let messages = serialized_messages(&all_removed.provider_request.messages).join("\n");
-    assert_eq!(all_removed.provider_request.messages.len(), 1);
+    assert_eq!(all_removed.provider_request.messages.len(), 2);
+    assert!(messages.contains("opening context"));
     assert!(messages.contains("current question"));
     assert!(!messages.contains("recent question"));
     assert_eq!(
@@ -221,7 +224,7 @@ async fn resolved_system_prompt_is_used_for_context_window_preflight() {
     );
 
     prepared
-        .render_system_prompt(CancellationToken::new())
+        .render_prompt_setup(CancellationToken::new())
         .await
         .unwrap();
     assert!(prepared.request_info.usage.input_tokens.unwrap() > unresolved_tokens);

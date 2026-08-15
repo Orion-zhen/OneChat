@@ -8,8 +8,8 @@ mod timeline;
 use attachment::{attachment_detail, render_audio_attachment_card};
 use composer::render_composer;
 use context_indicator::render_context_indicator;
-use message::{render_assistant_turn, render_user_turn};
-use system_prompt::render_system_prompt_card;
+use message::{render_assistant_opening, render_assistant_turn, render_user_turn};
+use system_prompt::render_prompt_setup_card;
 use timeline::{TimelineEntry, TimelineXray};
 
 use std::time::Duration;
@@ -133,8 +133,9 @@ pub(crate) fn render(
     let message_max_width =
         message_max_width(available_width, app.settings().message_width_ratio());
     let typography = MessageTypography::new(app.settings().message_font_size());
-    let has_system_prompt = !conversation.system_prompt.trim().is_empty();
-    let editing_system_prompt = app.chat.system_prompt_mode == SystemPromptMode::Editing;
+    let has_prompt_setup = !conversation.system_prompt.trim().is_empty()
+        || !conversation.assistant_opening.trim().is_empty();
+    let editing_prompt_setup = app.chat.system_prompt_mode == SystemPromptMode::Editing;
     let text_selection = app.chat.text_selection.clone();
     text_selection.begin_frame();
     let selection_focus = text_selection.focus_handle().clone();
@@ -169,8 +170,8 @@ pub(crate) fn render(
         .pt_7()
         .pb_6()
         .children(
-            (has_system_prompt || editing_system_prompt)
-                .then(|| render_system_prompt_card(app, message_max_width, typography, cx)),
+            (has_prompt_setup || editing_prompt_setup)
+                .then(|| render_prompt_setup_card(app, message_max_width, typography, cx)),
         );
 
     #[cfg(target_os = "macos")]
@@ -183,7 +184,23 @@ pub(crate) fn render(
     }
 
     let mut timeline_entries = Vec::new();
-    let mut child_index = usize::from(has_system_prompt || editing_system_prompt);
+    let mut child_index = usize::from(has_prompt_setup || editing_prompt_setup);
+    if !conversation.assistant_opening.is_empty() {
+        messages = messages.child(render_assistant_opening(
+            app,
+            message_max_width,
+            scale_factor,
+            typography,
+            cx,
+        ));
+        timeline_entries.push(TimelineEntry {
+            item: child_index,
+            label: "Assistant Opening".into(),
+            timestamp: conversation.created_at,
+            xray: TimelineXray::assistant_opening(&conversation.assistant_opening),
+        });
+        child_index += 1;
+    }
     if app.current_turns().is_empty() {
         messages = messages.child(render_empty_conversation(app, cx));
     } else {

@@ -358,7 +358,7 @@ pub async fn run_generation(
     cancellation: CancellationToken,
     updates: Sender<GenerationUpdate>,
 ) {
-    if let Err(error) = prepared.render_system_prompt(cancellation.clone()).await {
+    if let Err(error) = prepared.render_prompt_setup(cancellation.clone()).await {
         fail_before_provider(prepared, storage, prompt_render_error(error), updates).await;
         return;
     }
