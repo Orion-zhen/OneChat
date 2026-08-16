@@ -39,7 +39,7 @@ pub(super) fn load(
 
     if markdown.len() as u64 > MAX_TEXT_BYTES {
         return Err(format!(
-            "Extracted Markdown too large: {name} exceeds the 1 MiB extracted Markdown limit."
+            "Extracted Markdown too large: {name} exceeds the 5 MiB extracted Markdown limit."
         ));
     }
     if markdown.trim().is_empty() {

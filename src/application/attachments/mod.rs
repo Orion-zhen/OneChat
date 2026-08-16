@@ -13,7 +13,7 @@ pub use image::validate_image;
 pub const MAX_ATTACHMENTS: usize = 10;
 pub const MAX_AUDIO_BYTES: u64 = 10 * 1024 * 1024;
 pub const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
-pub(super) const MAX_TEXT_BYTES: u64 = 1024 * 1024;
+pub(super) const MAX_TEXT_BYTES: u64 = 5 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug)]
 pub struct LoadManyOptions {

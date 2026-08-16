@@ -153,7 +153,7 @@ fn xlsx_missing_workbook_and_oversized_markdown_are_rejected() {
     assert!(error.contains("xl/workbook.xml"), "{error}");
 
     let oversized = directory.path().join("oversized.xlsx");
-    let text = "x".repeat(1024 * 1024 + 1);
+    let text = "x".repeat(5 * 1024 * 1024 + 1);
     let sheet = format!(
         r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>{text}</t></is></c></row></sheetData></worksheet>"#
     );
@@ -163,5 +163,5 @@ fn xlsx_missing_workbook_and_oversized_markdown_are_rejected() {
         error.starts_with("Extracted Markdown too large:"),
         "{error}"
     );
-    assert!(error.contains("1 MiB extracted Markdown limit"), "{error}");
+    assert!(error.contains("5 MiB extracted Markdown limit"), "{error}");
 }

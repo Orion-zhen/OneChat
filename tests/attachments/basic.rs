@@ -18,6 +18,20 @@ fn text_attachments_are_loaded_as_utf8() {
 }
 
 #[test]
+fn text_attachments_have_a_five_mib_limit() {
+    let directory = tempdir().unwrap();
+    let accepted = directory.path().join("accepted.txt");
+    fs::write(&accepted, vec![b'x'; 5 * 1024 * 1024]).unwrap();
+    assert!(load(&accepted, false).is_ok());
+
+    let oversized = directory.path().join("oversized.txt");
+    let file = fs::File::create(&oversized).unwrap();
+    file.set_len(5 * 1024 * 1024 + 1).unwrap();
+    let error = load(&oversized, false).unwrap_err();
+    assert!(error.contains("5 MiB text attachment limit"), "{error}");
+}
+
+#[test]
 fn binary_text_and_visual_files_without_vision_are_rejected() {
     let directory = tempdir().unwrap();
     let binary = directory.path().join("binary.txt");

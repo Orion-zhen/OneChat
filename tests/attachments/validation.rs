@@ -148,7 +148,7 @@ fn empty_and_oversized_markdown_docx_are_rejected() {
     assert!(error.contains("no readable content"), "{error}");
 
     let oversized = directory.path().join("oversized.docx");
-    let text = "x".repeat(1024 * 1024 + 1);
+    let text = "x".repeat(5 * 1024 * 1024 + 1);
     let body = format!("<w:p><w:r><w:t>{text}</w:t></w:r></w:p>");
     fs::write(&oversized, docx(&body, Vec::new(), Vec::new())).unwrap();
     let error = load(&oversized, false).unwrap_err();
@@ -156,5 +156,5 @@ fn empty_and_oversized_markdown_docx_are_rejected() {
         error.starts_with("Extracted Markdown too large:"),
         "{error}"
     );
-    assert!(error.contains("extracted Markdown limit"), "{error}");
+    assert!(error.contains("5 MiB extracted Markdown limit"), "{error}");
 }

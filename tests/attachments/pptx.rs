@@ -136,7 +136,7 @@ fn pptx_missing_presentation_and_oversized_markdown_are_rejected() {
     assert!(error.contains("ppt/presentation.xml"), "{error}");
 
     let oversized = directory.path().join("oversized.pptx");
-    let text = "x".repeat(1024 * 1024 + 1);
+    let text = "x".repeat(5 * 1024 * 1024 + 1);
     let slide = format!(
         r#"<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>{text}</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>"#
     );
@@ -146,5 +146,5 @@ fn pptx_missing_presentation_and_oversized_markdown_are_rejected() {
         error.starts_with("Extracted Markdown too large:"),
         "{error}"
     );
-    assert!(error.contains("1 MiB extracted Markdown limit"), "{error}");
+    assert!(error.contains("5 MiB extracted Markdown limit"), "{error}");
 }
