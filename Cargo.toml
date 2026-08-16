@@ -26,10 +26,10 @@ app-position = { x = 180, y = 190 }
 application-folder-position = { x = 420, y = 190 }
 
 [package.metadata.packager.deb]
-depends = ["libgtk-3-0", "libwebkit2gtk-4.1-0"]
+depends = ["libgtk-4-1", "libwebkitgtk-6.0-4"]
 
 [package.metadata.packager.pacman]
-depends = ["gtk3", "webkit2gtk-4.1"]
+depends = ["gtk4", "webkitgtk-6.0"]
 
 [package.metadata.packager.linux]
 generate-desktop-entry = true
@@ -135,8 +135,7 @@ objc2-natural-language = { version = "*", default-features = false, features = [
 raw-window-handle = "*"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-gtk = "*"
-webkit2gtk = "*"
+webkit6 = { version = "*", features = ["gtk_v4_18", "v2_52"] }
 
 [target.'cfg(windows)'.dependencies]
 webview2-com = "*"

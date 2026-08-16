@@ -15,10 +15,10 @@ Linux builds use the system WebKitGTK renderer for HTML/PNG conversation export.
 
 ```sh
 # Debian / Ubuntu
-sudo apt install libgtk-3-dev libwebkit2gtk-4.1-dev
+sudo apt install libgtk-4-dev libwebkitgtk-6.0-dev
 
 # Arch Linux
-sudo pacman -S gtk3 webkit2gtk-4.1
+sudo pacman -S gtk4 webkitgtk-6.0
 ```
 
 Windows PNG export uses the Microsoft Edge WebView2 Runtime, which is included with current Windows releases and can also be installed separately by Microsoft.

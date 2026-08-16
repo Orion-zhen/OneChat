@@ -9,7 +9,7 @@ use objc2_web_kit::{
     WKSnapshotConfiguration, WKWebView, WKWebViewConfiguration, WKWebsiteDataStore,
 };
 
-use super::{MAX_IMAGE_PIXELS, SNAPSHOT_WIDTH, VIEW_WIDTH, normalize_png};
+use super::{SNAPSHOT_WIDTH, VIEW_WIDTH, normalize_png};
 
 const LOAD_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -54,9 +54,8 @@ pub(super) async fn render_png(
         .await;
 
     let height = document_height(&web_view).await?.ceil().max(1.0);
-    let pixels = SNAPSHOT_WIDTH as f64 * height * (SNAPSHOT_WIDTH / VIEW_WIDTH) as f64;
-    if !height.is_finite() || pixels > MAX_IMAGE_PIXELS as f64 {
-        return Err("The conversation is too long for one PNG; export it as HTML instead".into());
+    if !height.is_finite() {
+        return Err("The HTML document has an invalid height".into());
     }
 
     let snapshot_frame = frame(height);

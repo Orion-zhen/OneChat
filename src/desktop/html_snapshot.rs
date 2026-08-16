@@ -11,7 +11,6 @@ mod windows;
 
 pub(super) const VIEW_WIDTH: u32 = 840;
 pub(super) const SNAPSHOT_WIDTH: u32 = 1680;
-pub(super) const MAX_IMAGE_PIXELS: u64 = 50_000_000;
 const HELPER_ARGUMENT: &str = "--onechat-html-snapshot-helper";
 
 pub(crate) async fn render_png(
@@ -180,9 +179,6 @@ fn normalized_height(width: u32, height: u32) -> Result<u32, String> {
     let target_height = u64::from(height)
         .saturating_mul(u64::from(SNAPSHOT_WIDTH))
         .div_ceil(u64::from(width));
-    if u64::from(SNAPSHOT_WIDTH).saturating_mul(target_height) > MAX_IMAGE_PIXELS {
-        return Err("The conversation is too long for one PNG; export it as HTML instead".into());
-    }
     u32::try_from(target_height).map_err(|_| "The rendered PNG is too tall".to_string())
 }
 
@@ -190,7 +186,7 @@ fn normalized_height(width: u32, height: u32) -> Result<u32, String> {
 mod tests {
     use image::{DynamicImage, RgbaImage};
 
-    use super::{MAX_IMAGE_PIXELS, SNAPSHOT_WIDTH, normalize_png, normalized_height};
+    use super::{SNAPSHOT_WIDTH, normalize_png};
 
     #[test]
     fn normalizes_platform_images_to_the_shared_width() {
@@ -208,11 +204,5 @@ mod tests {
     #[test]
     fn rejects_non_png_renderer_output() {
         assert!(normalize_png(b"not an image".to_vec()).is_err());
-    }
-
-    #[test]
-    fn rejects_images_above_the_pixel_limit_before_decoding() {
-        let height = u32::try_from(MAX_IMAGE_PIXELS / u64::from(SNAPSHOT_WIDTH) + 1).unwrap();
-        assert!(normalized_height(SNAPSHOT_WIDTH, height).is_err());
     }
 }
