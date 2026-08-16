@@ -41,7 +41,8 @@ use crate::{
     desktop::app::{COLLAPSED_THINKING_HEIGHT, OneChat, SystemPromptMode},
     domain::{
         AssistantBlock, AssistantResponse, MAX_MESSAGE_WIDTH_RATIO, MIN_MESSAGE_WIDTH_RATIO,
-        MessageStatus, RequestInfo, SendMessageShortcut, ToolExecution, ToolExecutionStatus, Turn,
+        MessageStatus, RequestInfo, RequestKind, RequestStatus, SendMessageShortcut, ToolExecution,
+        ToolExecutionStatus, Turn,
     },
 };
 
@@ -73,6 +74,7 @@ fn icon_tooltip(icon: AppIcon) -> &'static str {
         AppIcon::ChevronRight => "Next",
         AppIcon::ChevronUp => "Collapse",
         AppIcon::Close => "Cancel",
+        AppIcon::Continue => "Continue generating",
         AppIcon::ContextSelect => "Use for context",
         AppIcon::Copy => "Copy",
         AppIcon::Export => "Export conversation",

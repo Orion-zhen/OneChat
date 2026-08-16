@@ -60,6 +60,35 @@ fn streaming_events_produce_completed_and_cancelled_states() {
 }
 
 #[test]
+fn continued_transcript_merges_into_the_existing_assistant_message() {
+    let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let mut response = AssistantResponse::new(&model, &provider);
+    response.content = "existing".into();
+    response.transcript = vec![Message::assistant("existing")];
+    response.prepare_continuation();
+    let mut request = RequestInfo::new("conversation", "turn", &response.id);
+    request.kind = RequestKind::Continue;
+
+    apply_event(
+        GenerationEvent::TextDelta(" continuation".into()),
+        &mut response,
+        &mut request,
+        Duration::from_millis(10),
+    );
+    apply_event(
+        GenerationEvent::TranscriptContinued(Box::new(Message::assistant(" continuation"))),
+        &mut response,
+        &mut request,
+        Duration::from_millis(20),
+    );
+
+    assert_eq!(response.content, "existing continuation");
+    assert_eq!(response.transcript.len(), 1);
+    assert!(serialized_messages(&response.transcript)[0].contains("existing continuation"));
+}
+
+#[test]
 fn provider_usage_keeps_the_last_step_separate_from_cumulative_usage() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
     let model = Model::new(&provider.id, "test-model", "Test Model");

@@ -325,3 +325,110 @@ async fn pre_provider_context_failure_is_persisted_without_removing_attachments(
         .message_for_user(&conversation.id, &turn.user, false)
         .unwrap();
 }
+
+#[tokio::test]
+async fn failed_continuation_restores_the_completed_response() {
+    let directory = tempdir().unwrap();
+    let storage = Arc::new(
+        Storage::open(
+            directory.path().join("config/settings.jsonc"),
+            directory.path().join("state"),
+        )
+        .unwrap(),
+    );
+    let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+    storage.insert_provider(&provider).unwrap();
+    let mut model = Model::new(&provider.id, "tiny-model", "Tiny Model");
+    model.context_window_tokens = Some(1);
+    storage.insert_model(&model).unwrap();
+    let conversation = Conversation::new("Chat", Some(&model), "system");
+    storage.insert_conversation(&conversation).unwrap();
+    let mut settings = storage.load_snapshot().unwrap().settings;
+    settings.current_conversation_id = Some(conversation.id.clone());
+    storage.save_settings(&settings).unwrap();
+
+    let initial = PreparedGeneration::new(
+        &conversation,
+        &provider,
+        &model,
+        &[],
+        None,
+        UserMessage::new("question", Vec::new()),
+        ContextPolicy::new(HistoryLimit::Unlimited, &|user| {
+            Ok(Message::user(user.content.clone()))
+        }),
+    )
+    .unwrap();
+    let GenerationStart::NewTurn(turn) = &initial.start else {
+        panic!("expected a new turn");
+    };
+    storage.begin_turn(turn, &initial.request_info).unwrap();
+    let mut response = initial.response.clone();
+    let mut request = initial.request_info.clone();
+    apply_event(
+        GenerationEvent::TextDelta("original answer".into()),
+        &mut response,
+        &mut request,
+        Duration::from_millis(10),
+    );
+    apply_event(
+        GenerationEvent::TranscriptAppended(Box::new(Message::assistant("original answer"))),
+        &mut response,
+        &mut request,
+        Duration::from_millis(20),
+    );
+    apply_event(
+        GenerationEvent::Completed,
+        &mut response,
+        &mut request,
+        Duration::from_millis(30),
+    );
+    storage.persist_generation(&response, &request).unwrap();
+
+    let stored = storage.load_snapshot().unwrap();
+    let turn = stored.current_turns[0].clone();
+    let response = turn.responses[0].clone();
+    let continued = PreparedGeneration::continuation(
+        &conversation,
+        &provider,
+        &model,
+        &stored.current_turns,
+        &turn,
+        &response,
+        ContextPolicy::new(HistoryLimit::Unlimited, &|user| {
+            Ok(Message::user(user.content.clone()))
+        }),
+    )
+    .unwrap();
+    storage
+        .begin_regeneration(
+            &conversation.id,
+            &turn.id,
+            &continued.response,
+            &continued.request_info,
+        )
+        .unwrap();
+
+    let (sender, receiver) = async_channel::bounded(1);
+    run_generation(
+        continued,
+        storage.clone(),
+        Arc::new(McpManager::new(directory.path().join("mcp.json"))),
+        CancellationToken::new(),
+        sender,
+    )
+    .await;
+    let GenerationUpdate::Snapshot(snapshot) = receiver.recv().await.unwrap() else {
+        panic!("expected a generation snapshot");
+    };
+    assert_eq!(snapshot.request.kind, RequestKind::Continue);
+    assert_eq!(snapshot.request.status, RequestStatus::Failed);
+    assert_eq!(snapshot.response.status, MessageStatus::Completed);
+    assert_eq!(snapshot.response.content, "original answer");
+
+    let stored = storage.load_snapshot().unwrap();
+    let response = &stored.current_turns[0].responses[0];
+    assert_eq!(response.status, MessageStatus::Completed);
+    assert_eq!(response.content, "original answer");
+    assert!(stored.current_turns[0].continuation_response().is_some());
+}

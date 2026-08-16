@@ -17,8 +17,8 @@ use tokio_util::sync::CancellationToken;
 use crate::{
     domain::{
         AssistantResponse, GenerationError, GenerationErrorKind, GenerationEvent,
-        GenerationRequest, RequestInfo, ToolExecution, ToolExecutionStatus, ToolSelection,
-        message_tool_calls, now_timestamp,
+        GenerationRequest, RequestInfo, RequestStatus, ToolExecution, ToolExecutionStatus,
+        ToolSelection, continue_last_assistant, message_tool_calls, now_timestamp,
     },
     mcp::{McpManager, McpToolDefinition},
     providers,
@@ -50,6 +50,7 @@ async fn run_agent(
     mcp: Arc<McpManager>,
     events: Sender<GenerationEvent>,
     cancellation: CancellationToken,
+    continue_prefill: bool,
 ) {
     let available_tools = if request.model.capabilities.tools {
         selected_tools(mcp.all_tools().await, &tool_selection)
@@ -65,7 +66,15 @@ async fn run_agent(
         })
         .collect();
 
-    let result = agent_loop(&mut request, &mcp, &available_tools, &events, &cancellation).await;
+    let result = agent_loop(
+        &mut request,
+        &mcp,
+        &available_tools,
+        &events,
+        &cancellation,
+        continue_prefill,
+    )
+    .await;
     let event = match result {
         Ok(()) => GenerationEvent::Completed,
         Err(error) => GenerationEvent::Failed(error),
@@ -89,6 +98,7 @@ async fn agent_loop(
     available_tools: &[McpToolDefinition],
     events: &Sender<GenerationEvent>,
     cancellation: &CancellationToken,
+    mut continue_prefill: bool,
 ) -> Result<(), GenerationError> {
     loop {
         if cancellation.is_cancelled() {
@@ -107,20 +117,21 @@ async fn agent_loop(
         let assistant =
             providers::stream_step(request.clone(), events, cancellation.clone()).await?;
         let calls = message_tool_calls(&assistant);
-        request.messages.push(assistant.clone());
-        if calls.is_empty() {
-            events
-                .send(GenerationEvent::TranscriptAppended(Box::new(assistant)))
-                .await
-                .map_err(|_| GenerationError::cancelled())?;
-            return Ok(());
-        }
+        let transcript_event = if continue_prefill {
+            continue_last_assistant(&mut request.messages, assistant.clone());
+            continue_prefill = false;
+            GenerationEvent::TranscriptContinued(Box::new(assistant.clone()))
+        } else {
+            request.messages.push(assistant.clone());
+            GenerationEvent::TranscriptAppended(Box::new(assistant.clone()))
+        };
         events
-            .send(GenerationEvent::TranscriptAppended(Box::new(
-                assistant.clone(),
-            )))
+            .send(transcript_event)
             .await
             .map_err(|_| GenerationError::cancelled())?;
+        if calls.is_empty() {
+            return Ok(());
+        }
         let mut executions = Vec::with_capacity(calls.len());
         for call in calls {
             let route = available_tools
@@ -310,12 +321,29 @@ fn prompt_render_error(error: PromptRenderError) -> GenerationError {
     }
 }
 
+fn restore_failed_continuation(
+    response: &mut AssistantResponse,
+    request: &RequestInfo,
+    baseline: Option<&AssistantResponse>,
+) {
+    if request.status == RequestStatus::Completed {
+        return;
+    }
+    let Some(baseline) = baseline else {
+        return;
+    };
+    response.clone_from(baseline);
+    response.request_id = Some(request.id.clone());
+    response.updated_at = now_timestamp();
+}
+
 async fn fail_before_provider(
     prepared: PreparedGeneration,
     storage: Arc<Storage>,
     error: GenerationError,
     updates: Sender<GenerationUpdate>,
 ) {
+    let baseline = prepared.continuation_baseline;
     let mut response = prepared.response;
     let mut request = prepared.request_info;
     let outcome = apply_event(
@@ -324,6 +352,7 @@ async fn fail_before_provider(
         &mut request,
         Duration::ZERO,
     );
+    restore_failed_continuation(&mut response, &request, baseline.as_ref());
     let saved_response = response.clone();
     let saved_request = request.clone();
     let persistence = tokio::task::spawn_blocking(move || {
@@ -367,6 +396,11 @@ pub async fn run_generation(
         return;
     }
 
+    let continue_prefill = matches!(
+        prepared.start,
+        super::GenerationStart::ContinueResponse { .. }
+    );
+    let continuation_baseline = prepared.continuation_baseline.clone();
     let (event_sender, event_receiver) = async_channel::bounded(256);
     tokio::spawn(run_agent(
         prepared.provider_request,
@@ -374,6 +408,7 @@ pub async fn run_generation(
         mcp,
         event_sender,
         cancellation,
+        continue_prefill,
     ));
 
     let mut response = prepared.response;
@@ -404,6 +439,9 @@ pub async fn run_generation(
             finished_reasoning_ids.extend(outcome.finished_reasoning_id);
         }
         dirty |= has_events;
+        if terminal {
+            restore_failed_continuation(&mut response, &request, continuation_baseline.as_ref());
+        }
 
         if dirty && (terminal || last_storage_flush.elapsed() >= STORAGE_FLUSH_INTERVAL) {
             let storage = storage.clone();

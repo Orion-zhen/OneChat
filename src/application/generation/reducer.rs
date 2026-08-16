@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use crate::domain::{
     AssistantResponse, GenerationError, GenerationErrorKind, GenerationEvent, MessageStatus,
-    RequestError, RequestInfo, RequestStatus, now_timestamp,
+    RequestError, RequestInfo, RequestStatus, continue_last_assistant, now_timestamp,
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -106,6 +106,12 @@ pub fn apply_event(
                 mark_first_token(request, elapsed);
             }
             assistant.transcript.push(*message);
+            assistant.updated_at = now_timestamp();
+            EventOutcome::default()
+        }
+        GenerationEvent::TranscriptContinued(message) => {
+            mark_first_token(request, elapsed);
+            continue_last_assistant(&mut assistant.transcript, *message);
             assistant.updated_at = now_timestamp();
             EventOutcome::default()
         }

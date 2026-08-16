@@ -152,6 +152,8 @@ When a model has a Context Window, OneChat estimates input tokens from the resol
 
 The composer shows a compact context-capacity ring beside the send button. Its detail popover distinguishes an unknown model window from zero remaining capacity and reports whether replayed reasoning is present. After a completed request, the projection anchors itself to the provider-reported input usage from the final agent step—not cumulative tool-loop usage—and estimates only the conversation changes since that step. Reasoning counts toward the projection only when it is retained in the provider transcript for replay; display-only or hidden reasoning is not added separately.
 
+The selected response in the latest turn has a right-arrow action next to Regenerate that continues the same assistant message. OneChat sends the existing response as the final assistant prefill without adding a hidden instruction, then appends streamed output to the same local message. Providers that reject assistant prefills fail normally; the existing completed response is restored and remains usable.
+
 ## System prompt variables
 
 Conversation system prompts and assistant openings support runtime placeholders such as `{{owner}}`. Custom variables are managed under **Settings → Prompts** and can read fixed text, an environment variable, or the stdout of a local shell command. Only referenced variables are evaluated; use `\{{owner}}` for a literal placeholder. Command variables have a working directory, a timeout, and a 64 KiB output limit. Unknown variables and failed commands stop the request before it reaches the model.

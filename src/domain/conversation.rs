@@ -384,6 +384,30 @@ impl AssistantResponse {
         self.status == MessageStatus::Completed && !self.content.is_empty()
     }
 
+    pub fn prepare_continuation(&mut self) {
+        if self.blocks.is_empty() {
+            if !self.thinking.is_empty() {
+                self.blocks.push(AssistantBlock::Reasoning {
+                    id: new_id("reasoning"),
+                    provider_id: None,
+                    content: self.thinking.clone(),
+                    started_after_ms: 0,
+                    duration_ms: Some(0),
+                });
+            }
+            if !self.content.is_empty() {
+                self.blocks.push(AssistantBlock::Output {
+                    id: new_id("output"),
+                    content: self.content.clone(),
+                });
+            }
+        }
+        if self.transcript.is_empty() && !self.content.is_empty() {
+            self.transcript
+                .push(Message::assistant(self.content.clone()));
+        }
+    }
+
     pub fn append_output(&mut self, delta: &str, elapsed_ms: u64) -> Option<String> {
         let finished = self.finish_reasoning(elapsed_ms);
         self.content.push_str(delta);
@@ -407,8 +431,11 @@ impl AssistantResponse {
         self.thinking.push_str(delta);
         let continues_current = matches!(
             self.blocks.last(),
-            Some(AssistantBlock::Reasoning { provider_id: current, .. })
-                if provider_id.is_none() || current.is_none() || current == &provider_id
+            Some(AssistantBlock::Reasoning {
+                provider_id: current,
+                duration_ms: None,
+                ..
+            }) if provider_id.is_none() || current.is_none() || current == &provider_id
         );
         if continues_current {
             let Some(AssistantBlock::Reasoning { content, .. }) = self.blocks.last_mut() else {
@@ -505,6 +532,11 @@ impl AssistantResponse {
         }
         *duration_ms = Some(elapsed_ms.saturating_sub(*started_after_ms));
         Some(id.clone())
+    }
+
+    pub fn recover_interrupted_continuation(&mut self) {
+        self.status = MessageStatus::Completed;
+        self.sync_transcript_outputs();
     }
 
     pub fn replace_outputs(&mut self, outputs: &[(String, String)]) {

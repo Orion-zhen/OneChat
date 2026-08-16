@@ -96,12 +96,14 @@ impl OneChat {
                             &persisted.response,
                             &persisted.request_info,
                         ),
-                        GenerationStart::RetryResponse { turn_id } => storage.begin_regeneration(
-                            &persisted.request_info.conversation_id,
-                            turn_id,
-                            &persisted.response,
-                            &persisted.request_info,
-                        ),
+                        GenerationStart::RetryResponse { turn_id }
+                        | GenerationStart::ContinueResponse { turn_id } => storage
+                            .begin_regeneration(
+                                &persisted.request_info.conversation_id,
+                                turn_id,
+                                &persisted.response,
+                                &persisted.request_info,
+                            ),
                     };
                     if let Err(error) = persistence {
                         let _ = storage.remove_attachments(

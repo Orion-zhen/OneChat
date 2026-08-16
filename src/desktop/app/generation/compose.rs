@@ -231,6 +231,68 @@ impl OneChat {
         Ok((conversation, provider, model))
     }
 
+    pub(crate) fn continue_assistant(&mut self, response_id: String, cx: &mut Context<Self>) {
+        if self.is_current_generating() {
+            return;
+        }
+        let Some((turn, response)) = self
+            .response(&response_id)
+            .map(|(turn, response)| (turn.clone(), response.clone()))
+        else {
+            return;
+        };
+        if !self.is_latest_turn(&turn.id)
+            || turn.continuation_response_id.as_deref() != Some(response.id.as_str())
+        {
+            self.data.error = Some("Only the latest assistant message can be continued.".into());
+            cx.notify();
+            return;
+        }
+        if response.content.is_empty()
+            || matches!(
+                response.status,
+                crate::domain::MessageStatus::Pending | crate::domain::MessageStatus::Streaming
+            )
+        {
+            return;
+        }
+
+        let current_reasoning_preset = self
+            .chat
+            .generation_config_editor
+            .as_ref()
+            .map(|editor| editor.reasoning_preset().map(str::to_owned));
+        let (mut conversation, provider, model) =
+            match self.generation_target(Some(&response.model_id)) {
+                Ok(target) => target,
+                Err(error) => {
+                    self.data.error = Some(error);
+                    cx.notify();
+                    return;
+                }
+            };
+        if let Some(reasoning_preset) = current_reasoning_preset {
+            conversation.generation_config.reasoning_preset = reasoning_preset;
+        }
+        match self.prepare_with_storage_context(&conversation, &model, |context_policy| {
+            PreparedGeneration::continuation(
+                &conversation,
+                &provider,
+                &model,
+                &self.data.snapshot.current_turns,
+                &turn,
+                &response,
+                context_policy,
+            )
+        }) {
+            Ok(prepared) => self.begin_prepared_generation(prepared, cx),
+            Err(error) => {
+                self.data.error = Some(format!("Could not continue response: {error}"));
+                cx.notify();
+            }
+        }
+    }
+
     pub(crate) fn regenerate_assistant(&mut self, response_id: String, cx: &mut Context<Self>) {
         let Some((turn, response)) = self
             .response(&response_id)

@@ -10,8 +10,8 @@ use crate::{
     domain::{
         AssistantResponse, Attachment, Conversation, GenerationConfig, GenerationError,
         GenerationErrorKind, GenerationRequest, HistoryLimit, Message, MessageStatus, Model,
-        PromptVariableSource, Provider, RequestContextInfo, RequestInfo, ToolSelection, Turn,
-        UserMessage, active_turns, now_timestamp,
+        PromptVariableSource, Provider, RequestContextInfo, RequestInfo, RequestKind,
+        ToolSelection, Turn, UserMessage, active_turns, now_timestamp,
     },
 };
 mod history;
@@ -22,7 +22,10 @@ pub use history::{
     history_for_new_turn, history_for_turn, history_preview_for_new_turn,
 };
 use history::{prepare_context, turn_count};
-use request::{RequestInput, prepare_response, provider_request, update_input_token_estimate};
+use request::{
+    RequestInput, prepare_continuation_response, prepare_response, provider_request,
+    update_input_token_estimate,
+};
 
 #[derive(Clone, Copy)]
 pub struct ContextPolicy<'a> {
@@ -47,6 +50,7 @@ pub enum GenerationStart {
     NewTurn(Box<Turn>),
     AddResponse { turn_id: String },
     RetryResponse { turn_id: String },
+    ContinueResponse { turn_id: String },
 }
 
 #[derive(Clone, Copy, Default)]
@@ -70,9 +74,11 @@ pub struct PreparedGeneration {
     pub provider_request: GenerationRequest,
     pub tool_selection: ToolSelection,
     pub new_attachments: Vec<Attachment>,
+    pub continuation_baseline: Option<AssistantResponse>,
     pub(super) history_groups: Vec<PreparedHistoryGroup>,
     pub(super) current_message_requirements: InputRequirements,
     history_start_index: usize,
+    current_tail_message_count: usize,
     assistant_opening_template: Option<String>,
     prompt_variables: BTreeMap<String, PromptVariableSource>,
     prompt_context: PromptContext,
@@ -142,9 +148,11 @@ impl PreparedGeneration {
             provider_request,
             tool_selection: conversation.tool_selection.clone(),
             new_attachments: Vec::new(),
+            continuation_baseline: None,
             history_groups: context.history_groups,
             current_message_requirements: context.current_message_requirements,
             history_start_index,
+            current_tail_message_count: 1,
             assistant_opening_template: (history_start_index == 1)
                 .then(|| conversation.assistant_opening.clone()),
             prompt_variables: BTreeMap::new(),
@@ -263,7 +271,7 @@ impl PreparedGeneration {
                 .map(|group| group.message_count)
                 .sum::<usize>()
                 + self.history_start_index
-                + 1,
+                + self.current_tail_message_count,
             self.provider_request.messages.len()
         );
         Ok(())
@@ -348,6 +356,85 @@ impl PreparedGeneration {
         )
     }
 
+    pub fn continuation(
+        conversation: &Conversation,
+        provider: &Provider,
+        model: &Model,
+        turns: &[Turn],
+        turn: &Turn,
+        previous_response: &AssistantResponse,
+        context_policy: ContextPolicy<'_>,
+    ) -> Result<Self, String> {
+        if previous_response.content.is_empty() {
+            return Err("Only a response with output can be continued".into());
+        }
+
+        let baseline = previous_response.clone();
+        let mut response = previous_response.clone();
+        response.prepare_continuation();
+        let mut context = prepare_context(
+            turns,
+            turn.parent_response_id.as_deref(),
+            &turn.user,
+            context_policy.history_limit,
+            context_policy.user_message,
+        )?;
+        let history_start_index = prepend_assistant_opening(&mut context, conversation);
+        let continuation_messages = response.transcript.clone();
+        if continuation_messages.is_empty() {
+            return Err("The response has no assistant transcript to continue".into());
+        }
+        let current_tail_message_count = 1 + continuation_messages.len();
+        context.messages.extend(continuation_messages);
+
+        let mut request_info = prepare_continuation_response(
+            &conversation.id,
+            &turn.id,
+            &mut response,
+            provider,
+            model,
+            RequestInput::new(
+                &conversation.system_prompt,
+                &context.messages,
+                context.audio_duration_ms,
+            ),
+        );
+        request_info.context = Some(context.request_context);
+        let mut config = turn.generation_config.clone();
+        config
+            .reasoning_preset
+            .clone_from(&conversation.generation_config.reasoning_preset);
+        let provider_request = provider_request(
+            provider,
+            model,
+            &conversation.system_prompt,
+            &config,
+            context.messages,
+            context.audio_duration_ms,
+        );
+
+        Ok(Self {
+            start: GenerationStart::ContinueResponse {
+                turn_id: turn.id.clone(),
+            },
+            response,
+            request_info,
+            provider_request,
+            tool_selection: conversation.tool_selection.clone(),
+            new_attachments: Vec::new(),
+            continuation_baseline: Some(baseline),
+            history_groups: context.history_groups,
+            current_message_requirements: context.current_message_requirements,
+            history_start_index,
+            current_tail_message_count,
+            assistant_opening_template: (history_start_index == 1)
+                .then(|| conversation.assistant_opening.clone()),
+            prompt_variables: BTreeMap::new(),
+            prompt_context: PromptContext::default(),
+        }
+        .validated())
+    }
+
     fn existing_turn(
         target: (&Conversation, &Provider, &Model),
         turns: &[Turn],
@@ -378,6 +465,13 @@ impl PreparedGeneration {
                 context.audio_duration_ms,
             ),
         );
+        request_info.kind = match &start {
+            GenerationStart::AddResponse { .. } => RequestKind::Additional,
+            GenerationStart::RetryResponse { .. } => RequestKind::Regenerate,
+            GenerationStart::NewTurn(_) | GenerationStart::ContinueResponse { .. } => {
+                unreachable!("existing turn preparation received an invalid start")
+            }
+        };
         request_info.context = Some(context.request_context);
         let provider_request = provider_request(
             provider,
@@ -394,9 +488,11 @@ impl PreparedGeneration {
             provider_request,
             tool_selection: conversation.tool_selection.clone(),
             new_attachments: Vec::new(),
+            continuation_baseline: None,
             history_groups: context.history_groups,
             current_message_requirements: context.current_message_requirements,
             history_start_index,
+            current_tail_message_count: 1,
             assistant_opening_template: (history_start_index == 1)
                 .then(|| conversation.assistant_opening.clone()),
             prompt_variables: BTreeMap::new(),
@@ -412,7 +508,7 @@ impl PreparedGeneration {
                 .map(|group| group.message_count)
                 .sum::<usize>()
                 + self.history_start_index
-                + 1,
+                + self.current_tail_message_count,
             self.provider_request.messages.len()
         );
         self

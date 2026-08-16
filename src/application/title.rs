@@ -48,7 +48,8 @@ pub async fn generate_title(
             | GenerationEvent::StepStarted { .. }
             | GenerationEvent::UsageUpdated(_)
             | GenerationEvent::ToolExecutionUpdated(_)
-            | GenerationEvent::TranscriptAppended(_) => {}
+            | GenerationEvent::TranscriptAppended(_)
+            | GenerationEvent::TranscriptContinued(_) => {}
         }
     }
 

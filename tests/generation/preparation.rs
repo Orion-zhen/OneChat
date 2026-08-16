@@ -62,6 +62,71 @@ fn generation_preparation_uses_the_selected_history_and_model_capabilities() {
     assert!(messages[3].contains("follow-up"));
 }
 
+#[test]
+fn continuation_ends_at_the_existing_assistant_message_without_an_instruction() {
+    let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
+    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let conversation = Conversation::new("Chat", Some(&model), "System");
+    let root = completed_turn(
+        &conversation,
+        None,
+        "root question",
+        "root answer",
+        &model,
+        &provider,
+    );
+    let turn = completed_turn(
+        &conversation,
+        Some(root.responses[0].id.clone()),
+        "current question",
+        "existing answer",
+        &model,
+        &provider,
+    );
+    let response = turn.responses[0].clone();
+    let turns = [root, turn.clone()];
+
+    let prepared = PreparedGeneration::continuation(
+        &conversation,
+        &provider,
+        &model,
+        &turns,
+        &turn,
+        &response,
+        ContextPolicy::new(HistoryLimit::Unlimited, &|user| {
+            Ok(Message::user(user.content.clone()))
+        }),
+    )
+    .unwrap();
+
+    let GenerationStart::ContinueResponse { turn_id } = &prepared.start else {
+        panic!("expected a continued response");
+    };
+    assert_eq!(turn_id, &turn.id);
+    assert_eq!(prepared.request_info.kind, RequestKind::Continue);
+    assert_eq!(prepared.response.id, response.id);
+    assert_eq!(prepared.response.content, "existing answer");
+    assert_eq!(
+        prepared
+            .continuation_baseline
+            .as_ref()
+            .map(|response| response.content.as_str()),
+        Some("existing answer")
+    );
+
+    let messages = serialized_messages(&prepared.provider_request.messages);
+    assert_eq!(messages.len(), 4);
+    assert!(messages[0].contains("root question"));
+    assert!(messages[1].contains("root answer"));
+    assert!(messages[2].contains("current question"));
+    assert!(messages[3].contains("existing answer"));
+    assert!(matches!(
+        prepared.provider_request.messages.last(),
+        Some(Message::Assistant { .. })
+    ));
+    assert!(!messages.join("\n").contains("Continue"));
+}
+
 #[tokio::test]
 async fn assistant_opening_variables_are_resolved_and_snapshotted() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);

@@ -19,7 +19,7 @@ use onechat::{
         Conversation, CustomReasoningPreset, GenerationConfig, GenerationError,
         GenerationErrorKind, GenerationEvent, HistoryLimit, KnownReasoningFormat, Message,
         MessageStatus, Model, ModelReasoningConfig, PromptVariableSource, Provider, ProviderKind,
-        ReasoningParameter, ReasoningParameterValue, RequestContextInfo, RequestInfo,
+        ReasoningParameter, ReasoningParameterValue, RequestContextInfo, RequestInfo, RequestKind,
         RequestStatus, TokenUsage, ToolExecution, ToolRef, ToolSelection, Turn, UserMessage,
         merge_json_patch,
     },

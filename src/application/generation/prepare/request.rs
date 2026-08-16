@@ -50,6 +50,31 @@ pub(super) fn prepare_response(
     request
 }
 
+pub(super) fn prepare_continuation_response(
+    conversation_id: &str,
+    turn_id: &str,
+    response: &mut AssistantResponse,
+    provider: &Provider,
+    model: &Model,
+    input: RequestInput<'_>,
+) -> RequestInfo {
+    response.prepare_continuation();
+    response.status = MessageStatus::Streaming;
+    response.updated_at = now_timestamp();
+    let mut request = RequestInfo::new(conversation_id, turn_id, &response.id);
+    request.kind = RequestKind::Continue;
+    request.provider_id = Some(provider.id.clone());
+    request.model_id = Some(model.id.clone());
+    response.request_id = Some(request.id.clone());
+    request.usage.input_tokens = Some(estimate_input_tokens(
+        input.system_prompt,
+        input.messages,
+        input.audio_duration_ms,
+    ));
+    request.usage.estimated = true;
+    request
+}
+
 pub(super) fn update_input_token_estimate(
     request: &mut RequestInfo,
     provider_request: &GenerationRequest,

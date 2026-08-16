@@ -33,8 +33,37 @@ pub enum GenerationEvent {
     UsageUpdated(TokenUsage),
     ToolExecutionUpdated(Box<ToolExecution>),
     TranscriptAppended(Box<Message>),
+    TranscriptContinued(Box<Message>),
     Completed,
     Failed(GenerationError),
+}
+
+pub fn continue_last_assistant(messages: &mut Vec<Message>, continuation: Message) {
+    let Some(Message::Assistant {
+        content: existing, ..
+    }) = messages.last_mut()
+    else {
+        messages.push(continuation);
+        return;
+    };
+    let Message::Assistant { content, .. } = continuation else {
+        messages.push(continuation);
+        return;
+    };
+
+    let mut continuation = content.into_iter();
+    if let Some(first) = continuation.next() {
+        if let (Some(AssistantContent::Text(existing)), AssistantContent::Text(continued)) =
+            (existing.iter_mut().last(), &first)
+        {
+            existing.text.push_str(&continued.text);
+        } else {
+            existing.push(first);
+        }
+    }
+    for item in continuation {
+        existing.push(item);
+    }
 }
 
 pub fn message_tool_calls(message: &Message) -> Vec<ToolCall> {
@@ -182,6 +211,16 @@ impl ToolExecution {
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
+pub enum RequestKind {
+    #[default]
+    Generate,
+    Additional,
+    Regenerate,
+    Continue,
+}
+
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum RequestStatus {
     Sending,
     Streaming,
@@ -230,6 +269,8 @@ pub struct RequestContextInfo {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct RequestInfo {
     pub id: String,
+    #[serde(default)]
+    pub kind: RequestKind,
     pub conversation_id: String,
     pub turn_id: String,
     pub response_id: String,
@@ -268,6 +309,7 @@ impl RequestInfo {
     ) -> Self {
         Self {
             id: new_id("request"),
+            kind: RequestKind::Generate,
             conversation_id: conversation_id.into(),
             turn_id: turn_id.into(),
             response_id: response_id.into(),

@@ -334,10 +334,19 @@ fn render_error_card(
     typography: MessageTypography,
     cx: &mut Context<OneChat>,
 ) -> Option<AnyElement> {
-    if !matches!(
-        message.status,
-        MessageStatus::Failed | MessageStatus::Interrupted
-    ) {
+    let continuation_failed = request.is_some_and(|request| {
+        request.kind == RequestKind::Continue
+            && matches!(
+                request.status,
+                RequestStatus::Failed | RequestStatus::Interrupted
+            )
+    });
+    if !continuation_failed
+        && !matches!(
+            message.status,
+            MessageStatus::Failed | MessageStatus::Interrupted
+        )
+    {
         return None;
     }
     let error = request.and_then(|request| request.error.as_ref());
@@ -387,11 +396,19 @@ fn render_error_card(
                     .children((latest && !generating).then(|| {
                         primary_icon_button(
                             SharedString::from(format!("retry-message-{}", message.id)),
-                            AppIcon::Regenerate,
+                            if continuation_failed {
+                                AppIcon::Continue
+                            } else {
+                                AppIcon::Regenerate
+                            },
                             cx,
                         )
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.regenerate_assistant(retry_id.clone(), cx)
+                            if continuation_failed {
+                                this.continue_assistant(retry_id.clone(), cx);
+                            } else {
+                                this.regenerate_assistant(retry_id.clone(), cx);
+                            }
                         }))
                     }))
                     .children(detail.map(|_| {

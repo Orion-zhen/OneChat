@@ -17,8 +17,9 @@ pub use conversation::{
 };
 pub use generation::{
     GenerationError, GenerationErrorKind, GenerationEvent, GenerationRequest, Message,
-    RequestContextInfo, RequestError, RequestInfo, RequestStatus, TokenUsage, ToolDefinition,
-    ToolExecution, ToolExecutionStatus, message_tool_calls,
+    RequestContextInfo, RequestError, RequestInfo, RequestKind, RequestStatus, TokenUsage,
+    ToolDefinition, ToolExecution, ToolExecutionStatus, continue_last_assistant,
+    message_tool_calls,
 };
 pub use id::{Timestamp, new_id, now_timestamp};
 pub use preferences::{

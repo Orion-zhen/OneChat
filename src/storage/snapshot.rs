@@ -1,5 +1,7 @@
+use std::collections::HashSet;
+
 use crate::domain::{
-    AutoTitleState, MessageStatus, RequestStatus, ToolExecutionStatus, now_timestamp,
+    AutoTitleState, MessageStatus, RequestKind, RequestStatus, ToolExecutionStatus, now_timestamp,
 };
 
 use super::{Result, Storage, StorageSnapshot};
@@ -95,12 +97,30 @@ impl Storage {
                 file.conversation.auto_title_state = AutoTitleState::Finished;
                 changed = true;
             }
+            let interrupted_continuations = file
+                .requests
+                .iter()
+                .filter(|request| {
+                    request.kind == RequestKind::Continue
+                        && matches!(
+                            request.status,
+                            RequestStatus::Sending | RequestStatus::Streaming
+                        )
+                })
+                .map(|request| request.response_id.clone())
+                .collect::<HashSet<_>>();
             for response in file.turns.iter_mut().flat_map(|turn| &mut turn.responses) {
                 if matches!(
                     response.status,
                     MessageStatus::Pending | MessageStatus::Streaming
                 ) {
-                    response.status = MessageStatus::Interrupted;
+                    if interrupted_continuations.contains(&response.id)
+                        && !response.content.is_empty()
+                    {
+                        response.recover_interrupted_continuation();
+                    } else {
+                        response.status = MessageStatus::Interrupted;
+                    }
                     changed = true;
                 }
                 for execution in &mut response.tool_executions {

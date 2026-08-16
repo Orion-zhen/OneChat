@@ -23,6 +23,15 @@ pub(super) fn render_message_actions(
             message.status,
             MessageStatus::Failed | MessageStatus::Interrupted
         );
+    let can_continue = latest
+        && turn.continuation_response_id.as_deref() == Some(message.id.as_str())
+        && has_content
+        && !generating
+        && !editing_any
+        && !matches!(
+            message.status,
+            MessageStatus::Pending | MessageStatus::Streaming
+        );
     let usable_as_context = message.is_usable_as_context();
     let can_use_context = !generating
         && usable_as_context
@@ -62,7 +71,7 @@ pub(super) fn render_message_actions(
         None
     };
 
-    let response_actions = if can_regenerate || can_use_context {
+    let response_actions = if can_regenerate || can_continue || can_use_context {
         let mut group = div().flex().items_center().gap_1();
         if can_regenerate {
             let regenerate_id = message.id.clone();
@@ -75,6 +84,20 @@ pub(super) fn render_message_actions(
                 )
                 .on_click(cx.listener(move |this, _, _, cx| {
                     this.regenerate_assistant(regenerate_id.clone(), cx)
+                })),
+            );
+        }
+        if can_continue {
+            let continue_id = message.id.clone();
+            group = group.child(
+                icon_button(
+                    SharedString::from(format!("continue-message-{}", message.id)),
+                    AppIcon::Continue,
+                    IconTone::Muted,
+                    cx,
+                )
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.continue_assistant(continue_id.clone(), cx)
                 })),
             );
         }
