@@ -239,6 +239,160 @@ fn interleaved_reasoning_output_and_tools_keep_stream_order() {
 }
 
 #[test]
+fn editing_reasoning_updates_native_transcript_content() {
+    use rig_core::{
+        OneOrMany,
+        completion::AssistantContent,
+        message::{Reasoning, ReasoningContent},
+    };
+
+    let provider = Provider::new("Local", ProviderKind::OpenAiCompatible);
+    let model = Model::new(&provider.id, "qwen", "Qwen");
+    let mut response = AssistantResponse::new(&model, &provider);
+    response.thinking = "original reasoning".into();
+    response.content = "answer".into();
+    response.blocks = vec![
+        AssistantBlock::Reasoning {
+            id: "reasoning-block".into(),
+            provider_id: Some("reasoning-provider".into()),
+            content: "original reasoning".into(),
+            started_after_ms: 0,
+            duration_ms: Some(10),
+        },
+        AssistantBlock::Output {
+            id: "output".into(),
+            content: "answer".into(),
+        },
+    ];
+    response.transcript = vec![Message::Assistant {
+        id: None,
+        content: OneOrMany::many([
+            AssistantContent::Reasoning(
+                Reasoning::new("original reasoning").with_id("reasoning-provider".into()),
+            ),
+            AssistantContent::text("answer"),
+        ])
+        .unwrap(),
+    }];
+
+    response.replace_editable_text(
+        &[("reasoning-block".into(), "edited reasoning".into())],
+        &[("output".into(), "answer".into())],
+    );
+
+    assert_eq!(response.thinking, "edited reasoning");
+    assert_eq!(response.content, "answer");
+    assert!(matches!(
+        &response.blocks[0],
+        AssistantBlock::Reasoning { content, .. } if content == "edited reasoning"
+    ));
+    let Message::Assistant { content, .. } = &response.transcript[0] else {
+        panic!("expected assistant transcript");
+    };
+    let AssistantContent::Reasoning(reasoning) = content.first_ref() else {
+        panic!("edited reasoning must remain native reasoning content");
+    };
+    assert_eq!(reasoning.id.as_deref(), Some("reasoning-provider"));
+    assert!(matches!(
+        reasoning.content.as_slice(),
+        [ReasoningContent::Text { text, signature: None }] if text == "edited reasoning"
+    ));
+    assert!(matches!(
+        content.iter().nth(1),
+        Some(AssistantContent::Text(text)) if text.text == "answer"
+    ));
+
+    let wire: Vec<rig_core::providers::openai::completion::Message> =
+        response.transcript[0].clone().try_into().unwrap();
+    let wire = serde_json::to_value(&wire[0]).unwrap();
+    assert_eq!(wire["reasoning_content"], "edited reasoning");
+    assert_eq!(wire["content"][0]["text"], "answer");
+}
+
+#[test]
+fn clearing_reasoning_removes_it_from_blocks_and_native_transcript() {
+    use rig_core::{OneOrMany, completion::AssistantContent, message::Reasoning};
+
+    let provider = Provider::new("Local", ProviderKind::OpenAiCompatible);
+    let model = Model::new(&provider.id, "qwen", "Qwen");
+    let mut response = AssistantResponse::new(&model, &provider);
+    response.thinking = "reasoning".into();
+    response.content = "answer".into();
+    response.blocks = vec![
+        AssistantBlock::Reasoning {
+            id: "reasoning".into(),
+            provider_id: None,
+            content: "reasoning".into(),
+            started_after_ms: 0,
+            duration_ms: Some(10),
+        },
+        AssistantBlock::Output {
+            id: "output".into(),
+            content: "answer".into(),
+        },
+    ];
+    response.transcript = vec![Message::Assistant {
+        id: None,
+        content: OneOrMany::many([
+            AssistantContent::Reasoning(Reasoning::new("reasoning")),
+            AssistantContent::text("answer"),
+        ])
+        .unwrap(),
+    }];
+
+    response.replace_editable_text(
+        &[("reasoning".into(), "  ".into())],
+        &[("output".into(), "answer".into())],
+    );
+
+    assert!(response.thinking.is_empty());
+    assert!(
+        response
+            .blocks
+            .iter()
+            .all(|block| !matches!(block, AssistantBlock::Reasoning { .. }))
+    );
+    let Message::Assistant { content, .. } = &response.transcript[0] else {
+        panic!("expected assistant transcript");
+    };
+    assert!(
+        content
+            .iter()
+            .all(|item| !matches!(item, AssistantContent::Reasoning(_)))
+    );
+}
+
+#[test]
+fn editing_legacy_reasoning_creates_native_transcript() {
+    use rig_core::completion::AssistantContent;
+
+    let provider = Provider::new("Local", ProviderKind::OpenAiCompatible);
+    let model = Model::new(&provider.id, "qwen", "Qwen");
+    let mut response = AssistantResponse::new(&model, &provider);
+    response.thinking = "original".into();
+    response.content = "answer".into();
+
+    response.replace_editable_text(
+        &[(response.id.clone(), "edited".into())],
+        &[(response.id.clone(), "answer".into())],
+    );
+
+    assert!(response.blocks.is_empty());
+    assert_eq!(response.thinking, "edited");
+    let Message::Assistant { content, .. } = &response.transcript[0] else {
+        panic!("expected assistant transcript");
+    };
+    assert!(matches!(
+        content.first_ref(),
+        AssistantContent::Reasoning(reasoning) if reasoning.display_text() == "edited"
+    ));
+    assert!(matches!(
+        content.iter().nth(1),
+        Some(AssistantContent::Text(text)) if text.text == "answer"
+    ));
+}
+
+#[test]
 fn editing_outputs_preserves_positions_and_serialization() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
     let model = Model::new(&provider.id, "test-model", "Test Model");

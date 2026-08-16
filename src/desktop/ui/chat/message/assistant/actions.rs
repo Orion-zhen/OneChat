@@ -10,11 +10,12 @@ pub(super) fn render_message_actions(
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let editing = app.assistant_message_editor(message).is_some();
+    let editing_output = app.assistant_output_editing(message);
     let editing_any = app.active_message_editor().is_some();
     let has_info = app.request_for_response(message).is_some();
     let has_content = !message.content.is_empty();
     let can_copy = has_content;
-    let can_edit = has_content && !generating && (!editing_any || editing);
+    let can_edit = has_content && !generating && (!editing_any || editing_output);
     let can_regenerate = latest
         && !generating
         && !editing
@@ -43,16 +44,16 @@ pub(super) fn render_message_actions(
                 icon_button(
                     SharedString::from(format!("edit-message-{}", message.id)),
                     AppIcon::Pencil,
-                    if editing {
+                    if editing_output {
                         IconTone::Accent
                     } else {
                         IconTone::Muted
                     },
                     cx,
                 )
-                .selected(editing)
+                .selected(editing_output)
                 .on_click(cx.listener(move |this, _, window, cx| {
-                    this.begin_edit_assistant(edit_id.clone(), window, cx)
+                    this.begin_edit_assistant_output(edit_id.clone(), window, cx)
                 })),
             );
         }

@@ -1,6 +1,10 @@
 use std::collections::BTreeSet;
 
-use rig_core::completion::AssistantContent;
+use rig_core::{
+    OneOrMany,
+    completion::AssistantContent,
+    message::{Reasoning, ReasoningContent},
+};
 use serde::{Deserialize, Serialize};
 
 use super::{
@@ -504,45 +508,162 @@ impl AssistantResponse {
     }
 
     pub fn replace_outputs(&mut self, outputs: &[(String, String)]) {
+        self.replace_editable_text(&[], outputs);
+    }
+
+    pub fn replace_editable_text(
+        &mut self,
+        reasoning: &[(String, String)],
+        outputs: &[(String, String)],
+    ) {
         if self.blocks.is_empty() {
+            if let Some((_, content)) = reasoning.first() {
+                self.thinking = normalized_edit(content);
+                self.sync_transcript_reasoning(vec![(None, self.thinking.clone())]);
+            }
             if let Some((_, content)) = outputs.first() {
-                self.replace_legacy_content(content.clone());
+                self.content = normalized_edit(content);
+                self.sync_transcript_outputs();
             }
             return;
         }
+
         for block in &mut self.blocks {
-            let AssistantBlock::Output { id, content } = block else {
-                continue;
-            };
-            if let Some((_, edited)) = outputs.iter().find(|(edited_id, _)| edited_id == id) {
-                content.clone_from(edited);
+            match block {
+                AssistantBlock::Reasoning { id, content, .. } => {
+                    if let Some((_, edited)) =
+                        reasoning.iter().find(|(edited_id, _)| edited_id == id)
+                    {
+                        *content = normalized_edit(edited);
+                    }
+                }
+                AssistantBlock::Output { id, content } => {
+                    if let Some((_, edited)) = outputs.iter().find(|(edited_id, _)| edited_id == id)
+                    {
+                        *content = normalized_edit(edited);
+                    }
+                }
+                AssistantBlock::ToolCall { .. } => {}
             }
         }
-        for block in &mut self.blocks {
-            if let AssistantBlock::Output { content, .. } = block
-                && content.trim().is_empty()
-            {
-                content.clear();
-            }
+
+        if !reasoning.is_empty() {
+            let transcript_reasoning = self
+                .blocks
+                .iter()
+                .filter_map(|block| match block {
+                    AssistantBlock::Reasoning {
+                        provider_id,
+                        content,
+                        ..
+                    } => Some((provider_id.clone(), content.clone())),
+                    _ => None,
+                })
+                .collect();
+            self.sync_transcript_reasoning(transcript_reasoning);
         }
-        self.sync_transcript_outputs();
-        self.blocks.retain(|block| {
-            !matches!(block, AssistantBlock::Output { content, .. } if content.trim().is_empty())
+        if !outputs.is_empty() {
+            self.sync_transcript_outputs();
+        }
+
+        self.blocks.retain(|block| match block {
+            AssistantBlock::Reasoning { content, .. } | AssistantBlock::Output { content, .. } => {
+                !content.is_empty()
+            }
+            AssistantBlock::ToolCall { .. } => true,
         });
-        let output = self
+        self.thinking = self
+            .blocks
+            .iter()
+            .filter_map(|block| match block {
+                AssistantBlock::Reasoning { content, .. } => Some(content.as_str()),
+                _ => None,
+            })
+            .collect();
+        self.content = self
             .blocks
             .iter()
             .filter_map(|block| match block {
                 AssistantBlock::Output { content, .. } => Some(content.as_str()),
                 _ => None,
             })
-            .collect::<String>();
-        self.content.clone_from(&output);
+            .collect();
     }
 
-    fn replace_legacy_content(&mut self, content: String) {
-        self.content = content;
-        self.sync_transcript_outputs();
+    fn sync_transcript_reasoning(&mut self, reasoning: Vec<(Option<String>, String)>) {
+        let mut replacements = reasoning
+            .into_iter()
+            .map(|(provider_id, content)| (provider_id, content, false))
+            .collect::<Vec<_>>();
+        let mut transcript = Vec::with_capacity(self.transcript.len());
+
+        for message in std::mem::take(&mut self.transcript) {
+            let Message::Assistant { id, content } = message else {
+                transcript.push(message);
+                continue;
+            };
+            let mut items = Vec::with_capacity(content.len());
+            for item in content {
+                let AssistantContent::Reasoning(mut native) = item else {
+                    items.push(item);
+                    continue;
+                };
+                let replacement = native
+                    .id
+                    .as_ref()
+                    .and_then(|id| {
+                        replacements.iter().position(|(provider_id, _, used)| {
+                            !*used && provider_id.as_ref() == Some(id)
+                        })
+                    })
+                    .or_else(|| replacements.iter().position(|(_, _, used)| !*used));
+                let Some(replacement) = replacement else {
+                    continue;
+                };
+                replacements[replacement].2 = true;
+                let edited = &replacements[replacement].1;
+                if edited.is_empty() {
+                    continue;
+                }
+                native.content = vec![ReasoningContent::Text {
+                    text: edited.clone(),
+                    signature: None,
+                }];
+                items.push(AssistantContent::Reasoning(native));
+            }
+            if let Some(content) = OneOrMany::from_iter_optional(items) {
+                transcript.push(Message::Assistant { id, content });
+            }
+        }
+
+        let remaining = replacements
+            .into_iter()
+            .filter_map(|(provider_id, content, used)| {
+                (!used && !content.is_empty()).then(|| {
+                    AssistantContent::Reasoning(Reasoning::new(&content).optional_id(provider_id))
+                })
+            })
+            .collect::<Vec<_>>();
+        if !remaining.is_empty() {
+            if let Some(Message::Assistant { content, .. }) = transcript
+                .iter_mut()
+                .find(|message| matches!(message, Message::Assistant { .. }))
+            {
+                for (index, reasoning) in remaining.into_iter().enumerate() {
+                    content.insert(index, reasoning);
+                }
+            } else {
+                let mut content = remaining;
+                if !self.content.is_empty() {
+                    content.push(AssistantContent::text(self.content.clone()));
+                }
+                transcript.push(Message::Assistant {
+                    id: None,
+                    content: OneOrMany::many(content).expect("reasoning transcript is non-empty"),
+                });
+            }
+        }
+        self.transcript = transcript;
     }
 
     fn sync_transcript_outputs(&mut self) {
@@ -588,6 +709,14 @@ impl AssistantResponse {
         for output in outputs.into_iter().skip(output_index) {
             assistant_content.push(AssistantContent::text(output));
         }
+    }
+}
+
+fn normalized_edit(content: &str) -> String {
+    if content.trim().is_empty() {
+        String::new()
+    } else {
+        content.to_string()
     }
 }
 

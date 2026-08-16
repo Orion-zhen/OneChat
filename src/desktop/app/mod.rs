@@ -97,7 +97,14 @@ enum MessageEditorTarget {
     Assistant(String),
 }
 
-pub(crate) struct AssistantOutputEditor {
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(crate) enum AssistantTextKind {
+    Reasoning,
+    Output,
+}
+
+pub(crate) struct AssistantTextEditor {
+    pub(crate) kind: AssistantTextKind,
     pub(crate) block_id: String,
     pub(crate) input: Entity<TextareaState>,
 }
@@ -105,7 +112,7 @@ pub(crate) struct AssistantOutputEditor {
 pub(crate) struct MessageEditor {
     target: MessageEditorTarget,
     pub(crate) input: Entity<TextareaState>,
-    pub(crate) output_editors: Vec<AssistantOutputEditor>,
+    pub(crate) text_editors: Vec<AssistantTextEditor>,
     pub(crate) attachments: Vec<Attachment>,
     pub(crate) attachment_drafts: Vec<AttachmentDraft>,
     pub(crate) attachment_previews: HashMap<String, Arc<gpui::Image>>,

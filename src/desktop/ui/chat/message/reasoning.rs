@@ -10,13 +10,17 @@ pub(super) fn render_reasoning(
     if message.thinking.is_empty() {
         return None;
     }
+    let editor = app
+        .assistant_reasoning_editor(message, &message.id)
+        .map(|editor| &editor.input);
     render_reasoning_block(
         app,
+        message,
         &message.id,
         &message.thinking,
+        editor,
         0,
         request.and_then(|request| request.thinking_duration_ms),
-        message.status,
         request,
         typography,
         cx,
@@ -26,11 +30,12 @@ pub(super) fn render_reasoning(
 #[allow(clippy::too_many_arguments)]
 pub(super) fn render_reasoning_block(
     app: &OneChat,
+    message: &AssistantResponse,
     reasoning_id: &str,
     content: &str,
+    editor: Option<&gpui::Entity<gpui_component::input::TextareaState>>,
     started_after_ms: u64,
     duration_ms: Option<u64>,
-    status: MessageStatus,
     request: Option<&RequestInfo>,
     typography: MessageTypography,
     cx: &mut Context<OneChat>,
@@ -39,9 +44,27 @@ pub(super) fn render_reasoning_block(
         return None;
     }
 
-    let live = matches!(status, MessageStatus::Pending | MessageStatus::Streaming)
-        && duration_ms.is_none()
+    let live = matches!(
+        message.status,
+        MessageStatus::Pending | MessageStatus::Streaming
+    ) && duration_ms.is_none()
         && request.is_some();
+    if let Some(editor) = editor {
+        return Some(
+            div()
+                .child(div().mb_4().child(render_assistant_text_editor(
+                    reasoning_id,
+                    editor,
+                    "Editing reasoning".into(),
+                    "Edit assistant reasoning".into(),
+                    typography,
+                    cx,
+                )))
+                .child(render_editor_controls(app, message, typography, cx))
+                .into_any_element(),
+        );
+    }
+
     let expanded = app.thinking_expanded(reasoning_id, live);
     let duration = reasoning_duration_ms(app, request, started_after_ms, duration_ms, live)
         .map(format_reasoning_duration);
@@ -68,6 +91,26 @@ pub(super) fn render_reasoning_block(
                 .child(duration),
         );
     }
+    let edit_response_id = message.id.clone();
+    let edit_reasoning_id = reasoning_id.to_string();
+    controls = controls.child(
+        icon_button(
+            SharedString::from(format!("edit-thinking-{reasoning_id}")),
+            AppIcon::Pencil,
+            IconTone::Muted,
+            cx,
+        )
+        .disabled(app.is_current_generating() || app.active_message_editor().is_some())
+        .on_click(cx.listener(move |this, _, window, cx| {
+            this.begin_edit_assistant_reasoning(
+                edit_response_id.clone(),
+                edit_reasoning_id.clone(),
+                window,
+                cx,
+            )
+        })),
+    );
+
     let toggle_id = reasoning_id.to_string();
     controls = controls.child(
         icon_button(
@@ -93,6 +136,47 @@ pub(super) fn render_reasoning_block(
         ),
     );
 
+    let body = render_reasoning_text(app, reasoning_id, content, expanded, cx);
+
+    let card = div()
+        .mb_4()
+        .rounded_xl()
+        .border_1()
+        .border_color(cx.theme().border)
+        .bg(cx.theme().popover)
+        .shadow_xs()
+        .p_4()
+        .text_size(px(typography.secondary_size))
+        .line_height(px(typography.secondary_line_height))
+        .text_color(cx.theme().muted_foreground)
+        .child(
+            div()
+                .pb_2()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_3()
+                .child(
+                    div()
+                        .text_size(px(typography.micro_size))
+                        .line_height(px(typography.micro_line_height))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child("REASONING"),
+                )
+                .child(controls),
+        )
+        .child(body)
+        .into_any_element();
+    Some(card)
+}
+
+fn render_reasoning_text(
+    app: &OneChat,
+    reasoning_id: &str,
+    content: &str,
+    expanded: bool,
+    cx: &App,
+) -> AnyElement {
     let scroll = app.chat.thinking_scrolls.get(reasoning_id).cloned();
     let boundary_scroll = scroll.clone();
     let body = div()
@@ -147,7 +231,7 @@ pub(super) fn render_reasoning_block(
     } else {
         body.max_h(px(COLLAPSED_THINKING_HEIGHT)).into_any_element()
     };
-    let body = if expanded {
+    if expanded {
         body
     } else {
         div()
@@ -170,39 +254,7 @@ pub(super) fn render_reasoning_block(
             })
             .child(body)
             .into_any_element()
-    };
-
-    Some(
-        div()
-            .mb_4()
-            .rounded_xl()
-            .border_1()
-            .border_color(cx.theme().border)
-            .bg(cx.theme().popover)
-            .shadow_xs()
-            .p_4()
-            .text_size(px(typography.secondary_size))
-            .line_height(px(typography.secondary_line_height))
-            .text_color(cx.theme().muted_foreground)
-            .child(
-                div()
-                    .pb_2()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .gap_3()
-                    .child(
-                        div()
-                            .text_size(px(typography.micro_size))
-                            .line_height(px(typography.micro_line_height))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("REASONING"),
-                    )
-                    .child(controls),
-            )
-            .child(body)
-            .into_any_element(),
-    )
+    }
 }
 
 fn reasoning_duration_ms(

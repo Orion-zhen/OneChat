@@ -2,8 +2,8 @@ use gpui::{App, Context, Entity, TouchPhase, Window, prelude::*};
 use gpui_component::input::{InputEvent, TextareaState};
 
 use super::super::{
-    AssistantOutputEditor, CONTENT_EDITOR_MAX_ROWS, MessageEditor, MessageEditorTarget, OneChat,
-    PendingFocus, multiline_input,
+    AssistantTextEditor, AssistantTextKind, CONTENT_EDITOR_MAX_ROWS, MessageEditor,
+    MessageEditorTarget, OneChat, PendingFocus, multiline_input,
 };
 use crate::{
     application::generation::PreparedGeneration,
@@ -280,6 +280,44 @@ impl OneChat {
         })
     }
 
+    pub(crate) fn assistant_reasoning_editor(
+        &self,
+        response: &AssistantResponse,
+        block_id: &str,
+    ) -> Option<&AssistantTextEditor> {
+        self.assistant_text_editor(response, AssistantTextKind::Reasoning, block_id)
+    }
+
+    pub(crate) fn assistant_output_editor(
+        &self,
+        response: &AssistantResponse,
+        block_id: &str,
+    ) -> Option<&AssistantTextEditor> {
+        self.assistant_text_editor(response, AssistantTextKind::Output, block_id)
+    }
+
+    pub(crate) fn assistant_output_editing(&self, response: &AssistantResponse) -> bool {
+        self.assistant_message_editor(response)
+            .is_some_and(|editor| {
+                editor
+                    .text_editors
+                    .iter()
+                    .any(|editor| editor.kind == AssistantTextKind::Output)
+            })
+    }
+
+    fn assistant_text_editor(
+        &self,
+        response: &AssistantResponse,
+        kind: AssistantTextKind,
+        block_id: &str,
+    ) -> Option<&AssistantTextEditor> {
+        self.assistant_message_editor(response)?
+            .text_editors
+            .iter()
+            .find(|editor| editor.kind == kind && editor.block_id == block_id)
+    }
+
     pub(crate) fn active_message_editor(&self) -> Option<Entity<TextareaState>> {
         self.chat
             .message_editor
@@ -322,24 +360,17 @@ impl OneChat {
             return false;
         };
         let outputs = editor
-            .output_editors
+            .text_editors
             .iter()
-            .map(|output| (output.block_id.as_str(), output.input.read(cx).value()))
+            .filter(|text| text.kind == AssistantTextKind::Output)
             .collect::<Vec<_>>();
-        let valid = outputs
-            .iter()
-            .any(|(_, content)| !content.trim().is_empty());
-        let changed = outputs.iter().any(|(block_id, content)| {
-            if response.blocks.is_empty() {
-                content.as_str() != response.content
-            } else {
-                response.blocks.iter().find_map(|block| match block {
-                    AssistantBlock::Output { id, content } if id == block_id => {
-                        Some(content.as_str())
-                    }
-                    _ => None,
-                }) != Some(content.as_str())
-            }
+        let valid = outputs.is_empty()
+            || outputs
+                .iter()
+                .any(|text| !text.input.read(cx).value().trim().is_empty());
+        let changed = editor.text_editors.iter().any(|text| {
+            assistant_text(response, text.kind, &text.block_id)
+                != Some(text.input.read(cx).value().as_str())
         });
         valid && changed
     }
@@ -376,7 +407,7 @@ impl OneChat {
         self.chat.message_editor = Some(MessageEditor {
             target: MessageEditorTarget::User(turn_id),
             input,
-            output_editors: Vec::new(),
+            text_editors: Vec::new(),
             attachments,
             attachment_drafts: Vec::new(),
             attachment_previews: Default::default(),
@@ -387,46 +418,97 @@ impl OneChat {
         cx.notify();
     }
 
-    pub(crate) fn begin_edit_assistant(
+    pub(crate) fn begin_edit_assistant_output(
         &mut self,
         response_id: String,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.is_current_generating()
-            || self.recording_active()
-            || self.chat.message_editor.is_some()
-        {
+        if !self.can_begin_message_edit() {
             return;
         }
         let Some((_, response)) = self.response(&response_id) else {
             return;
         };
-        let outputs = if response.blocks.is_empty() {
-            vec![(response.id.clone(), response.content.clone())]
+        let texts = if response.blocks.is_empty() {
+            vec![(
+                AssistantTextKind::Output,
+                response.id.clone(),
+                response.content.clone(),
+            )]
         } else {
             response
                 .blocks
                 .iter()
                 .filter_map(|block| match block {
-                    AssistantBlock::Output { id, content } => Some((id.clone(), content.clone())),
+                    AssistantBlock::Output { id, content } => {
+                        Some((AssistantTextKind::Output, id.clone(), content.clone()))
+                    }
                     _ => None,
                 })
                 .collect()
         };
-        if outputs.is_empty() {
+        self.begin_assistant_text_edit(response_id, texts, window, cx);
+    }
+
+    pub(crate) fn begin_edit_assistant_reasoning(
+        &mut self,
+        response_id: String,
+        block_id: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.can_begin_message_edit() {
             return;
         }
-        let mut output_editors = Vec::with_capacity(outputs.len());
-        for (block_id, content) in outputs {
+        let Some((_, response)) = self.response(&response_id) else {
+            return;
+        };
+        let content = if response.blocks.is_empty() && block_id == response.id {
+            Some(response.thinking.clone())
+        } else {
+            response.blocks.iter().find_map(|block| match block {
+                AssistantBlock::Reasoning { id, content, .. } if id == &block_id => {
+                    Some(content.clone())
+                }
+                _ => None,
+            })
+        };
+        let Some(content) = content else {
+            return;
+        };
+        self.begin_assistant_text_edit(
+            response_id,
+            vec![(AssistantTextKind::Reasoning, block_id, content)],
+            window,
+            cx,
+        );
+    }
+
+    fn can_begin_message_edit(&self) -> bool {
+        !self.is_current_generating()
+            && !self.recording_active()
+            && self.chat.message_editor.is_none()
+    }
+
+    fn begin_assistant_text_edit(
+        &mut self,
+        response_id: String,
+        texts: Vec<(AssistantTextKind, String, String)>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if texts.is_empty() {
+            return;
+        }
+        let mut text_editors = Vec::with_capacity(texts.len());
+        for (kind, block_id, content) in texts {
+            let placeholder = match kind {
+                AssistantTextKind::Reasoning => "Edit assistant reasoning",
+                AssistantTextKind::Output => "Edit assistant output",
+            };
             let input = cx.new(|cx| {
-                multiline_input(
-                    content,
-                    "Edit assistant output",
-                    CONTENT_EDITOR_MAX_ROWS,
-                    window,
-                    cx,
-                )
+                multiline_input(content, placeholder, CONTENT_EDITOR_MAX_ROWS, window, cx)
             });
             cx.subscribe_in(&input, window, |_, _, event: &InputEvent, _, cx| {
                 if matches!(event, InputEvent::Change) {
@@ -434,13 +516,17 @@ impl OneChat {
                 }
             })
             .detach();
-            output_editors.push(AssistantOutputEditor { block_id, input });
+            text_editors.push(AssistantTextEditor {
+                kind,
+                block_id,
+                input,
+            });
         }
-        let input = output_editors[0].input.clone();
+        let input = text_editors[0].input.clone();
         self.chat.message_editor = Some(MessageEditor {
             target: MessageEditorTarget::Assistant(response_id),
             input,
-            output_editors,
+            text_editors,
             attachments: Vec::new(),
             attachment_drafts: Vec::new(),
             attachment_previews: Default::default(),
@@ -573,16 +659,18 @@ impl OneChat {
         }) else {
             return;
         };
-        let outputs = editor
-            .output_editors
-            .iter()
-            .map(|output| {
-                (
-                    output.block_id.clone(),
-                    output.input.read(cx).value().to_string(),
-                )
-            })
-            .collect::<Vec<_>>();
+        let mut reasoning = Vec::new();
+        let mut outputs = Vec::new();
+        for text in &editor.text_editors {
+            let edit = (
+                text.block_id.clone(),
+                text.input.read(cx).value().to_string(),
+            );
+            match text.kind {
+                AssistantTextKind::Reasoning => reasoning.push(edit),
+                AssistantTextKind::Output => outputs.push(edit),
+            }
+        }
         let Some((turn_id, mut response)) = self
             .response(&response_id)
             .map(|(turn, response)| (turn.id.clone(), response.clone()))
@@ -593,7 +681,7 @@ impl OneChat {
         else {
             return;
         };
-        response.replace_outputs(&outputs);
+        response.replace_editable_text(&reasoning, &outputs);
         response.updated_at = now_timestamp();
         self.chat.message_editor = None;
         self.navigation.pending_focus = Some(PendingFocus::Composer);
@@ -613,6 +701,35 @@ impl OneChat {
             self.set_inspector_open(true, true, cx);
         }
     }
+}
+
+fn assistant_text<'a>(
+    response: &'a AssistantResponse,
+    kind: AssistantTextKind,
+    block_id: &str,
+) -> Option<&'a str> {
+    if response.blocks.is_empty() {
+        return (block_id == response.id).then_some(match kind {
+            AssistantTextKind::Reasoning => response.thinking.as_str(),
+            AssistantTextKind::Output => response.content.as_str(),
+        });
+    }
+    response
+        .blocks
+        .iter()
+        .find_map(|block| match (kind, block) {
+            (AssistantTextKind::Reasoning, AssistantBlock::Reasoning { id, content, .. })
+                if id == block_id =>
+            {
+                Some(content.as_str())
+            }
+            (AssistantTextKind::Output, AssistantBlock::Output { id, content })
+                if id == block_id =>
+            {
+                Some(content.as_str())
+            }
+            _ => None,
+        })
 }
 
 #[cfg(test)]

@@ -12,114 +12,19 @@ pub(super) fn render_message_content(
             message.status,
             MessageStatus::Pending | MessageStatus::Streaming
         );
-    let editor = app.assistant_message_editor(message);
-    if let Some(editor) = editor {
-        let save_id = message.id.clone();
-        let save_on_mouse_down_id = save_id.clone();
-        let enter_id = save_id.clone();
-        let can_save = app.can_save_assistant_edit(&message.id, cx);
-        let card = div()
-            .rounded(px(20.0))
-            .border_1()
-            .border_color(crate::desktop::ui::theme::palette(cx).accent_border)
-            .bg(cx.theme().popover)
-            .shadow_xs()
-            .p_3()
-            .capture_action(cx.listener(move |this, action: &Enter, _, cx| {
-                if message_edit_submits(this, action) {
-                    cx.stop_propagation();
-                    this.save_assistant_edit(enter_id.clone(), cx);
-                }
-            }))
-            .capture_action(cx.listener(|this, _: &InputEscape, _, cx| {
-                cx.stop_propagation();
-                this.cancel_message_edit(cx);
-            }))
-            .child(
-                div()
-                    .pb_2()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(render_icon(AppIcon::Pencil, IconTone::Accent, 14.0, cx))
-                    .child(
-                        div()
-                            .text_size(px(typography.metadata_size))
-                            .line_height(px(typography.metadata_line_height))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child("Editing response"),
-                    ),
-            )
-            .child(
-                div()
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_mouse_move(|_, _, cx| cx.stop_propagation())
-                    .on_mouse_up(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_mouse_up_out(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .child(
-                        Textarea::new(&editor.input)
-                            .aria_label("Edit assistant response")
-                            .appearance(false)
-                            .w_full()
-                            .text_size(px(typography.body_size))
-                            .line_height(px(typography.body_line_height)),
-                    ),
-            )
-            .child(
-                div()
-                    .pt_3()
-                    .flex()
-                    .items_center()
-                    .justify_end()
-                    .gap_2()
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .text_size(px(typography.micro_size))
-                            .line_height(px(typography.micro_line_height))
-                            .text_color(cx.theme().muted_foreground)
-                            .child(message_edit_shortcut_hint(app)),
-                    )
-                    .child(
-                        editor_cancel_button(
-                            SharedString::from(format!("cancel-edit-message-{}", message.id)),
-                            cx,
-                        )
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(|this, _, _, cx| {
-                                cx.stop_propagation();
-                                this.cancel_message_edit(cx);
-                            }),
-                        )
-                        .on_click(cx.listener(|this, _, _, cx| this.cancel_message_edit(cx))),
-                    )
-                    .child(
-                        editor_save_button(
-                            SharedString::from(format!("save-edit-message-{}", message.id)),
-                            "Save response edit",
-                            !can_save,
-                            cx,
-                        )
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(move |this, _, _, cx| {
-                                cx.stop_propagation();
-                                this.save_assistant_edit(save_on_mouse_down_id.clone(), cx);
-                            }),
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.save_assistant_edit(save_id.clone(), cx)
-                        })),
-                    ),
-            );
-        animated_editor(
-            card.into_any_element(),
-            SharedString::from(format!("assistant-editor-{}", message.id)),
-            cx,
-        )
+    let editor = app.assistant_output_editor(message, &message.id);
+    if let Some(output) = editor {
+        div()
+            .mb_4()
+            .child(render_output_editor(
+                &message.id,
+                &output.input,
+                0,
+                1,
+                typography,
+                cx,
+            ))
+            .into_any_element()
     } else if waiting {
         div()
             .flex()
@@ -189,112 +94,16 @@ pub(super) fn render_output_editor(
     typography: MessageTypography,
     cx: &App,
 ) -> AnyElement {
-    animated_editor(
-        div()
-            .rounded(px(20.0))
-            .border_1()
-            .border_color(crate::desktop::ui::theme::palette(cx).accent_border)
-            .bg(cx.theme().popover)
-            .shadow_xs()
-            .p_3()
-            .child(
-                div()
-                    .pb_2()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .text_color(cx.theme().muted_foreground)
-                    .child(render_icon(AppIcon::Pencil, IconTone::Accent, 14.0, cx))
-                    .child(
-                        div()
-                            .text_size(px(typography.metadata_size))
-                            .line_height(px(typography.metadata_line_height))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(if count == 1 {
-                                "Editing output".to_string()
-                            } else {
-                                format!("Editing output {} of {count}", index + 1)
-                            }),
-                    ),
-            )
-            .child(
-                div()
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_mouse_move(|_, _, cx| cx.stop_propagation())
-                    .on_mouse_up(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_mouse_up_out(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .child(
-                        Textarea::new(editor)
-                            .aria_label(format!("Edit assistant output {}", index + 1))
-                            .appearance(false)
-                            .w_full()
-                            .text_size(px(typography.body_size))
-                            .line_height(px(typography.body_line_height)),
-                    ),
-            )
-            .into_any_element(),
-        SharedString::from(format!("assistant-output-editor-{output_id}")),
+    render_assistant_text_editor(
+        output_id,
+        editor,
+        if count == 1 {
+            "Editing output".to_string()
+        } else {
+            format!("Editing output {} of {count}", index + 1)
+        },
+        format!("Edit assistant output {}", index + 1),
+        typography,
         cx,
     )
-}
-
-pub(super) fn render_editor_controls(
-    app: &OneChat,
-    message: &AssistantResponse,
-    typography: MessageTypography,
-    cx: &mut Context<OneChat>,
-) -> AnyElement {
-    let response_id = message.id.clone();
-    let mouse_down_id = response_id.clone();
-    let can_save = app.can_save_assistant_edit(&message.id, cx);
-    div()
-        .mb_4()
-        .flex()
-        .items_center()
-        .justify_end()
-        .gap_2()
-        .child(
-            div()
-                .min_w_0()
-                .truncate()
-                .text_size(px(typography.micro_size))
-                .line_height(px(typography.micro_line_height))
-                .text_color(cx.theme().muted_foreground)
-                .child(message_edit_shortcut_hint(app)),
-        )
-        .child(
-            editor_cancel_button(
-                SharedString::from(format!("cancel-edit-message-{}", message.id)),
-                cx,
-            )
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    cx.stop_propagation();
-                    this.cancel_message_edit(cx);
-                }),
-            )
-            .on_click(cx.listener(|this, _, _, cx| this.cancel_message_edit(cx))),
-        )
-        .child(
-            editor_save_button(
-                SharedString::from(format!("save-edit-message-{}", message.id)),
-                "Save response edit",
-                !can_save,
-                cx,
-            )
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, _, _, cx| {
-                    cx.stop_propagation();
-                    this.save_assistant_edit(mouse_down_id.clone(), cx);
-                }),
-            )
-            .on_click(
-                cx.listener(move |this, _, _, cx| {
-                    this.save_assistant_edit(response_id.clone(), cx)
-                }),
-            ),
-        )
-        .into_any_element()
 }

@@ -5,9 +5,7 @@ mod content;
 mod header;
 
 use actions::render_message_actions;
-use content::{
-    render_editor_controls, render_message_content, render_output_content, render_output_editor,
-};
+use content::{render_message_content, render_output_content, render_output_editor};
 use header::render_message_header;
 
 pub(in crate::desktop::ui::chat) fn render_assistant_turn(
@@ -63,7 +61,9 @@ fn render_assistant_message(
     let header = render_message_header(app, turn, message, typography, cx);
     let stats = request.map(format_message_stats).unwrap_or_default();
     let swipe_turn_id = turn.id.clone();
-    div()
+    let editing = app.assistant_message_editor(message).is_some();
+    let edit_response_id = message.id.clone();
+    let mut card = div()
         .on_scroll_wheel(
             cx.listener(move |this, event: &gpui::ScrollWheelEvent, _, cx| {
                 let ScrollDelta::Pixels(delta) = event.delta else {
@@ -94,6 +94,10 @@ fn render_assistant_message(
                 .children(render_tool_executions(app, message, typography, cx))
         }))
         .child(content)
+        .children(
+            (message.blocks.is_empty() && app.assistant_output_editing(message))
+                .then(|| render_editor_controls(app, message, typography, cx)),
+        )
         .children(render_error_card(
             app, message, request, latest, generating, typography, cx,
         ))
@@ -116,8 +120,21 @@ fn render_assistant_message(
                         .text_color(cx.theme().muted_foreground)
                         .child(stats)
                 })),
-        )
-        .into_any_element()
+        );
+    if editing {
+        card = card
+            .capture_action(cx.listener(move |this, action: &Enter, _, cx| {
+                if message_edit_submits(this, action) {
+                    cx.stop_propagation();
+                    this.save_assistant_edit(edit_response_id.clone(), cx);
+                }
+            }))
+            .capture_action(cx.listener(|this, _: &InputEscape, _, cx| {
+                cx.stop_propagation();
+                this.cancel_message_edit(cx);
+            }));
+    }
+    card.into_any_element()
 }
 
 fn render_ordered_content(
@@ -128,7 +145,6 @@ fn render_ordered_content(
     typography: MessageTypography,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    let editor = app.assistant_message_editor(message);
     let output_count = message
         .blocks
         .iter()
@@ -145,25 +161,24 @@ fn render_ordered_content(
                 duration_ms,
                 ..
             } => {
+                let reasoning_editor = app
+                    .assistant_reasoning_editor(message, id)
+                    .map(|editor| &editor.input);
                 body = body.children(render_reasoning_block(
                     app,
+                    message,
                     id,
                     content,
+                    reasoning_editor,
                     *started_after_ms,
                     *duration_ms,
-                    message.status,
                     request,
                     typography,
                     cx,
                 ));
             }
             AssistantBlock::Output { id, content } => {
-                let output = if let Some(output_editor) = editor.and_then(|editor| {
-                    editor
-                        .output_editors
-                        .iter()
-                        .find(|output| output.block_id == *id)
-                }) {
+                let output = if let Some(output_editor) = app.assistant_output_editor(message, id) {
                     render_output_editor(
                         id,
                         &output_editor.input,
@@ -216,20 +231,8 @@ fn render_ordered_content(
                 .child(waiting_label(message)),
         );
     }
-    if editor.is_some() {
+    if app.assistant_output_editing(message) {
         body = body.child(render_editor_controls(app, message, typography, cx));
-        let enter_id = message.id.clone();
-        body = body
-            .capture_action(cx.listener(move |this, action: &Enter, _, cx| {
-                if message_edit_submits(this, action) {
-                    cx.stop_propagation();
-                    this.save_assistant_edit(enter_id.clone(), cx);
-                }
-            }))
-            .capture_action(cx.listener(|this, _: &InputEscape, _, cx| {
-                cx.stop_propagation();
-                this.cancel_message_edit(cx);
-            }));
     }
     body.into_any_element()
 }

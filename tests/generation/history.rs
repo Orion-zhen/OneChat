@@ -51,6 +51,52 @@ fn new_turn_history_follows_the_selected_branch() {
 }
 
 #[test]
+fn edited_reasoning_is_replayed_as_native_reasoning() {
+    use rig_core::{OneOrMany, completion::AssistantContent, message::Reasoning};
+
+    let provider = Provider::new("Local", ProviderKind::OpenAiCompatible);
+    let model = Model::new(&provider.id, "qwen", "Qwen");
+    let conversation = Conversation::new("Chat", Some(&model), "");
+    let mut turn = completed_turn(&conversation, None, "question", "answer", &model, &provider);
+    let response = &mut turn.responses[0];
+    response.thinking = "original".into();
+    response.blocks = vec![
+        AssistantBlock::Reasoning {
+            id: "reasoning".into(),
+            provider_id: None,
+            content: "original".into(),
+            started_after_ms: 0,
+            duration_ms: Some(10),
+        },
+        AssistantBlock::Output {
+            id: "output".into(),
+            content: "answer".into(),
+        },
+    ];
+    response.transcript = vec![Message::Assistant {
+        id: None,
+        content: OneOrMany::many([
+            AssistantContent::Reasoning(Reasoning::new("original")),
+            AssistantContent::text("answer"),
+        ])
+        .unwrap(),
+    }];
+    response.replace_editable_text(
+        &[("reasoning".into(), "edited".into())],
+        &[("output".into(), "answer".into())],
+    );
+
+    let history = history_for_new_turn(&[turn], HistoryLimit::Unlimited);
+    let Message::Assistant { content, .. } = &history[1] else {
+        panic!("expected assistant history");
+    };
+    let AssistantContent::Reasoning(reasoning) = content.first_ref() else {
+        panic!("edited reasoning must remain native history");
+    };
+    assert_eq!(reasoning.display_text(), "edited");
+}
+
+#[test]
 fn history_limits_keep_recent_complete_turns_and_do_not_count_current_message() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
     let model = Model::new(&provider.id, "test-model", "Test Model");
