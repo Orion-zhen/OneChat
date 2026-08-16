@@ -27,7 +27,7 @@ pub(super) fn render_message_actions(
         && usable_as_context
         && turn.continuation_response_id.as_deref() != Some(&message.id);
     let can_fork = !editing_any && usable_as_context;
-    let can_export = latest && !generating && !editing_any && has_content;
+    let can_export = !editing_any && has_content && !(latest && generating);
 
     let content_actions = if can_copy || can_edit {
         let mut group = div().flex().items_center().gap_1();
@@ -118,7 +118,7 @@ pub(super) fn render_message_actions(
             );
         }
         if can_export {
-            group = group.child(export_popover(message, cx));
+            group = group.child(export_popover(message, latest, cx));
         }
         Some(group)
     } else {
@@ -157,12 +157,16 @@ pub(super) fn render_message_actions(
         .into_any_element()
 }
 
-fn export_popover(message: &AssistantResponse, cx: &mut Context<OneChat>) -> AnyElement {
+fn export_popover(
+    message: &AssistantResponse,
+    latest: bool,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
     let response_id = message.id.clone();
     let app = cx.entity();
     let trigger = icon_button(
         SharedString::from(format!("export-conversation-{}", message.id)),
-        AppIcon::FileDown,
+        AppIcon::Export,
         IconTone::Muted,
         cx,
     );
@@ -258,7 +262,7 @@ fn export_popover(message: &AssistantResponse, cx: &mut Context<OneChat>) -> Any
                 })
         };
 
-        let export_archive = {
+        let export_archive = latest.then(|| {
             let popover = popover.clone();
             let app = app.clone();
             let response_id = response_id.clone();
@@ -274,7 +278,7 @@ fn export_popover(message: &AssistantResponse, cx: &mut Context<OneChat>) -> Any
                     app.export_conversation_archive(&response_id, window, cx)
                 });
             })
-        };
+        });
 
         let palette = *crate::desktop::ui::theme::palette(cx);
         let divider = || {
@@ -304,7 +308,7 @@ fn export_popover(message: &AssistantResponse, cx: &mut Context<OneChat>) -> Any
             .child(export_markdown)
             .child(export_html)
             .child(export_png)
-            .child(export_archive);
+            .children(export_archive);
 
         if cx.reduce_motion() {
             panel.into_any_element()

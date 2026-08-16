@@ -110,7 +110,7 @@ Each conversation has its own directory containing `<conversation-id>.json`, inc
 
 Attachment metadata and relative paths are stored in that JSON file. Attachment contents are stored under `attachments/` in the same conversation directory, so images and rendered PDF pages do not inflate the conversation log. Deleting or clearing a conversation removes its attachment files, and forking copies the attachments used by the forked history.
 
-Hover the latest assistant response and use its export action to copy or save the visible branch as Markdown. A full archive export creates a ZIP containing that Markdown, the complete conversation JSON with all branches and requests, and the stored attachment assets.
+Hover any assistant response and use its export action to copy or save the visible branch through that response. The currently streaming response becomes exportable after generation finishes. The latest response also offers a full archive ZIP containing that Markdown, the complete conversation JSON with all branches and requests, and the stored attachment assets.
 
 ### Attachments
 

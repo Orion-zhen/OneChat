@@ -173,18 +173,20 @@ impl OneChat {
 
     fn conversation_export(&self, response_id: &str) -> Option<ConversationExport<'_>> {
         let conversation = self.current_conversation()?;
-        let turns = self
-            .current_turns()
-            .into_iter()
-            .filter_map(|turn| self.visible_response(turn).map(|response| (turn, response)))
-            .collect::<Vec<_>>();
-        if turns.last()?.1.id != response_id {
-            return None;
+        let mut turns = Vec::new();
+        for turn in self.current_turns() {
+            let Some(response) = self.visible_response(turn) else {
+                continue;
+            };
+            turns.push((turn, response));
+            if response.id == response_id {
+                return Some(ConversationExport {
+                    conversation,
+                    turns,
+                });
+            }
         }
-        Some(ConversationExport {
-            conversation,
-            turns,
-        })
+        None
     }
 
     fn conversation_export_html(
