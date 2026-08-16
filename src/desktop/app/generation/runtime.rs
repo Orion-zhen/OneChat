@@ -9,7 +9,10 @@ use tokio_util::sync::CancellationToken;
 use super::super::{CachedMarkdown, OneChat, UnseenGeneration};
 use crate::{
     application::{
-        generation::{GenerationStart, GenerationUpdate, PreparedGeneration, run_generation},
+        generation::{
+            GenerationStart, GenerationUpdate, PreparedGeneration, run_generation,
+            run_temporary_generation,
+        },
         prompt::PromptContext,
     },
     domain::{AssistantBlock, AssistantResponse, MessageStatus, RequestInfo},
@@ -24,6 +27,12 @@ impl OneChat {
     ) {
         self.cancel_voice_recording(cx);
         let conversation_id = prepared.request_info.conversation_id.clone();
+        let temporary = self
+            .data
+            .snapshot
+            .conversations
+            .iter()
+            .any(|conversation| conversation.id == conversation_id && conversation.temporary);
         let prompt_context = PromptContext {
             conversation_id: conversation_id.clone(),
             conversation_title: self
@@ -79,6 +88,23 @@ impl OneChat {
             .insert(response_id, ScrollHandle::new());
         cx.notify();
 
+        if temporary {
+            if let Err(error) = self.begin_temporary_generation_records(&prepared) {
+                self.remove_temporary_attachments(&prepared.new_attachments);
+                self.chat
+                    .generations
+                    .finish(&conversation_id, &prepared.request_info.id);
+                self.data.error = Some(format!("Could not start generation: {error}"));
+                cx.notify();
+                return;
+            }
+            self.chat.selected_request_id = Some(prepared.request_info.id.clone());
+            self.refresh_markdown_documents(cx);
+            self.launch_generation(prepared, cancellation, false, cx);
+            cx.notify();
+            return;
+        }
+
         let persisted = prepared.clone();
         let storage = self.services.storage.clone();
         let previous = std::mem::replace(&mut self.data.storage_task, Task::ready(()));
@@ -121,7 +147,7 @@ impl OneChat {
                     this.data.error = None;
                     this.chat.selected_request_id = Some(prepared.request_info.id.clone());
                     this.refresh_markdown_documents(cx);
-                    this.launch_generation(prepared, cancellation, cx);
+                    this.launch_generation(prepared, cancellation, true, cx);
                     cx.notify();
                 }
                 Err(error) => {
@@ -135,10 +161,60 @@ impl OneChat {
         });
     }
 
+    fn begin_temporary_generation_records(
+        &mut self,
+        prepared: &PreparedGeneration,
+    ) -> Result<(), String> {
+        match &prepared.start {
+            GenerationStart::NewTurn(turn) => {
+                for sibling in &mut self.data.snapshot.current_turns {
+                    if sibling.parent_response_id == turn.parent_response_id {
+                        sibling.selected = false;
+                    }
+                }
+                let mut turn = (**turn).clone();
+                turn.selected = true;
+                self.data.snapshot.current_turns.push(turn);
+            }
+            GenerationStart::AddResponse { turn_id } => {
+                let turn = self
+                    .data
+                    .snapshot
+                    .current_turns
+                    .iter_mut()
+                    .find(|turn| turn.id == *turn_id)
+                    .ok_or_else(|| format!("turn not found: {turn_id}"))?;
+                turn.responses.push(prepared.response.clone());
+            }
+            GenerationStart::RetryResponse { turn_id }
+            | GenerationStart::ContinueResponse { turn_id } => {
+                let response = self
+                    .data
+                    .snapshot
+                    .current_turns
+                    .iter_mut()
+                    .find(|turn| turn.id == *turn_id)
+                    .and_then(|turn| {
+                        turn.responses
+                            .iter_mut()
+                            .find(|response| response.id == prepared.response.id)
+                    })
+                    .ok_or_else(|| format!("response not found: {}", prepared.response.id))?;
+                *response = prepared.response.clone();
+            }
+        }
+        self.data
+            .snapshot
+            .current_requests
+            .insert(0, prepared.request_info.clone());
+        Ok(())
+    }
+
     fn launch_generation(
         &mut self,
         prepared: PreparedGeneration,
         cancellation: CancellationToken,
+        persist: bool,
         cx: &mut Context<Self>,
     ) {
         let conversation_id = prepared.request_info.conversation_id.clone();
@@ -157,9 +233,22 @@ impl OneChat {
         let storage = self.services.storage.clone();
         let mcp = self.services.mcp.clone();
         let (sender, receiver) = async_channel::bounded(32);
-        self.services
-            .runtime
-            .spawn(run_generation(prepared, storage, mcp, cancellation, sender));
+        if persist {
+            self.services.runtime.spawn(run_generation(
+                prepared,
+                storage,
+                mcp,
+                cancellation,
+                sender,
+            ));
+        } else {
+            self.services.runtime.spawn(run_temporary_generation(
+                prepared,
+                mcp,
+                cancellation,
+                sender,
+            ));
+        }
 
         let timer_request_id = request_id.clone();
         cx.spawn(async move |this, cx| {
@@ -253,12 +342,7 @@ impl OneChat {
                                 this.chat.generations.finish(&conversation_id, &request_id);
                                 let completed_in_background = response.status
                                     == MessageStatus::Completed
-                                    && this
-                                        .data
-                                        .snapshot
-                                        .settings
-                                        .current_conversation_id
-                                        .as_deref()
+                                    && this.current_conversation_id()
                                         != Some(conversation_id.as_str());
                                 if completed_in_background {
                                     let completion_phase = this
@@ -303,14 +387,7 @@ impl OneChat {
         response: &AssistantResponse,
         request: &RequestInfo,
     ) -> bool {
-        if self
-            .data
-            .snapshot
-            .settings
-            .current_conversation_id
-            .as_deref()
-            != Some(conversation_id)
-        {
+        if self.current_conversation_id() != Some(conversation_id) {
             return false;
         }
         let thinking_grew = self

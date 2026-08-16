@@ -6,6 +6,9 @@ use std::collections::HashMap;
 use super::*;
 use conversation_row::render_conversation_row;
 
+#[cfg(target_os = "macos")]
+use crate::desktop::pressure_touch::ForceClickChange;
+
 pub(super) fn render_sidebar(
     app: &mut OneChat,
     width: f32,
@@ -13,11 +16,7 @@ pub(super) fn render_sidebar(
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let groups = app.conversation_groups(cx);
-    let current_id = app
-        .settings()
-        .current_conversation_id
-        .as_deref()
-        .map(str::to_owned);
+    let current_id = app.current_conversation_id().map(str::to_owned);
     let mut list = div()
         .id("conversation-list")
         .min_h_0()
@@ -82,6 +81,46 @@ pub(super) fn render_sidebar(
 }
 
 fn render_sidebar_header(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
+    let new_conversation = icon_button("new-conversation", AppIcon::Compose, IconTone::Muted, cx);
+    #[cfg(target_os = "macos")]
+    let new_conversation = new_conversation
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(|this, _, _, _| {
+                this.sidebar.new_conversation_force_click.cancel();
+                this.sidebar.force_created_temporary_conversation = false;
+            }),
+        )
+        .on_mouse_up_out(
+            MouseButton::Left,
+            cx.listener(|this, _, _, _| {
+                this.sidebar.new_conversation_force_click.cancel();
+            }),
+        )
+        .on_mouse_pressure(cx.listener(|this, event, _, cx| {
+            if this.sidebar.new_conversation_force_click.update(event)
+                == ForceClickChange::Triggered
+            {
+                this.sidebar.force_created_temporary_conversation = true;
+                this.set_page(Page::Chat, cx);
+                this.create_temporary_conversation(cx);
+                cx.stop_propagation();
+            }
+        }));
+    let new_conversation =
+        new_conversation.on_click(cx.listener(|this, event: &ClickEvent, _, cx| {
+            #[cfg(target_os = "macos")]
+            if std::mem::take(&mut this.sidebar.force_created_temporary_conversation) {
+                return;
+            }
+            this.set_page(Page::Chat, cx);
+            if event.modifiers().secondary() {
+                this.create_temporary_conversation(cx);
+            } else {
+                this.create_conversation(cx);
+            }
+        }));
+
     div()
         .px_3()
         .pt_3()
@@ -107,13 +146,7 @@ fn render_sidebar_header(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement
                         .flex()
                         .items_center()
                         .gap_1()
-                        .child(
-                            icon_button("new-conversation", AppIcon::Compose, IconTone::Muted, cx)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.set_page(Page::Chat, cx);
-                                    this.create_conversation(cx);
-                                })),
-                        )
+                        .child(new_conversation)
                         .child(
                             icon_button("collapse-sidebar", AppIcon::Sidebar, IconTone::Muted, cx)
                                 .on_click(cx.listener(|this, _, _, cx| this.toggle_sidebar(cx))),

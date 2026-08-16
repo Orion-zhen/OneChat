@@ -123,6 +123,10 @@ impl OneChat {
                 unseen_generations: HashMap::new(),
                 #[cfg(target_os = "macos")]
                 conversation_peek: Default::default(),
+                #[cfg(target_os = "macos")]
+                new_conversation_force_click: Default::default(),
+                #[cfg(target_os = "macos")]
+                force_created_temporary_conversation: false,
                 rename_editor: None,
                 #[cfg(target_os = "macos")]
                 rename_force_click: Default::default(),
@@ -143,6 +147,7 @@ impl OneChat {
             playback: PlaybackState::new(cx),
             chat: ChatState {
                 draft_model_id: None,
+                transient_conversation_id: None,
                 selected_request_id: None,
                 visible_response_ids: HashMap::new(),
                 expanded_error_ids: HashSet::new(),
@@ -185,6 +190,7 @@ impl OneChat {
                 context_usage_popover_motion: VisibilityMotion::new(false),
                 attachments: Vec::new(),
                 attachment_previews: HashMap::new(),
+                temporary_attachment_files: HashMap::new(),
                 attachments_loading: false,
                 attachments_revision: 0,
                 audio_recording: RecordingSnapshot::default(),

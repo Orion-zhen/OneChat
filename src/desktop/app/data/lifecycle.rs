@@ -37,8 +37,32 @@ impl OneChat {
         result: StorageResult<StorageSnapshot>,
         cx: &mut Context<Self>,
     ) {
+        let transient_session = self
+            .chat
+            .transient_conversation_id
+            .as_deref()
+            .and_then(|id| {
+                self.data
+                    .snapshot
+                    .conversations
+                    .iter()
+                    .find(|conversation| conversation.id == id)
+            })
+            .cloned()
+            .map(|conversation| {
+                (
+                    conversation,
+                    self.data.snapshot.current_turns.clone(),
+                    self.data.snapshot.current_requests.clone(),
+                )
+            });
         match result {
             Ok(mut snapshot) => {
+                if let Some((conversation, turns, requests)) = transient_session {
+                    snapshot.conversations.push(conversation);
+                    snapshot.current_turns = turns;
+                    snapshot.current_requests = requests;
+                }
                 if matches!(self.navigation.page, Page::Chat | Page::Tts) {
                     let width = if snapshot.settings.sidebar_collapsed {
                         0.0
@@ -124,7 +148,7 @@ impl OneChat {
     }
 
     pub(in crate::desktop::app) fn refresh_markdown_documents(&mut self, cx: &mut Context<Self>) {
-        let sources = markdown_sources(&self.data.snapshot);
+        let sources = markdown_sources(&self.data.snapshot, self.current_conversation_id());
         self.chat.markdown_documents.retain(|id, cached| {
             sources
                 .get(id)
@@ -150,7 +174,7 @@ impl OneChat {
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
-                let current = markdown_sources(&this.data.snapshot);
+                let current = markdown_sources(&this.data.snapshot, this.current_conversation_id());
                 for (id, source, document) in parsed {
                     if current.get(&id) == Some(&source) {
                         this.chat
@@ -263,6 +287,7 @@ impl OneChat {
         self.chat.parameter_error = None;
         self.chat.attachments.clear();
         self.chat.attachment_previews.clear();
+        self.chat.temporary_attachment_files.clear();
         self.chat.attachments_loading = false;
         self.chat.attachments_revision = self.chat.attachments_revision.wrapping_add(1);
     }
@@ -370,9 +395,12 @@ impl OneChat {
     }
 }
 
-fn markdown_sources(snapshot: &StorageSnapshot) -> HashMap<String, String> {
+fn markdown_sources(
+    snapshot: &StorageSnapshot,
+    current_conversation_id: Option<&str>,
+) -> HashMap<String, String> {
     let mut sources = HashMap::new();
-    if let Some(conversation_id) = snapshot.settings.current_conversation_id.as_deref()
+    if let Some(conversation_id) = current_conversation_id
         && let Some(conversation) = snapshot
             .conversations
             .iter()

@@ -8,8 +8,8 @@ use crate::{
         LoadManyOptions, MAX_ATTACHMENTS, MAX_IMAGE_BYTES, load_many, validate_image,
     },
     domain::{
-        AttachmentDraft, AttachmentDraftFile, AttachmentFileKind, AttachmentKind,
-        ModelCapabilities, new_id,
+        Attachment, AttachmentDraft, AttachmentDraftFile, AttachmentFile, AttachmentFileKind,
+        AttachmentKind, ModelCapabilities, new_id,
     },
 };
 
@@ -57,11 +57,80 @@ impl OneChat {
         &self,
         file: &crate::domain::AttachmentFile,
     ) -> Option<std::path::PathBuf> {
-        let conversation_id = &self.current_conversation()?.id;
-        self.services
-            .storage
-            .attachment_path(conversation_id, &file.path)
-            .ok()
+        let conversation = self.current_conversation()?;
+        (!conversation.temporary)
+            .then(|| {
+                self.services
+                    .storage
+                    .attachment_path(&conversation.id, &file.path)
+                    .ok()
+            })
+            .flatten()
+    }
+
+    pub(crate) fn temporary_attachment_bytes(
+        &self,
+        file: &crate::domain::AttachmentFile,
+    ) -> Option<&[u8]> {
+        self.chat
+            .temporary_attachment_files
+            .get(&file.path)
+            .map(Vec::as_slice)
+    }
+
+    pub(crate) fn temporary_attachment_image(
+        &self,
+        file: &crate::domain::AttachmentFile,
+    ) -> Option<Arc<gpui::Image>> {
+        let format = gpui::ImageFormat::from_mime_type(&file.media_type)?;
+        Some(Arc::new(gpui::Image::from_bytes(
+            format,
+            self.temporary_attachment_bytes(file)?.to_vec(),
+        )))
+    }
+
+    pub(crate) fn store_temporary_attachments(
+        &mut self,
+        drafts: &[AttachmentDraft],
+    ) -> Result<Vec<Attachment>, String> {
+        let mut files = Vec::new();
+        let attachments = drafts
+            .iter()
+            .map(|draft| {
+                draft
+                    .validate_files()
+                    .map_err(|error| format!("invalid attachment {}: {error}", draft.name))?;
+                let stored_files = draft
+                    .files
+                    .iter()
+                    .map(|file| {
+                        let path = format!("attachments/{}/{}", draft.id, file.name);
+                        files.push((path.clone(), file.bytes.clone()));
+                        AttachmentFile {
+                            name: file.name.clone(),
+                            kind: file.kind,
+                            path,
+                            media_type: file.media_type.clone(),
+                        }
+                    })
+                    .collect();
+                Ok(Attachment {
+                    id: draft.id.clone(),
+                    name: draft.name.clone(),
+                    kind: draft.kind,
+                    files: stored_files,
+                    audio: draft.audio.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        self.chat.temporary_attachment_files.extend(files);
+        Ok(attachments)
+    }
+
+    pub(crate) fn remove_temporary_attachments(&mut self, attachments: &[Attachment]) {
+        for file in attachments.iter().flat_map(|attachment| &attachment.files) {
+            self.chat.temporary_attachment_files.remove(&file.path);
+        }
     }
 }
 

@@ -57,6 +57,7 @@ pub(crate) enum AppIcon {
     Sliders,
     Sparkles,
     Stop,
+    Temporary,
     Trash,
 }
 
@@ -118,6 +119,7 @@ impl AppIcon {
             Self::Sliders => IconBackend::Lucide(LucideIcon::SlidersHorizontal),
             Self::Sparkles => IconBackend::Lucide(LucideIcon::Sparkles),
             Self::Stop => IconBackend::SolidSquare,
+            Self::Temporary => IconBackend::Lucide(LucideIcon::MessageCircleDashed),
             Self::Trash => IconBackend::Lucide(LucideIcon::Trash2),
         }
     }

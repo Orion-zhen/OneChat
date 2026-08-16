@@ -13,7 +13,6 @@ use crate::{
         },
     },
     domain::{Conversation, now_timestamp},
-    storage::StorageError,
 };
 
 impl OneChat {
@@ -43,7 +42,9 @@ impl OneChat {
                 .conversations
                 .iter()
                 .filter(|conversation| {
-                    (query.is_empty() || conversation.title.to_lowercase().contains(&query))
+                    !conversation.temporary
+                        && !self.is_transient_conversation(&conversation.id)
+                        && (query.is_empty() || conversation.title.to_lowercase().contains(&query))
                         && ConversationGroup::for_conversation(conversation, now) == group
                 })
                 .cloned()
@@ -356,29 +357,30 @@ impl OneChat {
         let Some(mut conversation) = self.current_conversation().cloned() else {
             return;
         };
-        self.mutate_and_reload(
-            move |storage| {
-                let (system_prompt, assistant_opening) = match name {
-                    Some(name) => storage
-                        .load_prompt_preset(&name)?
-                        .map(|preset| (preset.system_prompt, preset.assistant_opening))
-                        .ok_or_else(|| {
-                            StorageError::InvalidData(format!("prompt preset not found: {name}"))
-                        })?,
-                    None => (String::new(), String::new()),
+        let (system_prompt, assistant_opening) = match name {
+            Some(name) => {
+                let Some(preset) = self.prompt_preset(&name) else {
+                    self.data.error = Some(format!("Prompt preset not found: {name}"));
+                    cx.notify();
+                    return;
                 };
-                if conversation.system_prompt != system_prompt
-                    || conversation.assistant_opening != assistant_opening
-                {
-                    conversation.system_prompt = system_prompt;
-                    conversation.assistant_opening = assistant_opening;
-                    conversation.updated_at = now_timestamp();
-                    storage.update_conversation(&conversation)?;
-                }
-                Ok(())
-            },
-            cx,
-        );
+                (
+                    preset.system_prompt.clone(),
+                    preset.assistant_opening.clone(),
+                )
+            }
+            None => (String::new(), String::new()),
+        };
+        if conversation.system_prompt == system_prompt
+            && conversation.assistant_opening == assistant_opening
+        {
+            cx.notify();
+            return;
+        }
+        conversation.system_prompt = system_prompt;
+        conversation.assistant_opening = assistant_opening;
+        conversation.updated_at = now_timestamp();
+        self.save_conversation_update(conversation, cx);
     }
 
     pub(crate) fn open_prompt_settings(&mut self, cx: &mut Context<Self>) {
@@ -425,9 +427,6 @@ impl OneChat {
         conversation.model_id = Some(model.id);
         conversation.updated_at = now_timestamp();
         self.chat.parameter_error = None;
-        self.mutate_and_reload(
-            move |storage| storage.update_conversation(&conversation),
-            cx,
-        );
+        self.save_conversation_update(conversation, cx);
     }
 }

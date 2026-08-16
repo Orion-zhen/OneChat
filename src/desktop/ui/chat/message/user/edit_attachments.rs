@@ -25,12 +25,22 @@ pub(super) fn render_edit_stored_attachment(
         crate::domain::AttachmentKind::Image | crate::domain::AttachmentKind::Pdf => attachment
             .files
             .first()
-            .and_then(|file| app.attachment_file_path(file))
-            .map(|path| {
-                img(path)
-                    .size_full()
-                    .object_fit(ObjectFit::Contain)
-                    .into_any_element()
+            .and_then(|file| {
+                app.temporary_attachment_image(file)
+                    .map(|image| {
+                        img(image)
+                            .size_full()
+                            .object_fit(ObjectFit::Contain)
+                            .into_any_element()
+                    })
+                    .or_else(|| {
+                        app.attachment_file_path(file).map(|path| {
+                            img(path)
+                                .size_full()
+                                .object_fit(ObjectFit::Contain)
+                                .into_any_element()
+                        })
+                    })
             })
             .unwrap_or_else(|| edit_attachment_icon(cx)),
     };

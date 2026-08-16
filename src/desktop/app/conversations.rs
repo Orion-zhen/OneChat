@@ -9,7 +9,7 @@ use gpui_component::{
 use super::{DestructiveAction, OneChat, Page, PendingFocus, RenameEditor};
 use crate::{
     desktop::ui::settings::SettingsSection,
-    domain::{AppSettings, Conversation, HistoryLimit, Theme, now_timestamp},
+    domain::{AppSettings, AutoTitleState, Conversation, HistoryLimit, Theme, now_timestamp},
 };
 
 fn resolve_destructive_action(
@@ -22,7 +22,18 @@ fn resolve_destructive_action(
 
 impl OneChat {
     pub(crate) fn create_conversation(&mut self, cx: &mut Context<Self>) {
+        self.create_conversation_with_temporary(false, cx);
+    }
+
+    pub(crate) fn create_temporary_conversation(&mut self, cx: &mut Context<Self>) {
+        self.create_conversation_with_temporary(true, cx);
+    }
+
+    fn create_conversation_with_temporary(&mut self, temporary: bool, cx: &mut Context<Self>) {
         self.cancel_voice_recording(cx);
+        if let Some(id) = self.chat.transient_conversation_id.as_deref() {
+            self.chat.generations.stop(id);
+        }
         let model_id = if self.current_conversation().is_none() {
             self.chat.draft_model_id.as_deref()
         } else {
@@ -54,46 +65,117 @@ impl OneChat {
             cx.notify();
             return;
         }
-        let conversation = Conversation::new("New conversation", Some(&model), "");
-        let id = conversation.id.clone();
-        let mut settings = self.data.snapshot.settings.clone();
-        settings.current_conversation_id = Some(id);
-        let default_prompt_name = settings
-            .default_prompt_preset
-            .clone()
-            .filter(|name| self.prompt_preset(name).is_some());
-        self.navigation.pending_focus = Some(PendingFocus::Composer);
-        self.mutate_and_reload(
-            move |storage| {
-                let mut conversation = conversation;
-                if let Some(preset) = default_prompt_name
-                    .as_deref()
-                    .map(|name| storage.load_prompt_preset(name))
-                    .transpose()?
-                    .flatten()
-                {
-                    conversation.system_prompt = preset.system_prompt;
-                    conversation.assistant_opening = preset.assistant_opening;
-                }
-                storage.insert_conversation(&conversation)?;
-                storage.save_settings(&settings)
+
+        let mut conversation = Conversation::new(
+            if temporary {
+                "Temporary Chat"
+            } else {
+                "New conversation"
             },
+            Some(&model),
+            "",
+        );
+        conversation.temporary = temporary;
+        if temporary {
+            conversation.auto_title_state = AutoTitleState::Finished;
+        }
+        if let Some(preset) = self
+            .settings()
+            .default_prompt_preset
+            .as_deref()
+            .and_then(|name| self.prompt_preset(name))
+        {
+            conversation.system_prompt = preset.system_prompt.clone();
+            conversation.assistant_opening = preset.assistant_opening.clone();
+        }
+        let id = conversation.id.clone();
+        if let Some(previous) = self.chat.transient_conversation_id.take() {
+            self.data
+                .snapshot
+                .conversations
+                .retain(|conversation| conversation.id != previous);
+        }
+        self.data.snapshot.current_turns.clear();
+        self.data.snapshot.current_requests.clear();
+        self.reset_conversation_ui(cx);
+        self.chat.transient_conversation_id = Some(id);
+        self.data.snapshot.conversations.push(conversation);
+        self.navigation.pending_focus = Some(PendingFocus::Composer);
+        self.data.error = None;
+        cx.notify();
+    }
+
+    pub(crate) fn toggle_temporary_chat(&mut self, cx: &mut Context<Self>) {
+        if self.is_current_generating() || !self.data.snapshot.current_turns.is_empty() {
+            return;
+        }
+        let Some(conversation) = self.current_conversation().cloned() else {
+            return;
+        };
+        if !self.is_transient_conversation(&conversation.id) {
+            return;
+        }
+        let temporary = !conversation.temporary;
+        if let Some(stored) = self
+            .data
+            .snapshot
+            .conversations
+            .iter_mut()
+            .find(|stored| stored.id == conversation.id)
+        {
+            stored.temporary = temporary;
+            stored.title = if temporary {
+                "Temporary Chat".into()
+            } else {
+                "New conversation".into()
+            };
+            stored.auto_title_state = if temporary {
+                AutoTitleState::Finished
+            } else {
+                AutoTitleState::Pending
+            };
+        }
+        cx.notify();
+    }
+
+    pub(in crate::desktop::app) fn save_conversation_update(
+        &mut self,
+        conversation: Conversation,
+        cx: &mut Context<Self>,
+    ) {
+        let transient = self.is_transient_conversation(&conversation.id);
+        let Some(stored) = self
+            .data
+            .snapshot
+            .conversations
+            .iter_mut()
+            .find(|stored| stored.id == conversation.id)
+        else {
+            return;
+        };
+        stored.clone_from(&conversation);
+        cx.notify();
+        if transient {
+            return;
+        }
+        self.mutate_and_reload(
+            move |storage| storage.update_conversation(&conversation),
             cx,
         );
     }
 
     pub(crate) fn select_conversation(&mut self, id: String, cx: &mut Context<Self>) {
         self.sidebar.unseen_generations.remove(&id);
-        if self
-            .data
-            .snapshot
-            .settings
-            .current_conversation_id
-            .as_deref()
-            == Some(&id)
-        {
+        if self.current_conversation_id() == Some(&id) {
             self.set_page(Page::Chat, cx);
             return;
+        }
+        if let Some(transient_id) = self.chat.transient_conversation_id.take() {
+            self.chat.generations.stop(&transient_id);
+            self.data
+                .snapshot
+                .conversations
+                .retain(|conversation| conversation.id != transient_id);
         }
         let mut settings = self.data.snapshot.settings.clone();
         settings.current_conversation_id = Some(id);
@@ -161,10 +243,7 @@ impl OneChat {
             *stored = conversation.clone();
         }
         cx.notify();
-        self.mutate_and_reload(
-            move |storage| storage.update_conversation(&conversation),
-            cx,
-        );
+        self.save_conversation_update(conversation, cx);
     }
 
     pub(crate) fn reset_conversation_history_limit(&mut self, cx: &mut Context<Self>) {
@@ -191,10 +270,7 @@ impl OneChat {
             *stored = conversation.clone();
         }
         cx.notify();
-        self.mutate_and_reload(
-            move |storage| storage.update_conversation(&conversation),
-            cx,
-        );
+        self.save_conversation_update(conversation, cx);
     }
 
     pub(crate) fn start_rename(
@@ -276,10 +352,7 @@ impl OneChat {
         };
         conversation.pinned = !conversation.pinned;
         conversation.updated_at = now_timestamp();
-        self.mutate_and_reload(
-            move |storage| storage.update_conversation(&conversation),
-            cx,
-        );
+        self.save_conversation_update(conversation, cx);
     }
 
     pub(crate) fn request_delete_conversation(

@@ -1,6 +1,34 @@
 use super::*;
 
 #[test]
+fn attachment_messages_can_be_built_from_memory_without_files() {
+    let user = UserMessage::new(
+        "question",
+        vec![Attachment {
+            id: "notes".into(),
+            name: "notes.txt".into(),
+            kind: AttachmentKind::Text,
+            files: vec![AttachmentFile {
+                name: "content.txt".into(),
+                kind: AttachmentFileKind::Text,
+                path: "attachments/notes/content.txt".into(),
+                media_type: "text/plain".into(),
+            }],
+            audio: None,
+        }],
+    );
+
+    let message = Storage::message_for_user_with(&user, false, |file| {
+        assert_eq!(file.path, "attachments/notes/content.txt");
+        Ok(b"memory only".to_vec())
+    })
+    .unwrap();
+    let message = serde_json::to_string(&message).unwrap();
+    assert!(message.contains("question"));
+    assert!(message.contains("memory only"));
+}
+
+#[test]
 fn wav_and_mp3_assets_become_named_base64_audio_content() {
     let (_directory, storage) = open_storage();
     let (_provider, model) = catalog(&storage);

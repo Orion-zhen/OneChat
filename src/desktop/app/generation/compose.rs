@@ -3,7 +3,7 @@ use gpui::{Context, Window};
 use super::super::OneChat;
 use crate::{
     application::generation::PreparedGeneration,
-    domain::{AttachmentKind, Conversation, Model, Provider, Turn},
+    domain::{AppSettings, AttachmentKind, Conversation, Model, Provider, Turn},
 };
 
 fn attempt_composer_submission(
@@ -109,16 +109,37 @@ impl OneChat {
             cx.notify();
             return false;
         }
-        let attachments = match self
-            .services
-            .storage
-            .store_attachments(&conversation.id, &self.chat.attachments)
-        {
-            Ok(attachments) => attachments,
+        let previous_settings = match self.persist_transient_conversation(&conversation) {
+            Ok(settings) => settings,
             Err(error) => {
-                self.data.error = Some(format!("Could not save attachments: {error}"));
+                self.data.error = Some(error);
                 cx.notify();
                 return false;
+            }
+        };
+        let attachment_drafts = self.chat.attachments.clone();
+        let attachments = if conversation.temporary {
+            match self.store_temporary_attachments(&attachment_drafts) {
+                Ok(attachments) => attachments,
+                Err(error) => {
+                    self.data.error = Some(format!("Could not prepare attachments: {error}"));
+                    cx.notify();
+                    return false;
+                }
+            }
+        } else {
+            match self
+                .services
+                .storage
+                .store_attachments(&conversation.id, &attachment_drafts)
+            {
+                Ok(attachments) => attachments,
+                Err(error) => {
+                    self.rollback_transient_conversation(&conversation, previous_settings.as_ref());
+                    self.data.error = Some(format!("Could not save attachments: {error}"));
+                    cx.notify();
+                    return false;
+                }
             }
         };
         let prepared =
@@ -135,17 +156,60 @@ impl OneChat {
             }) {
                 Ok(prepared) => prepared.with_new_attachments(attachments.clone()),
                 Err(error) => {
-                    let _ = self
-                        .services
-                        .storage
-                        .remove_attachments(&conversation.id, &attachments);
+                    if conversation.temporary {
+                        self.remove_temporary_attachments(&attachments);
+                    } else {
+                        let _ = self
+                            .services
+                            .storage
+                            .remove_attachments(&conversation.id, &attachments);
+                    }
+                    self.rollback_transient_conversation(&conversation, previous_settings.as_ref());
                     self.data.error = Some(format!("Could not prepare attachments: {error}"));
                     cx.notify();
                     return false;
                 }
             };
+        if let Some(mut settings) = previous_settings {
+            settings.current_conversation_id = Some(conversation.id.clone());
+            self.data.snapshot.settings = settings;
+            self.chat.transient_conversation_id = None;
+        }
         self.begin_prepared_generation(prepared, cx);
         true
+    }
+
+    fn persist_transient_conversation(
+        &self,
+        conversation: &Conversation,
+    ) -> Result<Option<AppSettings>, String> {
+        if conversation.temporary || !self.is_transient_conversation(&conversation.id) {
+            return Ok(None);
+        }
+        let previous = self.data.snapshot.settings.clone();
+        self.services
+            .storage
+            .insert_conversation(conversation)
+            .map_err(|error| format!("Could not create conversation: {error}"))?;
+        let mut settings = previous.clone();
+        settings.current_conversation_id = Some(conversation.id.clone());
+        if let Err(error) = self.services.storage.save_settings(&settings) {
+            let _ = self.services.storage.delete_conversation(&conversation.id);
+            return Err(format!("Could not select conversation: {error}"));
+        }
+        Ok(Some(previous))
+    }
+
+    fn rollback_transient_conversation(
+        &self,
+        conversation: &Conversation,
+        previous_settings: Option<&AppSettings>,
+    ) {
+        let Some(previous_settings) = previous_settings else {
+            return;
+        };
+        let _ = self.services.storage.delete_conversation(&conversation.id);
+        let _ = self.services.storage.save_settings(previous_settings);
     }
 
     pub(crate) fn start_additional_response(

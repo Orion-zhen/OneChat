@@ -341,7 +341,7 @@ fn restore_failed_continuation(
 
 async fn fail_before_provider(
     prepared: PreparedGeneration,
-    storage: Arc<Storage>,
+    storage: Option<Arc<Storage>>,
     error: GenerationError,
     updates: Sender<GenerationUpdate>,
 ) {
@@ -355,22 +355,26 @@ async fn fail_before_provider(
         Duration::ZERO,
     );
     restore_failed_continuation(&mut response, &request, baseline.as_ref());
-    let saved_response = response.clone();
-    let saved_request = request.clone();
-    let persistence = tokio::task::spawn_blocking(move || {
-        storage.persist_generation(&saved_response, &saved_request)
-    })
-    .await;
-    if let Ok(Err(error)) = persistence {
-        let _ = updates
-            .send(GenerationUpdate::PersistenceFailed(error))
-            .await;
-    } else if let Err(error) = persistence {
-        let _ = updates
-            .send(GenerationUpdate::PersistenceFailed(
-                StorageError::InvalidData(format!("generation persistence task failed: {error}")),
-            ))
-            .await;
+    if let Some(storage) = storage {
+        let saved_response = response.clone();
+        let saved_request = request.clone();
+        let persistence = tokio::task::spawn_blocking(move || {
+            storage.persist_generation(&saved_response, &saved_request)
+        })
+        .await;
+        if let Ok(Err(error)) = persistence {
+            let _ = updates
+                .send(GenerationUpdate::PersistenceFailed(error))
+                .await;
+        } else if let Err(error) = persistence {
+            let _ = updates
+                .send(GenerationUpdate::PersistenceFailed(
+                    StorageError::InvalidData(format!(
+                        "generation persistence task failed: {error}"
+                    )),
+                ))
+                .await;
+        }
     }
     let _ = updates
         .send(GenerationUpdate::Snapshot(Box::new(GenerationSnapshot {
@@ -383,8 +387,27 @@ async fn fail_before_provider(
 }
 
 pub async fn run_generation(
-    mut prepared: PreparedGeneration,
+    prepared: PreparedGeneration,
     storage: Arc<Storage>,
+    mcp: Arc<McpManager>,
+    cancellation: CancellationToken,
+    updates: Sender<GenerationUpdate>,
+) {
+    run_generation_inner(prepared, Some(storage), mcp, cancellation, updates).await;
+}
+
+pub async fn run_temporary_generation(
+    prepared: PreparedGeneration,
+    mcp: Arc<McpManager>,
+    cancellation: CancellationToken,
+    updates: Sender<GenerationUpdate>,
+) {
+    run_generation_inner(prepared, None, mcp, cancellation, updates).await;
+}
+
+async fn run_generation_inner(
+    mut prepared: PreparedGeneration,
+    storage: Option<Arc<Storage>>,
     mcp: Arc<McpManager>,
     cancellation: CancellationToken,
     updates: Sender<GenerationUpdate>,
@@ -454,37 +477,40 @@ pub async fn run_generation(
         }
 
         if dirty && (terminal || last_storage_flush.elapsed() >= STORAGE_FLUSH_INTERVAL) {
-            let storage = storage.clone();
-            let saved_assistant = response.clone();
-            let saved_request = request.clone();
-            let result = tokio::task::spawn_blocking(move || {
-                storage.persist_generation(&saved_assistant, &saved_request)
-            })
-            .await;
-            last_storage_flush = Instant::now();
-            match result {
-                Ok(Ok(())) => dirty = false,
-                Ok(Err(error)) => {
-                    if updates
-                        .send(GenerationUpdate::PersistenceFailed(error))
-                        .await
-                        .is_err()
-                    {
-                        return;
+            if let Some(storage) = storage.clone() {
+                let saved_assistant = response.clone();
+                let saved_request = request.clone();
+                let result = tokio::task::spawn_blocking(move || {
+                    storage.persist_generation(&saved_assistant, &saved_request)
+                })
+                .await;
+                last_storage_flush = Instant::now();
+                match result {
+                    Ok(Ok(())) => dirty = false,
+                    Ok(Err(error)) => {
+                        if updates
+                            .send(GenerationUpdate::PersistenceFailed(error))
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                    Err(error) => {
+                        let storage_error = StorageError::InvalidData(format!(
+                            "generation persistence task failed: {error}"
+                        ));
+                        if updates
+                            .send(GenerationUpdate::PersistenceFailed(storage_error))
+                            .await
+                            .is_err()
+                        {
+                            return;
+                        }
                     }
                 }
-                Err(error) => {
-                    let storage_error = StorageError::InvalidData(format!(
-                        "generation persistence task failed: {error}"
-                    ));
-                    if updates
-                        .send(GenerationUpdate::PersistenceFailed(storage_error))
-                        .await
-                        .is_err()
-                    {
-                        return;
-                    }
-                }
+            } else {
+                dirty = false;
             }
         }
 

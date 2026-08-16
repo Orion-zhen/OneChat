@@ -65,33 +65,36 @@ fn render_sent_image(
     max_width: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    let Some(path) = attachment
-        .files
-        .first()
-        .and_then(|file| app.attachment_file_path(file))
-    else {
+    let Some(file) = attachment.files.first() else {
         return sent_attachment_fallback(attachment, max_width, cx);
     };
-    let (width, height) = sent_image_size(&path, max_width);
-    let fallback_name = attachment.name.clone();
-    let muted = cx.theme().muted;
-    let muted_foreground = cx.theme().muted_foreground;
-
-    div()
-        .id(SharedString::from(format!(
-            "user-attachment-image-{}",
-            attachment.id
-        )))
-        .w(px(width))
-        .h(px(height))
-        .flex_none()
-        .overflow_hidden()
-        .rounded(px(16.0))
-        .border_1()
-        .border_color(crate::desktop::ui::theme::palette(cx).media_border)
-        .bg(muted)
-        .shadow_xs()
-        .child(
+    let source = if let Some(image) = app.temporary_attachment_image(file) {
+        let dimensions = app
+            .temporary_attachment_bytes(file)
+            .and_then(|bytes| image::load_from_memory(bytes).ok())
+            .map(|image| (image.width(), image.height()))
+            .unwrap_or((320, 200));
+        let width = dimensions.0.max(1) as f32;
+        let height = dimensions.1.max(1) as f32;
+        let scale = (max_width.min(SENT_IMAGE_MAX_WIDTH) / width)
+            .min(SENT_IMAGE_MAX_HEIGHT / height)
+            .min(1.0);
+        (
+            width * scale,
+            height * scale,
+            img(image)
+                .size_full()
+                .rounded(px(15.0))
+                .object_fit(ObjectFit::Contain)
+                .into_any_element(),
+        )
+    } else if let Some(path) = app.attachment_file_path(file) {
+        let (width, height) = sent_image_size(&path, max_width);
+        let fallback_name = attachment.name.clone();
+        let muted_foreground = cx.theme().muted_foreground;
+        (
+            width,
+            height,
             img(path)
                 .size_full()
                 .rounded(px(15.0))
@@ -106,8 +109,28 @@ fn render_sent_image(
                         .text_color(muted_foreground)
                         .child(format!("Could not preview {fallback_name}"))
                         .into_any_element()
-                }),
+                })
+                .into_any_element(),
         )
+    } else {
+        return sent_attachment_fallback(attachment, max_width, cx);
+    };
+
+    div()
+        .id(SharedString::from(format!(
+            "user-attachment-image-{}",
+            attachment.id
+        )))
+        .w(px(source.0))
+        .h(px(source.1))
+        .flex_none()
+        .overflow_hidden()
+        .rounded(px(16.0))
+        .border_1()
+        .border_color(crate::desktop::ui::theme::palette(cx).media_border)
+        .bg(cx.theme().muted)
+        .shadow_xs()
+        .child(source.2)
         .into_any_element()
 }
 
@@ -189,8 +212,24 @@ fn render_sent_file(
         attachment
             .files
             .first()
-            .and_then(|file| app.attachment_file_path(file))
-            .map(|path| {
+            .and_then(|file| {
+                app.temporary_attachment_image(file)
+                    .map(|image| {
+                        img(image)
+                            .size_full()
+                            .object_fit(ObjectFit::Contain)
+                            .into_any_element()
+                    })
+                    .or_else(|| {
+                        app.attachment_file_path(file).map(|path| {
+                            img(path)
+                                .size_full()
+                                .object_fit(ObjectFit::Contain)
+                                .into_any_element()
+                        })
+                    })
+            })
+            .map(|preview| {
                 div()
                     .w(px(42.0))
                     .h(px(52.0))
@@ -201,7 +240,7 @@ fn render_sent_file(
                     .border_color(crate::desktop::ui::theme::palette(cx).document_border)
                     .bg(crate::desktop::ui::theme::palette(cx).document_background)
                     .shadow_xs()
-                    .child(img(path).size_full().object_fit(ObjectFit::Contain))
+                    .child(preview)
                     .into_any_element()
             })
             .unwrap_or_else(|| attachment_icon(cx))

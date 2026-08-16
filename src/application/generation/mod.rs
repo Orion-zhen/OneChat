@@ -12,5 +12,6 @@ pub use prepare::{
 };
 pub use reducer::{EventOutcome, apply_event, interrupted_event};
 pub use runner::{
-    GenerationSnapshot, GenerationUpdate, STORAGE_FLUSH_INTERVAL, UI_FLUSH_INTERVAL, run_generation,
+    GenerationSnapshot, GenerationUpdate, STORAGE_FLUSH_INTERVAL, UI_FLUSH_INTERVAL,
+    run_generation, run_temporary_generation,
 };

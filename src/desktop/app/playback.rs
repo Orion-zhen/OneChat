@@ -177,8 +177,12 @@ impl OneChat {
                 .files
                 .iter()
                 .find(|file| file.kind == AttachmentFileKind::Audio)?;
-            self.attachment_file_path(file)
-                .map(|path| (PlaybackSource::File(path), duration_ms))
+            self.temporary_attachment_bytes(file)
+                .map(|bytes| (PlaybackSource::Bytes(bytes.to_vec()), duration_ms))
+                .or_else(|| {
+                    self.attachment_file_path(file)
+                        .map(|path| (PlaybackSource::File(path), duration_ms))
+                })
         };
         let Some((source, duration_ms)) = draft.or_else(stored) else {
             self.stop_audio_playback();

@@ -36,7 +36,10 @@ pub(super) fn render_message_actions(
     let can_use_context = !generating
         && usable_as_context
         && turn.continuation_response_id.as_deref() != Some(&message.id);
-    let can_fork = !editing_any && usable_as_context;
+    let temporary = app
+        .current_conversation()
+        .is_some_and(|conversation| conversation.temporary);
+    let can_fork = !temporary && !editing_any && usable_as_context;
     let can_export = !editing_any && has_content && !(latest && generating);
 
     let content_actions = if can_copy || can_edit {
@@ -142,7 +145,7 @@ pub(super) fn render_message_actions(
             );
         }
         if can_export {
-            group = group.child(export_popover(message, latest, cx));
+            group = group.child(export_popover(message, latest, !temporary, cx));
         }
         Some(group)
     } else {
@@ -184,6 +187,7 @@ pub(super) fn render_message_actions(
 fn export_popover(
     message: &AssistantResponse,
     latest: bool,
+    archive_available: bool,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let response_id = message.id.clone();
@@ -286,7 +290,7 @@ fn export_popover(
                 })
         };
 
-        let export_archive = latest.then(|| {
+        let export_archive = (latest && archive_available).then(|| {
             let popover = popover.clone();
             let app = app.clone();
             let response_id = response_id.clone();

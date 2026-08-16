@@ -20,6 +20,18 @@ impl Storage {
         include_document_images: bool,
     ) -> Result<Message> {
         let _guard = self.lock()?;
+        Self::message_for_user_with(user, include_document_images, |file| {
+            Ok(fs::read(
+                self.attachment_path(conversation_id, &file.path)?,
+            )?)
+        })
+    }
+
+    pub fn message_for_user_with(
+        user: &UserMessage,
+        include_document_images: bool,
+        read_file: impl Fn(&AttachmentFile) -> Result<Vec<u8>>,
+    ) -> Result<Message> {
         let mut content = Vec::new();
         if !user.content.trim().is_empty() {
             content.push(UserContent::text(user.content.clone()));
@@ -39,8 +51,7 @@ impl Storage {
                         .iter()
                         .find(|file| file.kind == AttachmentFileKind::Text)
                         .expect("validated text attachment");
-                    let text =
-                        fs::read_to_string(self.attachment_path(conversation_id, &file.path)?)?;
+                    let text = attachment_text(read_file(file)?, &attachment.name)?;
                     content.push(UserContent::text(format!(
                         "<attachment name=\"{}\">\n{}\n</attachment>",
                         attachment.name, text
@@ -56,7 +67,7 @@ impl Storage {
                         "Image attachment: {}",
                         attachment.name
                     )));
-                    content.push(self.image_content(conversation_id, file)?);
+                    content.push(image_content(file, read_file(file)?)?);
                 }
                 AttachmentKind::Audio => {
                     let file = attachment
@@ -68,7 +79,7 @@ impl Storage {
                         "Audio attachment: {}",
                         attachment.name
                     )));
-                    content.push(self.audio_content(conversation_id, file)?);
+                    content.push(audio_content(file, read_file(file)?)?);
                 }
                 AttachmentKind::Pdf => {
                     let mut files = attachment.files.iter().collect::<Vec<_>>();
@@ -80,7 +91,7 @@ impl Storage {
                     )));
                     for (index, file) in files.into_iter().enumerate() {
                         content.push(UserContent::text(format!("Page {}", index + 1)));
-                        content.push(self.image_content(conversation_id, file)?);
+                        content.push(image_content(file, read_file(file)?)?);
                     }
                 }
                 AttachmentKind::Document => {
@@ -89,8 +100,7 @@ impl Storage {
                         .iter()
                         .find(|file| file.kind == AttachmentFileKind::Text)
                         .expect("validated document attachment");
-                    let markdown =
-                        fs::read_to_string(self.attachment_path(conversation_id, &markdown.path)?)?;
+                    let markdown = attachment_text(read_file(markdown)?, &attachment.name)?;
                     content.push(UserContent::text(format!(
                         "<attachment name=\"{}\">\n{}\n</attachment>",
                         attachment.name, markdown
@@ -107,7 +117,7 @@ impl Storage {
                                 "Embedded image from {}: {}",
                                 attachment.name, image.name
                             )));
-                            content.push(self.image_content(conversation_id, image)?);
+                            content.push(image_content(image, read_file(image)?)?);
                         }
                     }
                 }
@@ -118,50 +128,53 @@ impl Storage {
         })?;
         Ok(Message::User { content })
     }
+}
 
-    fn audio_content(&self, conversation_id: &str, file: &AttachmentFile) -> Result<UserContent> {
-        if file.kind != AttachmentFileKind::Audio {
+fn attachment_text(bytes: Vec<u8>, name: &str) -> Result<String> {
+    String::from_utf8(bytes)
+        .map_err(|_| StorageError::InvalidData(format!("attachment is not valid UTF-8: {name}")))
+}
+
+fn audio_content(file: &AttachmentFile, bytes: Vec<u8>) -> Result<UserContent> {
+    if file.kind != AttachmentFileKind::Audio {
+        return Err(StorageError::InvalidData(format!(
+            "attachment file is not audio: {}",
+            file.name
+        )));
+    }
+    let media_type = match file.media_type.as_str() {
+        "audio/wav" => AudioMediaType::WAV,
+        "audio/mpeg" => AudioMediaType::MP3,
+        value => {
             return Err(StorageError::InvalidData(format!(
-                "attachment file is not audio: {}",
-                file.name
+                "unsupported audio media type: {value}"
             )));
         }
-        let media_type = match file.media_type.as_str() {
-            "audio/wav" => AudioMediaType::WAV,
-            "audio/mpeg" => AudioMediaType::MP3,
-            value => {
-                return Err(StorageError::InvalidData(format!(
-                    "unsupported audio media type: {value}"
-                )));
-            }
-        };
-        let bytes = fs::read(self.attachment_path(conversation_id, &file.path)?)?;
-        Ok(UserContent::audio(BASE64.encode(bytes), Some(media_type)))
-    }
+    };
+    Ok(UserContent::audio(BASE64.encode(bytes), Some(media_type)))
+}
 
-    fn image_content(&self, conversation_id: &str, file: &AttachmentFile) -> Result<UserContent> {
-        if file.kind != AttachmentFileKind::Image {
+fn image_content(file: &AttachmentFile, bytes: Vec<u8>) -> Result<UserContent> {
+    if file.kind != AttachmentFileKind::Image {
+        return Err(StorageError::InvalidData(format!(
+            "attachment file is not an image: {}",
+            file.name
+        )));
+    }
+    let media_type = match file.media_type.as_str() {
+        "image/jpeg" => ImageMediaType::JPEG,
+        "image/png" => ImageMediaType::PNG,
+        "image/gif" => ImageMediaType::GIF,
+        "image/webp" => ImageMediaType::WEBP,
+        value => {
             return Err(StorageError::InvalidData(format!(
-                "attachment file is not an image: {}",
-                file.name
+                "unsupported image media type: {value}"
             )));
         }
-        let media_type = match file.media_type.as_str() {
-            "image/jpeg" => ImageMediaType::JPEG,
-            "image/png" => ImageMediaType::PNG,
-            "image/gif" => ImageMediaType::GIF,
-            "image/webp" => ImageMediaType::WEBP,
-            value => {
-                return Err(StorageError::InvalidData(format!(
-                    "unsupported image media type: {value}"
-                )));
-            }
-        };
-        let bytes = fs::read(self.attachment_path(conversation_id, &file.path)?)?;
-        Ok(UserContent::image_base64(
-            BASE64.encode(bytes),
-            Some(media_type),
-            None,
-        ))
-    }
+    };
+    Ok(UserContent::image_base64(
+        BASE64.encode(bytes),
+        Some(media_type),
+        None,
+    ))
 }

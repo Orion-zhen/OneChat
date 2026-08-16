@@ -204,10 +204,23 @@ impl OneChat {
         response_id: String,
         cx: &mut Context<Self>,
     ) {
-        let Some(conversation_id) = self.current_conversation().map(|value| value.id.clone())
-        else {
+        let Some(conversation) = self.current_conversation() else {
             return;
         };
+        if conversation.temporary {
+            if let Some(turn) = self
+                .data
+                .snapshot
+                .current_turns
+                .iter_mut()
+                .find(|turn| turn.id == turn_id)
+                && turn.promote_continuation_response(&response_id)
+            {
+                cx.notify();
+            }
+            return;
+        }
+        let conversation_id = conversation.id.clone();
         self.mutate_and_reload(
             move |storage| {
                 storage.set_continuation_response(&conversation_id, &turn_id, &response_id)
@@ -233,6 +246,9 @@ impl OneChat {
         let Some(source) = self.current_conversation().cloned() else {
             return;
         };
+        if source.temporary {
+            return;
+        }
 
         let now = now_timestamp();
         let mut conversation = source.clone();
@@ -587,16 +603,27 @@ impl OneChat {
             cx.notify();
             return;
         }
-        let new_attachments = match self
-            .services
-            .storage
-            .store_attachments(&conversation.id, &attachment_drafts)
-        {
-            Ok(attachments) => attachments,
-            Err(error) => {
-                self.data.error = Some(format!("Could not save attachments: {error}"));
-                cx.notify();
-                return;
+        let new_attachments = if conversation.temporary {
+            match self.store_temporary_attachments(&attachment_drafts) {
+                Ok(attachments) => attachments,
+                Err(error) => {
+                    self.data.error = Some(format!("Could not prepare attachments: {error}"));
+                    cx.notify();
+                    return;
+                }
+            }
+        } else {
+            match self
+                .services
+                .storage
+                .store_attachments(&conversation.id, &attachment_drafts)
+            {
+                Ok(attachments) => attachments,
+                Err(error) => {
+                    self.data.error = Some(format!("Could not save attachments: {error}"));
+                    cx.notify();
+                    return;
+                }
             }
         };
         let mut attachments = retained_attachments;
@@ -615,10 +642,14 @@ impl OneChat {
             }) {
                 Ok(prepared) => prepared,
                 Err(error) => {
-                    let _ = self
-                        .services
-                        .storage
-                        .remove_attachments(&conversation.id, &new_attachments);
+                    if conversation.temporary {
+                        self.remove_temporary_attachments(&new_attachments);
+                    } else {
+                        let _ = self
+                            .services
+                            .storage
+                            .remove_attachments(&conversation.id, &new_attachments);
+                    }
                     self.data.error = Some(format!("Could not load attachments: {error}"));
                     cx.notify();
                     return;
@@ -638,12 +669,32 @@ impl OneChat {
         {
             return;
         }
-        let Some(conversation_id) = self.current_conversation().map(|value| value.id.clone())
-        else {
+        let Some(conversation) = self.current_conversation() else {
             return;
         };
+        let temporary = conversation.temporary;
+        let conversation_id = conversation.id.clone();
         self.chat.selected_request_id = None;
         self.chat.visible_response_ids.clear();
+        if temporary {
+            let Some(parent) = self
+                .data
+                .snapshot
+                .current_turns
+                .iter()
+                .find(|turn| turn.id == turn_id)
+                .map(|turn| turn.parent_response_id.clone())
+            else {
+                return;
+            };
+            for turn in &mut self.data.snapshot.current_turns {
+                if turn.parent_response_id == parent {
+                    turn.selected = turn.id == turn_id;
+                }
+            }
+            cx.notify();
+            return;
+        }
         self.mutate_and_reload(
             move |storage| storage.select_user_branch(&conversation_id, &turn_id),
             cx,
@@ -685,6 +736,28 @@ impl OneChat {
         response.updated_at = now_timestamp();
         self.chat.message_editor = None;
         self.navigation.pending_focus = Some(PendingFocus::Composer);
+        if self
+            .current_conversation()
+            .is_some_and(|conversation| conversation.temporary)
+        {
+            if let Some(stored) = self
+                .data
+                .snapshot
+                .current_turns
+                .iter_mut()
+                .find(|turn| turn.id == turn_id)
+                .and_then(|turn| {
+                    turn.responses
+                        .iter_mut()
+                        .find(|stored| stored.id == response_id)
+                })
+            {
+                *stored = response;
+            }
+            self.refresh_markdown_documents(cx);
+            cx.notify();
+            return;
+        }
         self.mutate_and_reload(
             move |storage| storage.update_response(&conversation_id, &turn_id, &response),
             cx,

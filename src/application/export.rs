@@ -360,6 +360,7 @@ mod tests {
             generation_config: GenerationConfig::default(),
             tool_selection: ToolSelection::default(),
             history_limit_override: None,
+            temporary: false,
             auto_title_state: Default::default(),
             pinned: false,
             created_at: 1_700_000_000,

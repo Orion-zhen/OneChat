@@ -67,6 +67,8 @@ pub struct Conversation {
     pub tool_selection: ToolSelection,
     #[serde(default)]
     pub history_limit_override: Option<HistoryLimit>,
+    #[serde(skip)]
+    pub temporary: bool,
     pub auto_title_state: AutoTitleState,
     pub pinned: bool,
     pub created_at: Timestamp,
@@ -86,6 +88,7 @@ impl Conversation {
             generation_config: GenerationConfig::default(),
             tool_selection: ToolSelection::default(),
             history_limit_override: None,
+            temporary: false,
             auto_title_state: AutoTitleState::Pending,
             pinned: false,
             created_at: now,

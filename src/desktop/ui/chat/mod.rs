@@ -199,6 +199,7 @@ pub(crate) fn render(
         });
     }
 
+    let empty_conversation = app.current_turns().is_empty();
     let mut timeline_entries = Vec::new();
     let mut child_index = usize::from(show_prompt_setup);
     if show_assistant_opening {
@@ -209,7 +210,7 @@ pub(crate) fn render(
             xray: TimelineXray::assistant_opening(&conversation.assistant_opening),
         });
     }
-    if app.current_turns().is_empty() {
+    if empty_conversation {
         messages = messages.child(render_empty_conversation(app, cx));
     } else {
         for turn in app.current_turns() {
@@ -275,6 +276,10 @@ pub(crate) fn render(
         .flex_1()
         .flex()
         .child(messages)
+        .children(
+            (empty_conversation && app.is_transient_conversation(&conversation.id))
+                .then(|| render_temporary_chat_button(app, cx)),
+        )
         .children(timeline)
         .children((jump_to_latest_progress > 0.0).then(|| {
             let palette = crate::desktop::ui::theme::palette(cx);
@@ -353,7 +358,43 @@ fn message_max_width(available_width: f32, ratio: f32) -> f32 {
         .min(content_width)
 }
 
+fn render_temporary_chat_button(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
+    let temporary = app
+        .current_conversation()
+        .is_some_and(|conversation| conversation.temporary);
+    Button::new("toggle-temporary-chat")
+        .ghost()
+        .selected(temporary)
+        .disabled(app.is_current_generating())
+        .tooltip(if temporary {
+            "Use conversation history"
+        } else {
+            "Start temporary chat"
+        })
+        .absolute()
+        .top_4()
+        .right_4()
+        .size(px(40.0))
+        .p_0()
+        .rounded(px(20.0))
+        .child(render_icon(
+            AppIcon::Temporary,
+            if temporary {
+                IconTone::Accent
+            } else {
+                IconTone::Muted
+            },
+            20.0,
+            cx,
+        ))
+        .on_click(cx.listener(|this, _, _, cx| this.toggle_temporary_chat(cx)))
+        .into_any_element()
+}
+
 fn render_empty_conversation(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
+    let temporary = app
+        .current_conversation()
+        .is_some_and(|conversation| conversation.temporary);
     div()
         .mx_auto()
         .w_full()
@@ -380,20 +421,37 @@ fn render_empty_conversation(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEle
                         .justify_center()
                         .text_color(cx.theme().primary)
                         .text_lg()
-                        .child(render_icon(AppIcon::Sparkles, IconTone::Accent, 22.0, cx)),
+                        .child(render_icon(
+                            if temporary {
+                                AppIcon::Temporary
+                            } else {
+                                AppIcon::Sparkles
+                            },
+                            IconTone::Accent,
+                            22.0,
+                            cx,
+                        )),
                 )
                 .child(
                     div()
                         .pt_2()
                         .text_size(px(26.0))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child("What can I help with?"),
+                        .child(if temporary {
+                            "Temporary Chat"
+                        } else {
+                            "What can I help with?"
+                        }),
                 )
                 .child(
                     div()
                         .line_height(px(22.0))
                         .text_color(cx.theme().muted_foreground)
-                        .child("Ask a question, explore an idea, or make something new."),
+                        .child(if temporary {
+                            "Ask anything, explore freely, and no history left."
+                        } else {
+                            "Ask a question, explore an idea, or make something new."
+                        }),
                 )
                 .children(app.current_model().is_none().then(|| {
                     primary_icon_button("empty-choose-model", AppIcon::Layers, cx).on_click(

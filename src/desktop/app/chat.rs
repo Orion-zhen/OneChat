@@ -129,10 +129,7 @@ impl OneChat {
         conversation.updated_at = now_timestamp();
         self.chat.assistant_opening_editor = None;
         self.navigation.pending_focus = Some(PendingFocus::Composer);
-        self.mutate_and_reload(
-            move |storage| storage.update_conversation(&conversation),
-            cx,
-        );
+        self.save_conversation_update(conversation, cx);
     }
 
     pub(crate) fn save_system_prompt(&mut self, cx: &mut Context<Self>) {
@@ -159,10 +156,7 @@ impl OneChat {
         self.chat.assistant_opening_editor = None;
         self.chat.system_prompt_mode = SystemPromptMode::Compact;
         self.navigation.pending_focus = Some(PendingFocus::Composer);
-        self.mutate_and_reload(
-            move |storage| storage.update_conversation(&conversation),
-            cx,
-        );
+        self.save_conversation_update(conversation, cx);
     }
 
     pub(crate) fn add_generation_parameter(
@@ -244,10 +238,7 @@ impl OneChat {
         conversation.generation_config = config;
         conversation.updated_at = now_timestamp();
         self.chat.parameter_error = None;
-        self.mutate_and_reload(
-            move |storage| storage.update_conversation(&conversation),
-            cx,
-        );
+        self.save_conversation_update(conversation, cx);
     }
 
     fn globally_enabled_tool_refs(&self) -> BTreeSet<ToolRef> {
@@ -407,10 +398,7 @@ impl OneChat {
         {
             current.clone_from(&conversation);
         }
-        self.mutate_and_reload(
-            move |storage| storage.update_conversation(&conversation),
-            cx,
-        );
+        self.save_conversation_update(conversation, cx);
     }
 
     pub(crate) fn request_clear_current_context(
@@ -439,6 +427,13 @@ impl OneChat {
         conversation_id: String,
         cx: &mut Context<Self>,
     ) {
+        if self.is_transient_conversation(&conversation_id) {
+            self.data.snapshot.current_turns.clear();
+            self.data.snapshot.current_requests.clear();
+            self.reset_conversation_ui(cx);
+            cx.notify();
+            return;
+        }
         self.mutate_and_reload(
             move |storage| storage.clear_conversation_context(&conversation_id),
             cx,

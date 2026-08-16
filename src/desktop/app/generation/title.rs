@@ -33,6 +33,7 @@ impl OneChat {
         }
         if !self.data.snapshot.conversations.iter().any(|conversation| {
             conversation.id == conversation_id
+                && !conversation.temporary
                 && conversation.auto_title_state == AutoTitleState::Pending
         }) {
             return;
@@ -61,7 +62,14 @@ impl OneChat {
         request: AutoTitleRequest,
         cx: &mut Context<Self>,
     ) {
-        if !self.data.snapshot.settings.auto_title_enabled {
+        if !self.data.snapshot.settings.auto_title_enabled
+            || self
+                .data
+                .snapshot
+                .conversations
+                .iter()
+                .any(|conversation| conversation.id == conversation_id && conversation.temporary)
+        {
             return;
         }
 

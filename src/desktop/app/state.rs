@@ -106,6 +106,10 @@ pub(crate) struct SidebarState {
     pub(crate) unseen_generations: HashMap<String, UnseenGeneration>,
     #[cfg(target_os = "macos")]
     pub(crate) conversation_peek: ConversationPeekState,
+    #[cfg(target_os = "macos")]
+    pub(crate) new_conversation_force_click: crate::desktop::pressure_touch::ForceClickState,
+    #[cfg(target_os = "macos")]
+    pub(crate) force_created_temporary_conversation: bool,
     pub(super) rename_editor: Option<RenameEditor>,
     #[cfg(target_os = "macos")]
     pub(crate) rename_force_click: crate::desktop::pressure_touch::ForceClickState,
@@ -182,6 +186,7 @@ pub(crate) struct PlaybackState {
 
 pub(crate) struct ChatState {
     pub(super) draft_model_id: Option<String>,
+    pub(super) transient_conversation_id: Option<String>,
     pub(super) selected_request_id: Option<String>,
     pub(crate) visible_response_ids: HashMap<String, String>,
     pub(super) expanded_error_ids: HashSet<String>,
@@ -218,6 +223,7 @@ pub(crate) struct ChatState {
     pub(crate) context_usage_popover_motion: VisibilityMotion,
     pub(crate) attachments: Vec<AttachmentDraft>,
     pub(crate) attachment_previews: HashMap<String, Arc<gpui::Image>>,
+    pub(crate) temporary_attachment_files: HashMap<String, Vec<u8>>,
     pub(crate) attachments_loading: bool,
     pub(crate) attachments_revision: u64,
     pub(crate) audio_recording: RecordingSnapshot,

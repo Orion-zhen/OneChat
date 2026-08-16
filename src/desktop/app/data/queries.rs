@@ -33,17 +33,26 @@ impl OneChat {
     }
 
     pub(crate) fn current_conversation(&self) -> Option<&Conversation> {
-        let id = self
+        let id = self.chat.transient_conversation_id.as_deref().or(self
             .data
             .snapshot
             .settings
             .current_conversation_id
-            .as_deref()?;
+            .as_deref())?;
         self.data
             .snapshot
             .conversations
             .iter()
             .find(|conversation| conversation.id == id)
+    }
+
+    pub(crate) fn current_conversation_id(&self) -> Option<&str> {
+        self.current_conversation()
+            .map(|conversation| conversation.id.as_str())
+    }
+
+    pub(crate) fn is_transient_conversation(&self, conversation_id: &str) -> bool {
+        self.chat.transient_conversation_id.as_deref() == Some(conversation_id)
     }
 
     pub(crate) fn prompt_preset(&self, name: &str) -> Option<&PromptPreset> {
