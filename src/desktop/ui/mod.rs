@@ -10,6 +10,7 @@ mod mcp;
 mod model;
 pub(crate) mod motion;
 pub(crate) mod playback;
+mod segmented_control;
 pub(crate) mod selectable_text;
 pub(crate) mod settings;
 pub(crate) mod shell;
@@ -23,6 +24,8 @@ use std::borrow::Cow;
 
 use gpui::App;
 use lucide_icons::LUCIDE_FONT_BYTES;
+
+pub(crate) use segmented_control::SegmentedControl;
 
 pub(crate) const SIDEBAR_WIDTH: f32 = 260.0;
 

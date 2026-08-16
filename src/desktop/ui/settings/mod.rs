@@ -56,10 +56,10 @@ use gpui_component::{
     slider::{Slider, SliderState},
     spinner::Spinner,
     switch::Switch,
-    tab::{Tab, TabBar},
 };
 
 use super::{
+    SegmentedControl,
     badges::{StatusPillBackground, status_pill},
     controls::{field_control, sync_slider},
     copy_button::CopyButton,

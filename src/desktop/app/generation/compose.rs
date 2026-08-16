@@ -58,9 +58,14 @@ impl OneChat {
         self.chat.composer.update(cx, |composer, cx| {
             composer.set_value("", window, cx);
         });
+        // set_value is intentionally silent, so reset the parent-owned composer state here.
+        self.chat.composer_committed_value.clear();
+        self.chat.composer_multiline.set(false);
+        self.chat.composer_expanded.set(false);
         self.stop_audio_playback();
         self.chat.attachments.clear();
         self.chat.attachment_previews.clear();
+        cx.notify();
     }
 
     pub(crate) fn stop_current_generation(&mut self, cx: &mut Context<Self>) {

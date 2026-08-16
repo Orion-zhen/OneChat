@@ -94,19 +94,41 @@ pub(super) fn render_composer(
         div().min_w_0().flex_1().child(input).into_any_element()
     };
 
-    let editor_row = div()
-        .min_w_0()
-        .w_full()
-        .px(px(7.0))
-        .flex()
-        .gap_2()
-        .child(left_actions)
-        .child(editor)
-        .child(right_actions);
-    let editor_row = if multiline && !recording_active {
-        editor_row.py(px(7.0)).items_end()
+    let editor_layout = if multiline && !recording_active {
+        div()
+            .min_w_0()
+            .w_full()
+            .child(
+                div()
+                    .min_w_0()
+                    .w_full()
+                    .px(px(7.0))
+                    .pt(px(7.0))
+                    .child(editor),
+            )
+            .child(
+                div()
+                    .w_full()
+                    .px(px(7.0))
+                    .py(px(7.0))
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .child(left_actions)
+                    .child(right_actions),
+            )
     } else {
-        editor_row.h(px(48.0)).items_center()
+        div()
+            .min_w_0()
+            .w_full()
+            .h(px(48.0))
+            .px(px(7.0))
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(left_actions)
+            .child(editor)
+            .child(right_actions)
     };
 
     let input = div()
@@ -142,7 +164,7 @@ pub(super) fn render_composer(
             }
         }))
         .children(attachments)
-        .child(editor_row);
+        .child(editor_layout);
 
     div()
         .flex_none()
@@ -164,33 +186,55 @@ fn composer_is_multiline(app: &OneChat, cx: &App) -> bool {
     let current = app.chat.composer_multiline.get();
     let composer = app.chat.composer.read(cx);
     let value = composer.value();
-
-    // Preedit changes are not InputEvent::Change events. Keep the outer layout fixed while the
-    // IME owns temporary text, otherwise every candidate update can move its own anchor.
-    if value != app.chat.composer_committed_value {
-        return current;
-    }
-    if value.is_empty() {
-        app.chat.composer_multiline.set(false);
-        app.chat.composer_expanded.set(false);
-        return false;
-    }
-    if value.contains('\n') {
-        app.chat.composer_multiline.set(true);
-        return true;
-    }
-
-    let Some(text_bounds) = composer.range_to_bounds(&(0..value.len())) else {
-        return current;
-    };
-    let Some(line_height) = composer.line_height() else {
-        return current;
-    };
-    let multiline = text_bounds.size.height > line_height + px(0.5);
+    let content_uses_multiple_lines = composer
+        .range_to_bounds(&(0..value.len()))
+        .zip(composer.line_height())
+        .is_some_and(|(bounds, line_height)| bounds.size.height > line_height + px(0.5));
+    let multiline = resolve_multiline(
+        current,
+        value.as_ref(),
+        &app.chat.composer_committed_value,
+        content_uses_multiple_lines,
+    );
 
     app.chat.composer_multiline.set(multiline);
     if !multiline {
         app.chat.composer_expanded.set(false);
     }
     multiline
+}
+
+fn resolve_multiline(
+    current: bool,
+    value: &str,
+    committed_value: &str,
+    content_uses_multiple_lines: bool,
+) -> bool {
+    if value.is_empty() {
+        return false;
+    }
+    if current {
+        return true;
+    }
+    // Preedit changes are not InputEvent::Change events. Let Textarea auto-grow internally, but
+    // keep the surrounding layout fixed until the IME commits the text.
+    value == committed_value && (value.contains('\n') || content_uses_multiple_lines)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_multiline;
+
+    #[test]
+    fn multiline_is_latched_until_the_composer_is_cleared() {
+        assert!(resolve_multiline(false, "long", "long", true));
+        assert!(resolve_multiline(true, "short", "short", false));
+        assert!(!resolve_multiline(true, "", "long", true));
+    }
+
+    #[test]
+    fn ime_preedit_does_not_change_the_surrounding_layout() {
+        assert!(!resolve_multiline(false, "nihao", "", true));
+        assert!(resolve_multiline(false, "你好", "你好", true));
+    }
 }

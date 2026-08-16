@@ -151,13 +151,9 @@ fn send_message_shortcut_selector(app: &OneChat, cx: &mut Context<OneChat>) -> A
     } else {
         "Ctrl+Enter"
     };
-    TabBar::new("send-message-shortcut-selector")
-        .segmented()
-        .large()
+    SegmentedControl::new("send-message-shortcut-selector", ["Enter", secondary_label])
         .w(px(300.0))
         .selected_index(selected)
-        .child(Tab::new().flex_1().label("Enter"))
-        .child(Tab::new().flex_1().label(secondary_label))
         .on_click(cx.listener(|this, index: &usize, _, cx| {
             let shortcut = [
                 SendMessageShortcut::Enter,
@@ -174,14 +170,9 @@ fn theme_selector(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
         Theme::Light => 1,
         Theme::Dark => 2,
     };
-    TabBar::new("theme-selector")
-        .segmented()
-        .large()
+    SegmentedControl::new("theme-selector", ["System", "Light", "Dark"])
         .w(px(300.0))
         .selected_index(selected)
-        .child(Tab::new().flex_1().label("System"))
-        .child(Tab::new().flex_1().label("Light"))
-        .child(Tab::new().flex_1().label("Dark"))
         .on_click(cx.listener(|this, index: &usize, _, cx| {
             let theme = [Theme::System, Theme::Light, Theme::Dark][*index];
             this.set_theme(theme, cx);

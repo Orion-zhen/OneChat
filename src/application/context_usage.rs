@@ -90,26 +90,12 @@ pub fn provider_usage_reference(
     })
 }
 
-pub fn project_context_usage(
-    system_prompt: &str,
+pub fn context_usage_from_input_tokens(
+    input_tokens: u64,
     messages: &[Message],
-    audio_duration_ms: u64,
     context_window_tokens: Option<u32>,
-    reference: Option<ContextUsageReference>,
+    source: ContextUsageSource,
 ) -> ContextUsage {
-    let estimated_input_tokens = estimate_input_tokens(system_prompt, messages, audio_duration_ms);
-    let (input_tokens, source) = reference
-        .filter(|reference| reference.input_tokens > 0 && reference.estimated_input_tokens > 0)
-        .map_or(
-            (estimated_input_tokens, ContextUsageSource::Estimated),
-            |reference| {
-                let delta = i128::from(estimated_input_tokens)
-                    - i128::from(reference.estimated_input_tokens);
-                let projected = (i128::from(reference.input_tokens) + delta)
-                    .clamp(0, i128::from(u64::MAX)) as u64;
-                (projected, ContextUsageSource::ProviderAnchored)
-            },
-        );
     let (remaining_tokens, remaining_ratio) =
         context_window_tokens.map_or((None, None), |window| {
             let window = u64::from(window);
@@ -130,6 +116,29 @@ pub fn project_context_usage(
         source,
         replays_reasoning: messages.iter().any(message_replays_reasoning),
     }
+}
+
+pub fn project_context_usage(
+    system_prompt: &str,
+    messages: &[Message],
+    audio_duration_ms: u64,
+    context_window_tokens: Option<u32>,
+    reference: Option<ContextUsageReference>,
+) -> ContextUsage {
+    let estimated_input_tokens = estimate_input_tokens(system_prompt, messages, audio_duration_ms);
+    let (input_tokens, source) = reference
+        .filter(|reference| reference.input_tokens > 0 && reference.estimated_input_tokens > 0)
+        .map_or(
+            (estimated_input_tokens, ContextUsageSource::Estimated),
+            |reference| {
+                let delta = i128::from(estimated_input_tokens)
+                    - i128::from(reference.estimated_input_tokens);
+                let projected = (i128::from(reference.input_tokens) + delta)
+                    .clamp(0, i128::from(u64::MAX)) as u64;
+                (projected, ContextUsageSource::ProviderAnchored)
+            },
+        );
+    context_usage_from_input_tokens(input_tokens, messages, context_window_tokens, source)
 }
 
 fn message_replays_reasoning(message: &Message) -> bool {

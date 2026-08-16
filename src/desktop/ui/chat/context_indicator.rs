@@ -5,8 +5,8 @@ use gpui_component::popover::Popover;
 
 use super::*;
 use crate::application::context_usage::{
-    ContextUsage, ContextUsageReference, ContextUsageSource, project_context_usage,
-    provider_usage_reference,
+    ContextUsage, ContextUsageReference, ContextUsageSource, context_usage_from_input_tokens,
+    project_context_usage, provider_usage_reference,
 };
 
 pub(super) fn render_context_indicator(
@@ -71,11 +71,20 @@ fn current_context_usage(app: &OneChat, cx: &App) -> Option<ContextUsage> {
     let conversation = app.current_conversation()?;
     let model = app.current_model()?;
     let mut messages = app.current_context_messages();
-    let reference_request = app.current_request().filter(|request| {
-        request.status == crate::domain::RequestStatus::Completed
-            && request.model_id.as_deref() == Some(model.id.as_str())
+    let current_request = app.current_request().filter(|request| {
+        request.model_id.as_deref() == Some(model.id.as_str())
             && request.provider_id.as_deref() == Some(model.provider_id.as_str())
     });
+    if let Some((input_tokens, source)) = current_request.and_then(running_request_input_usage) {
+        return Some(context_usage_from_input_tokens(
+            input_tokens,
+            &messages,
+            model.context_window_tokens,
+            source,
+        ));
+    }
+    let reference_request =
+        current_request.filter(|request| request.status == crate::domain::RequestStatus::Completed);
     if let Some(opening) = reference_request
         .and_then(|request| request.assistant_opening.as_ref())
         .filter(|opening| opening.template == conversation.assistant_opening)
@@ -111,6 +120,40 @@ fn current_context_usage(app: &OneChat, cx: &App) -> Option<ContextUsage> {
         model.context_window_tokens,
         reference,
     ))
+}
+
+fn running_request_input_usage(request: &RequestInfo) -> Option<(u64, ContextUsageSource)> {
+    if !matches!(
+        request.status,
+        crate::domain::RequestStatus::Sending | crate::domain::RequestStatus::Streaming
+    ) {
+        return None;
+    }
+
+    request
+        .last_step_input_tokens
+        .filter(|tokens| *tokens > 0)
+        .map(|tokens| (tokens, ContextUsageSource::ProviderAnchored))
+        .or_else(|| {
+            request
+                .last_step_estimated_input_tokens
+                .filter(|tokens| *tokens > 0)
+                .map(|tokens| (tokens, ContextUsageSource::Estimated))
+        })
+        .or_else(|| {
+            request
+                .usage
+                .input_tokens
+                .filter(|tokens| *tokens > 0)
+                .map(|tokens| {
+                    let source = if request.usage.estimated {
+                        ContextUsageSource::Estimated
+                    } else {
+                        ContextUsageSource::ProviderAnchored
+                    };
+                    (tokens, source)
+                })
+        })
 }
 
 fn request_usage_reference(
@@ -481,4 +524,45 @@ fn format_tokens(tokens: u64) -> String {
         |_| format!("{:.1}B", tokens as f64 / 1_000_000_000.0),
         crate::domain::format_compact_token_count,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn running_request_keeps_the_prepared_full_context_estimate() {
+        let mut request = RequestInfo::new("conversation", "turn", "response");
+        request.usage.input_tokens = Some(12_000);
+        request.usage.estimated = true;
+
+        assert_eq!(
+            running_request_input_usage(&request),
+            Some((12_000, ContextUsageSource::Estimated))
+        );
+    }
+
+    #[test]
+    fn running_request_prefers_current_step_provider_usage() {
+        let mut request = RequestInfo::new("conversation", "turn", "response");
+        request.status = crate::domain::RequestStatus::Streaming;
+        request.usage.input_tokens = Some(12_000);
+        request.usage.estimated = true;
+        request.last_step_estimated_input_tokens = Some(12_500);
+        request.last_step_input_tokens = Some(13_000);
+
+        assert_eq!(
+            running_request_input_usage(&request),
+            Some((13_000, ContextUsageSource::ProviderAnchored))
+        );
+    }
+
+    #[test]
+    fn completed_request_is_left_to_next_turn_projection() {
+        let mut request = RequestInfo::new("conversation", "turn", "response");
+        request.status = crate::domain::RequestStatus::Completed;
+        request.usage.input_tokens = Some(12_000);
+
+        assert_eq!(running_request_input_usage(&request), None);
+    }
 }

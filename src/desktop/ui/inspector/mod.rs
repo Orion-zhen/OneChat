@@ -28,13 +28,13 @@ use gpui_component::{
     select::{Select, SelectState},
     slider::Slider,
     switch::Switch,
-    tab::{Tab, TabBar},
 };
 use serde_json::{Map, Value};
 
 use crate::{
     desktop::app::OneChat,
     desktop::ui::{
+        SegmentedControl,
         badges::{StatusPillBackground, status_pill},
         controls::{field_control, sync_slider},
         icons::{AppIcon, IconActionSize::Regular, IconTone, render_icon},
@@ -73,15 +73,9 @@ pub(crate) fn render(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
         InspectorTab::Tools => 2,
         InspectorTab::Info => 3,
     };
-    let tabs = TabBar::new("inspector-tabs")
-        .segmented()
-        .large()
+    let tabs = SegmentedControl::new("inspector-tabs", ["Model", "Context", "Tools", "Info"])
         .w_full()
         .selected_index(selected_tab)
-        .child(Tab::new().flex_1().label("Model"))
-        .child(Tab::new().flex_1().label("Context"))
-        .child(Tab::new().flex_1().label("Tools"))
-        .child(Tab::new().flex_1().label("Info"))
         .on_click(cx.listener(|this, index: &usize, _, cx| {
             let tab = [
                 InspectorTab::Model,
