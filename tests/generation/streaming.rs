@@ -1,4 +1,5 @@
 use super::*;
+use rig_core::{OneOrMany, completion::AssistantContent, message::Reasoning};
 
 #[test]
 fn streaming_events_produce_completed_and_cancelled_states() {
@@ -86,6 +87,57 @@ fn continued_transcript_merges_into_the_existing_assistant_message() {
     assert_eq!(response.content, "existing continuation");
     assert_eq!(response.transcript.len(), 1);
     assert!(serialized_messages(&response.transcript)[0].contains("existing continuation"));
+}
+
+#[test]
+fn continued_transcript_removes_a_replayed_assistant_prefill() {
+    let existing = Message::Assistant {
+        id: None,
+        content: OneOrMany::many(vec![
+            AssistantContent::Reasoning(Reasoning::new("old reasoning")),
+            AssistantContent::text("old answer"),
+        ])
+        .unwrap(),
+    };
+    let replayed = Message::Assistant {
+        id: None,
+        content: OneOrMany::many(vec![
+            AssistantContent::Reasoning(Reasoning::new("old reasoning")),
+            AssistantContent::text("old answer continued"),
+        ])
+        .unwrap(),
+    };
+    let mut transcript = vec![existing];
+
+    continue_last_assistant(&mut transcript, replayed);
+
+    let Message::Assistant { content, .. } = &transcript[0] else {
+        panic!("expected assistant transcript");
+    };
+    assert_eq!(content.len(), 2);
+    assert!(matches!(
+        content.first_ref(),
+        AssistantContent::Reasoning(reasoning) if reasoning.display_text() == "old reasoning"
+    ));
+    assert!(matches!(
+        content.last(),
+        AssistantContent::Text(text) if text.text == "old answer continued"
+    ));
+}
+
+#[test]
+fn continued_transcript_preserves_a_suffix_only_response() {
+    let mut transcript = vec![Message::assistant("old answer")];
+
+    continue_last_assistant(&mut transcript, Message::assistant(" continued"));
+
+    let Message::Assistant { content, .. } = &transcript[0] else {
+        panic!("expected assistant transcript");
+    };
+    assert!(matches!(
+        content.first_ref(),
+        AssistantContent::Text(text) if text.text == "old answer continued"
+    ));
 }
 
 #[test]

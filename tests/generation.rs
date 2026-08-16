@@ -21,7 +21,7 @@ use onechat::{
         MessageStatus, Model, ModelReasoningConfig, PromptVariableSource, Provider, ProviderKind,
         ReasoningParameter, ReasoningParameterValue, RequestContextInfo, RequestInfo, RequestKind,
         RequestStatus, TokenUsage, ToolExecution, ToolRef, ToolSelection, Turn, UserMessage,
-        merge_json_patch,
+        continue_last_assistant, merge_json_patch,
     },
     mcp::McpManager,
     storage::Storage,

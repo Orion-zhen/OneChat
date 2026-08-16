@@ -25,7 +25,9 @@ use crate::{
     storage::{Storage, StorageError},
 };
 
-use super::{PreparedGeneration, apply_event, interrupted_event};
+use super::{
+    PreparedGeneration, apply_event, continuation::ContinuationNormalizer, interrupted_event,
+};
 use crate::application::{context_usage::estimate_input_tokens, prompt::PromptRenderError};
 
 pub const UI_FLUSH_INTERVAL: Duration = Duration::from_millis(40);
@@ -401,6 +403,8 @@ pub async fn run_generation(
         super::GenerationStart::ContinueResponse { .. }
     );
     let continuation_baseline = prepared.continuation_baseline.clone();
+    let mut continuation_normalizer = continue_prefill
+        .then(|| ContinuationNormalizer::new(prepared.provider_request.messages.last()));
     let (event_sender, event_receiver) = async_channel::bounded(256);
     tokio::spawn(run_agent(
         prepared.provider_request,
@@ -434,9 +438,15 @@ pub async fn run_generation(
 
         let mut finished_reasoning_ids = Vec::new();
         for event in events {
-            let outcome = apply_event(event, &mut response, &mut request, started.elapsed());
-            terminal |= outcome.terminal;
-            finished_reasoning_ids.extend(outcome.finished_reasoning_id);
+            let events = match &mut continuation_normalizer {
+                Some(normalizer) => normalizer.normalize(event),
+                None => vec![event],
+            };
+            for event in events {
+                let outcome = apply_event(event, &mut response, &mut request, started.elapsed());
+                terminal |= outcome.terminal;
+                finished_reasoning_ids.extend(outcome.finished_reasoning_id);
+            }
         }
         dirty |= has_events;
         if terminal {

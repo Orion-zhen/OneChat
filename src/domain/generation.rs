@@ -1,5 +1,9 @@
 pub use rig_core::completion::{Message, ToolDefinition};
-use rig_core::{completion::AssistantContent, message::ToolCall};
+use rig_core::{
+    OneOrMany,
+    completion::AssistantContent,
+    message::{Reasoning, ToolCall},
+};
 use serde::{Deserialize, Serialize};
 
 use super::{GenerationConfig, HistoryLimit, Model, Provider, Timestamp, new_id, now_timestamp};
@@ -51,7 +55,7 @@ pub fn continue_last_assistant(messages: &mut Vec<Message>, continuation: Messag
         return;
     };
 
-    let mut continuation = content.into_iter();
+    let mut continuation = strip_replayed_assistant_prefix(existing, content).into_iter();
     if let Some(first) = continuation.next() {
         if let (Some(AssistantContent::Text(existing)), AssistantContent::Text(continued)) =
             (existing.iter_mut().last(), &first)
@@ -64,6 +68,74 @@ pub fn continue_last_assistant(messages: &mut Vec<Message>, continuation: Messag
     for item in continuation {
         existing.push(item);
     }
+}
+
+fn strip_replayed_assistant_prefix(
+    existing: &OneOrMany<AssistantContent>,
+    continuation: OneOrMany<AssistantContent>,
+) -> Vec<AssistantContent> {
+    let (existing_text, existing_reasoning) = assistant_channels(existing.iter());
+    let (continued_text, continued_reasoning) = assistant_channels(continuation.iter());
+    let mut text_prefix = replayed_prefix_len(&existing_text, &continued_text);
+    let mut reasoning_prefix = replayed_prefix_len(&existing_reasoning, &continued_reasoning);
+    let mut normalized = Vec::with_capacity(continuation.len());
+
+    for item in continuation {
+        match item {
+            AssistantContent::Text(mut text) => {
+                if strip_prefix(&mut text.text, &mut text_prefix) {
+                    normalized.push(AssistantContent::Text(text));
+                }
+            }
+            AssistantContent::Reasoning(reasoning) if reasoning_prefix > 0 => {
+                let id = reasoning.id.clone();
+                let mut content = reasoning.display_text();
+                if strip_prefix(&mut content, &mut reasoning_prefix) {
+                    normalized.push(AssistantContent::Reasoning(
+                        Reasoning::new(&content).optional_id(id),
+                    ));
+                }
+            }
+            item => normalized.push(item),
+        }
+    }
+    normalized
+}
+
+fn assistant_channels<'a>(
+    content: impl IntoIterator<Item = &'a AssistantContent>,
+) -> (String, String) {
+    let mut text = String::new();
+    let mut reasoning = String::new();
+    for item in content {
+        match item {
+            AssistantContent::Text(item) => text.push_str(&item.text),
+            AssistantContent::Reasoning(item) => reasoning.push_str(&item.display_text()),
+            _ => {}
+        }
+    }
+    (text, reasoning)
+}
+
+fn replayed_prefix_len(existing: &str, continuation: &str) -> usize {
+    if !existing.is_empty() && continuation.starts_with(existing) {
+        existing.len()
+    } else {
+        0
+    }
+}
+
+fn strip_prefix(content: &mut String, remaining: &mut usize) -> bool {
+    if *remaining == 0 {
+        return !content.is_empty();
+    }
+    if *remaining >= content.len() {
+        *remaining -= content.len();
+        return false;
+    }
+    *content = content.split_off(*remaining);
+    *remaining = 0;
+    true
 }
 
 pub fn message_tool_calls(message: &Message) -> Vec<ToolCall> {
