@@ -1,10 +1,10 @@
-use std::{io::Cursor, time::Duration};
+use std::time::Duration;
 
 use block2::RcBlock;
 use gpui::{AppContext as _, AsyncWindowContext};
-use objc2::{MainThreadMarker, MainThreadOnly as _, runtime::AnyObject};
-use objc2_app_kit::NSImage;
-use objc2_foundation::{NSError, NSNumber, NSPoint, NSRect, NSSize, NSString};
+use objc2::{AnyThread as _, MainThreadMarker, MainThreadOnly as _, runtime::AnyObject};
+use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSImage};
+use objc2_foundation::{NSDictionary, NSError, NSNumber, NSPoint, NSRect, NSSize, NSString};
 use objc2_web_kit::{
     WKSnapshotConfiguration, WKWebView, WKWebViewConfiguration, WKWebsiteDataStore,
 };
@@ -64,10 +64,9 @@ pub(super) async fn render_png(
     cx.background_executor()
         .timer(Duration::from_millis(50))
         .await;
-    let tiff = snapshot(&web_view, snapshot_frame, mtm).await?;
+    let png = snapshot(&web_view, snapshot_frame, mtm).await?;
 
-    cx.background_spawn(async move { tiff_to_png(&tiff).and_then(normalize_png) })
-        .await
+    cx.background_spawn(async move { normalize_png(png) }).await
 }
 
 async fn document_height(web_view: &WKWebView) -> Result<f64, String> {
@@ -122,11 +121,25 @@ async fn snapshot(
         } else if image.is_null() {
             Err("WebKit returned no snapshot".into())
         } else {
-            // SAFETY: WebKit keeps the callback image alive for this invocation.
-            unsafe { &*image }
-                .TIFFRepresentation()
+            // SAFETY: WebKit keeps the callback image alive for this invocation. A null
+            // proposed rectangle asks AppKit to use the image's native bounds.
+            let image = unsafe { &*image };
+            let cg_image = unsafe {
+                image.CGImageForProposedRect_context_hints(std::ptr::null_mut(), None, None)
+            }
+            .ok_or_else(|| "Could not read the WebKit snapshot pixels".to_string());
+            cg_image.and_then(|cg_image| {
+                let bitmap =
+                    NSBitmapImageRep::initWithCGImage(NSBitmapImageRep::alloc(), &cg_image);
+                let properties = NSDictionary::new();
+                // SAFETY: The properties dictionary has the type required by AppKit.
+                unsafe {
+                    bitmap
+                        .representationUsingType_properties(NSBitmapImageFileType::PNG, &properties)
+                }
                 .map(|data| data.to_vec())
-                .ok_or_else(|| "Could not encode the WebKit snapshot".to_string())
+                .ok_or_else(|| "Could not encode the WebKit snapshot as PNG".to_string())
+            })
         };
         let _ = sender.try_send(result);
     });
@@ -156,14 +169,4 @@ fn error_description(error: *mut NSError, fallback: &str) -> String {
         // for the duration of the callback.
         unsafe { (&*error).localizedDescription().to_string() }
     }
-}
-
-fn tiff_to_png(tiff: &[u8]) -> Result<Vec<u8>, String> {
-    let image = image::load_from_memory_with_format(tiff, image::ImageFormat::Tiff)
-        .map_err(|error| format!("Could not decode the WebKit snapshot: {error}"))?;
-    let mut output = Cursor::new(Vec::new());
-    image
-        .write_to(&mut output, image::ImageFormat::Png)
-        .map_err(|error| format!("Could not encode the PNG: {error}"))?;
-    Ok(output.into_inner())
 }

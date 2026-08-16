@@ -96,6 +96,10 @@ objc2 = "*"
 objc2-app-kit = { version = "*", default-features = false, features = [
     "NSEvent",
     "NSImage",
+    "NSImageRep",
+    "NSBitmapImageRep",
+    "NSGraphicsContext",
+    "objc2-core-graphics",
     "NSFont",
     "NSFontDescriptor",
     "NSFontManager",

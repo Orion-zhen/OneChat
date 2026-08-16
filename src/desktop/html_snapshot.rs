@@ -1,7 +1,6 @@
 use std::io::Cursor;
 
 use gpui::AsyncWindowContext;
-use image::GenericImageView as _;
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -151,26 +150,20 @@ pub(super) fn normalize_png(png: Vec<u8>) -> Result<Vec<u8>, String> {
     if !png.starts_with(b"\x89PNG\r\n\x1a\n") {
         return Err("The platform renderer returned an invalid PNG".into());
     }
-    let image = image::load_from_memory_with_format(&png, image::ImageFormat::Png)
-        .map_err(|error| format!("Could not decode the rendered PNG: {error}"))?;
-    let (width, height) = image.dimensions();
-    if width == 0 || height == 0 {
-        return Err("The platform renderer returned an empty PNG".into());
-    }
-    let target_height = u64::from(height)
-        .saturating_mul(u64::from(SNAPSHOT_WIDTH))
-        .div_ceil(u64::from(width));
-    let pixels = u64::from(SNAPSHOT_WIDTH).saturating_mul(target_height);
-    if pixels > MAX_IMAGE_PIXELS {
-        return Err("The conversation is too long for one PNG; export it as HTML instead".into());
-    }
-    if width == SNAPSHOT_WIDTH {
+    let dimensions =
+        image::ImageReader::with_format(Cursor::new(png.as_slice()), image::ImageFormat::Png)
+            .into_dimensions()
+            .map_err(|error| format!("Could not read the rendered PNG dimensions: {error}"))?;
+    let target_height = normalized_height(dimensions.0, dimensions.1)?;
+    if dimensions.0 == SNAPSHOT_WIDTH {
         return Ok(png);
     }
 
+    let image = image::load_from_memory_with_format(&png, image::ImageFormat::Png)
+        .map_err(|error| format!("Could not decode the rendered PNG: {error}"))?;
     let resized = image.resize_exact(
         SNAPSHOT_WIDTH,
-        u32::try_from(target_height).map_err(|_| "The rendered PNG is too tall".to_string())?,
+        target_height,
         image::imageops::FilterType::Lanczos3,
     );
     let mut output = Cursor::new(Vec::new());
@@ -180,11 +173,24 @@ pub(super) fn normalize_png(png: Vec<u8>) -> Result<Vec<u8>, String> {
     Ok(output.into_inner())
 }
 
+fn normalized_height(width: u32, height: u32) -> Result<u32, String> {
+    if width == 0 || height == 0 {
+        return Err("The platform renderer returned an empty PNG".into());
+    }
+    let target_height = u64::from(height)
+        .saturating_mul(u64::from(SNAPSHOT_WIDTH))
+        .div_ceil(u64::from(width));
+    if u64::from(SNAPSHOT_WIDTH).saturating_mul(target_height) > MAX_IMAGE_PIXELS {
+        return Err("The conversation is too long for one PNG; export it as HTML instead".into());
+    }
+    u32::try_from(target_height).map_err(|_| "The rendered PNG is too tall".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use image::{DynamicImage, RgbaImage};
 
-    use super::{SNAPSHOT_WIDTH, normalize_png};
+    use super::{MAX_IMAGE_PIXELS, SNAPSHOT_WIDTH, normalize_png, normalized_height};
 
     #[test]
     fn normalizes_platform_images_to_the_shared_width() {
@@ -202,5 +208,11 @@ mod tests {
     #[test]
     fn rejects_non_png_renderer_output() {
         assert!(normalize_png(b"not an image".to_vec()).is_err());
+    }
+
+    #[test]
+    fn rejects_images_above_the_pixel_limit_before_decoding() {
+        let height = u32::try_from(MAX_IMAGE_PIXELS / u64::from(SNAPSHOT_WIDTH) + 1).unwrap();
+        assert!(normalized_height(SNAPSHOT_WIDTH, height).is_err());
     }
 }
