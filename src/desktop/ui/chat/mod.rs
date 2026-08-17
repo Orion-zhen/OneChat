@@ -46,7 +46,7 @@ use crate::{
     },
 };
 
-const MESSAGE_MIN_WIDTH: f32 = 780.0;
+const MIN_READABLE_MESSAGE_WIDTH: f32 = 480.0;
 const MESSAGE_LIST_HORIZONTAL_PADDING: f32 = 48.0;
 
 fn response_tab_button(
@@ -123,6 +123,7 @@ fn primary_icon_button(id: impl Into<ElementId>, icon: AppIcon, cx: &App) -> But
 pub(crate) fn render(
     app: &OneChat,
     available_width: f32,
+    available_height: f32,
     scale_factor: f32,
     jump_to_latest_progress: f32,
     timeline_expansion: f32,
@@ -343,6 +344,7 @@ pub(crate) fn render(
         .child(render_composer(
             app,
             message_max_width,
+            available_height,
             typography,
             context_usage_popover_progress,
             cx,
@@ -353,8 +355,8 @@ pub(crate) fn render(
 fn message_max_width(available_width: f32, ratio: f32) -> f32 {
     let content_width = (available_width - MESSAGE_LIST_HORIZONTAL_PADDING).max(0.0);
     let ratio = ratio.clamp(MIN_MESSAGE_WIDTH_RATIO, MAX_MESSAGE_WIDTH_RATIO);
-    (available_width * ratio)
-        .max(MESSAGE_MIN_WIDTH)
+    (content_width * ratio)
+        .max(MIN_READABLE_MESSAGE_WIDTH)
         .min(content_width)
 }
 
@@ -460,4 +462,20 @@ fn render_empty_conversation(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEle
                 })),
         )
         .into_any_element()
+}
+
+#[cfg(test)]
+mod layout_tests {
+    use super::message_max_width;
+
+    #[test]
+    fn narrow_chat_uses_the_available_content_width() {
+        assert_eq!(message_max_width(520.0, 0.5), 472.0);
+    }
+
+    #[test]
+    fn configured_ratio_applies_to_the_content_area_when_space_allows() {
+        assert_eq!(message_max_width(980.0, 0.75), 699.0);
+        assert_eq!(message_max_width(1_200.0, 0.5), 576.0);
+    }
 }

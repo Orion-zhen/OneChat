@@ -45,7 +45,7 @@ pub(super) fn render(app: &OneChat, stacked: bool, cx: &mut Context<OneChat>) ->
         ))
         .child(
             div()
-                .min_h(px(if stacked { 280.0 } else { 0.0 }))
+                .min_h(px(if stacked { 220.0 } else { 0.0 }))
                 .min_w_0()
                 .flex_1()
                 .rounded(px(14.0))

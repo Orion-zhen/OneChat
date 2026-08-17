@@ -1,20 +1,5 @@
 use super::*;
 
-pub(super) fn user_editor_width(content: &str, max_width: f32, font_size: f32) -> f32 {
-    let text_scale = font_size / USER_EDITOR_MEASUREMENT_FONT_SIZE;
-    let text_width = content
-        .lines()
-        .map(|line| {
-            line.graphemes(true)
-                .map(|grapheme| (if grapheme.is_ascii() { 8.0 } else { 15.0 }) * text_scale)
-                .sum::<f32>()
-        })
-        .fold(0.0, f32::max);
-    (text_width + USER_EDITOR_HORIZONTAL_CHROME)
-        .max(USER_EDITOR_MIN_WIDTH)
-        .min(max_width)
-}
-
 pub(super) fn render_sent_attachment(
     app: &OneChat,
     attachment: &crate::domain::Attachment,

@@ -5,6 +5,7 @@ pub(crate) mod copy_button;
 pub(crate) mod icons;
 pub(crate) mod input;
 pub(crate) mod inspector;
+pub(crate) mod layout;
 pub(crate) mod markdown;
 mod mcp;
 mod model;

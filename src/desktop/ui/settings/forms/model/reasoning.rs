@@ -155,6 +155,7 @@ pub(super) fn known_reasoning_presets(
             .px_3()
             .py_2()
             .flex()
+            .flex_wrap()
             .items_center()
             .gap_3()
             .child(
@@ -169,7 +170,13 @@ pub(super) fn known_reasoning_presets(
                     this.toggle_known_reasoning_preset(level, *value, cx)
                 })),
             )
-            .child(div().w(px(72.0)).text_sm().child(level.label()));
+            .child(
+                div()
+                    .min_w(px(72.0))
+                    .flex_1()
+                    .text_sm()
+                    .child(level.label()),
+            );
         if uses_budget {
             row = row.child(
                 Input::new(&preset.budget_tokens)

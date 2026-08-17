@@ -224,6 +224,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         .sidebar_width_motion
         .progress(window, reduce_motion);
     let page_available_width = (f32::from(window.bounds().size.width) - sidebar_width).max(0.0);
+    let page_available_height = (f32::from(window.bounds().size.height) - 60.0).max(0.0);
     let sidebar = (matches!(app.navigation.page, Page::Chat | Page::Tts) && sidebar_width > 0.01)
         .then(|| {
             div()
@@ -274,11 +275,12 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         .flatten();
     #[cfg(not(target_os = "macos"))]
     let conversation_peek = None::<AnyElement>;
-    let top_bar = render_top_bar(app, current_animated_title, cx);
+    let top_bar = render_top_bar(app, current_animated_title, page_available_width, cx);
     let page = match app.navigation.page {
         Page::Chat => render_chat_page(
             app,
             page_available_width,
+            page_available_height,
             scale_factor,
             jump_to_latest_progress,
             timeline_expansion,
@@ -287,7 +289,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
             cx,
         ),
         Page::Tts => tts::render(app, page_available_width, cx),
-        Page::Settings => settings::render(app, sidebar_width, cx),
+        Page::Settings => settings::render(app, sidebar_width, page_available_width, cx),
     };
     let inspector = (app.navigation.page == Page::Chat
         && (app.navigation.inspector_open || inspector_progress > 0.0))

@@ -3,6 +3,7 @@ use super::*;
 pub(super) fn render_chat_top_bar(
     app: &OneChat,
     animated_title: Option<&str>,
+    layout: LayoutClass,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let current_conversation = app.current_conversation();
@@ -114,7 +115,7 @@ pub(super) fn render_chat_top_bar(
                     title_animation_id,
                     title_waiting,
                 ))
-                .child(
+                .children((!layout.is_narrow()).then(|| {
                     div()
                         .flex()
                         .items_center()
@@ -122,8 +123,8 @@ pub(super) fn render_chat_top_bar(
                         .text_size(px(11.0))
                         .text_color(cx.theme().muted_foreground)
                         .child(div().size(px(6.0)).rounded_full().bg(connection_color))
-                        .child(format!("{provider_name} · {connection}")),
-                ),
+                        .child(format!("{provider_name} · {connection}"))
+                })),
         )
         .child(
             div()
@@ -142,8 +143,18 @@ pub(super) fn render_chat_top_bar(
                         .items_center()
                         .gap_2()
                         .child(render_model_capability_icon(model_capabilities, cx))
-                        .child(div().whitespace_nowrap().child(model_label))
-                        .child(render_icon(AppIcon::ChevronDown, IconTone::Muted, 14.0, cx))
+                        .children((!layout.is_narrow()).then(|| {
+                            div()
+                                .max_w(px(180.0))
+                                .min_w_0()
+                                .truncate()
+                                .child(model_label)
+                        }))
+                        .children(
+                            (!layout.is_narrow()).then(|| {
+                                render_icon(AppIcon::ChevronDown, IconTone::Muted, 14.0, cx)
+                            }),
+                        )
                         .on_click(
                             cx.listener(|this, _, window, cx| this.open_model_picker(window, cx)),
                         ),
@@ -166,15 +177,19 @@ pub(super) fn render_chat_top_bar(
                             }),
                         )
                         .child(render_icon(AppIcon::Brain, IconTone::Muted, 14.0, cx))
-                        .child(
+                        .children(layout.is_wide().then(|| {
                             div()
                                 .min_w_0()
                                 .overflow_hidden()
                                 .whitespace_nowrap()
                                 .text_ellipsis()
-                                .child(reasoning_label),
+                                .child(reasoning_label)
+                        }))
+                        .children(
+                            layout.is_wide().then(|| {
+                                render_icon(AppIcon::ChevronDown, IconTone::Muted, 14.0, cx)
+                            }),
                         )
-                        .child(render_icon(AppIcon::ChevronDown, IconTone::Muted, 14.0, cx))
                 }))
                 .child(
                     button_base("open-prompt-picker")
@@ -192,15 +207,19 @@ pub(super) fn render_chat_top_bar(
                             cx.listener(|this, _, window, cx| this.open_prompt_picker(window, cx)),
                         )
                         .child(render_icon(AppIcon::Command, IconTone::Muted, 14.0, cx))
-                        .child(
+                        .children(layout.is_wide().then(|| {
                             div()
                                 .min_w_0()
                                 .overflow_hidden()
                                 .whitespace_nowrap()
                                 .text_ellipsis()
-                                .child(prompt_label),
-                        )
-                        .child(render_icon(AppIcon::ChevronDown, IconTone::Muted, 14.0, cx)),
+                                .child(prompt_label)
+                        }))
+                        .children(
+                            layout.is_wide().then(|| {
+                                render_icon(AppIcon::ChevronDown, IconTone::Muted, 14.0, cx)
+                            }),
+                        ),
                 )
                 .child(
                     button_base("open-tools-inspector")
@@ -215,14 +234,14 @@ pub(super) fn render_chat_top_bar(
                         .items_center()
                         .gap_2()
                         .child(render_icon(AppIcon::Plug, IconTone::Muted, 14.0, cx))
-                        .child(
+                        .children(layout.is_wide().then(|| {
                             div()
                                 .min_w_0()
                                 .overflow_hidden()
                                 .whitespace_nowrap()
                                 .text_ellipsis()
-                                .child(tool_label),
-                        )
+                                .child(tool_label)
+                        }))
                         .on_click(cx.listener(|this, _, _, cx| this.open_tools_inspector(cx))),
                 )
                 .child(

@@ -61,7 +61,7 @@ pub(super) fn render(app: &OneChat, stacked: bool, cx: &mut Context<OneChat>) ->
         .child(
             div()
                 .id("tts-output-scroll")
-                .min_h(px(if stacked { 340.0 } else { 0.0 }))
+                .min_h(px(if stacked { 260.0 } else { 0.0 }))
                 .min_w_0()
                 .flex_1()
                 .overflow_y_scroll()
@@ -79,7 +79,7 @@ fn empty_state(
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     div()
-        .min_h(px(340.0))
+        .min_h(px(260.0))
         .size_full()
         .flex()
         .flex_col()

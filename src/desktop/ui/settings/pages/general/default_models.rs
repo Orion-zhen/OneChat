@@ -42,34 +42,25 @@ pub(in crate::desktop::ui::settings) fn default_models_page(
 }
 
 fn title_generation_controls(app: &OneChat) -> AnyElement {
-    let reasoning_menu_width = app
+    let supports_reasoning = app
         .title_generation_model()
-        .and_then(|model| model.reasoning.as_ref())
-        .map(|reasoning| {
-            reasoning
-                .preset_options()
-                .iter()
-                .map(|(_, label)| {
-                    label
-                        .chars()
-                        .map(|character| if character.is_ascii() { 8.0 } else { 16.0 })
-                        .sum::<f32>()
-                        + 56.0
-                })
-                .fold(96.0, f32::max)
-                .min(280.0)
-        });
-    let supports_reasoning = reasoning_menu_width.is_some();
+        .is_some_and(|model| model.reasoning.is_some());
     div()
+        .w_full()
         .flex()
+        .flex_wrap()
         .items_center()
         .gap_2()
-        .child(default_model_select(app, DefaultModelRole::TitleGeneration))
+        .child(
+            div()
+                .min_w(px(180.0))
+                .flex_1()
+                .child(default_model_select(app, DefaultModelRole::TitleGeneration)),
+        )
         .when(supports_reasoning, |controls| {
             controls.child(
                 field_control(Select::new(&app.settings_ui.title_reasoning_select))
                     .placeholder("Reasoning Preset")
-                    .menu_width(px(reasoning_menu_width.unwrap_or(96.0)))
                     .menu_max_h(px(320.0))
                     .w_auto()
                     .min_w(px(96.0))
@@ -91,7 +82,8 @@ fn default_model_select(app: &OneChat, role: DefaultModelRole) -> AnyElement {
             DefaultModelRole::TitleGeneration => "Use Primary Model",
         })
         .menu_max_h(px(320.0))
-        .w(px(300.0))
+        .w_full()
+        .max_w(px(340.0))
         .empty(|_, cx| {
             div()
                 .p_3()

@@ -1,11 +1,7 @@
 use super::*;
 use crate::desktop::ui::stream::should_capture_nested_scroll;
-use unicode_segmentation::UnicodeSegmentation;
 
 const USER_MESSAGE_WIDTH_RATIO: f32 = 0.75;
-const USER_EDITOR_MIN_WIDTH: f32 = 280.0;
-const USER_EDITOR_HORIZONTAL_CHROME: f32 = 64.0;
-const USER_EDITOR_MEASUREMENT_FONT_SIZE: f32 = 15.0;
 const SENT_IMAGE_MAX_WIDTH: f32 = 520.0;
 const SENT_IMAGE_MAX_HEIGHT: f32 = 360.0;
 
@@ -17,11 +13,17 @@ mod tools;
 mod user;
 
 pub(super) use assistant::render_assistant_turn;
-use attachments::{render_sent_attachment, user_editor_width};
+use attachments::render_sent_attachment;
 pub(super) use opening::render_assistant_opening;
 use reasoning::{render_reasoning, render_reasoning_block};
 use tools::{render_tool_execution, render_tool_executions, render_tool_placeholder};
 pub(super) use user::render_user_turn;
+
+fn user_message_max_width(message_max_width: f32) -> f32 {
+    (message_max_width * USER_MESSAGE_WIDTH_RATIO)
+        .max(MIN_READABLE_MESSAGE_WIDTH)
+        .min(message_max_width)
+}
 
 fn message_edit_submits(app: &OneChat, action: &Enter) -> bool {
     !action.shift
@@ -230,4 +232,20 @@ fn animated_message(message: AnyElement, id: String, highlighted: bool, cx: &App
             },
         )
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::user_message_max_width;
+
+    #[test]
+    fn long_user_messages_expand_in_narrow_conversations() {
+        assert_eq!(user_message_max_width(472.0), 472.0);
+        assert_eq!(user_message_max_width(480.0), 480.0);
+    }
+
+    #[test]
+    fn long_user_messages_keep_the_compact_wide_layout() {
+        assert_eq!(user_message_max_width(800.0), 600.0);
+    }
 }

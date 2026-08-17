@@ -247,6 +247,7 @@ fn builtin_variables_content(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEle
                                 .min_h(px(48.0))
                                 .px_3()
                                 .flex()
+                                .flex_wrap()
                                 .items_center()
                                 .gap_3()
                                 .when(index + 1 < BUILTIN_PROMPT_VARIABLES.len(), |row| {
@@ -254,8 +255,8 @@ fn builtin_variables_content(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEle
                                 })
                                 .child(
                                     div()
-                                        .w(px(245.0))
-                                        .flex_none()
+                                        .min_w(px(180.0))
+                                        .flex_1()
                                         .text_size(px(12.0))
                                         .font_weight(FontWeight::SEMIBOLD)
                                         .child(placeholder.clone()),

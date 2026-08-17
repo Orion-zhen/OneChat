@@ -88,9 +88,15 @@ use crate::{
     providers::AvailableModel,
 };
 
-pub(crate) fn render(app: &OneChat, sidebar_width: f32, cx: &mut Context<OneChat>) -> AnyElement {
+pub(crate) fn render(
+    app: &OneChat,
+    sidebar_width: f32,
+    available_width: f32,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    let layout = crate::desktop::ui::layout::LayoutClass::from_width(available_width);
     let detail = if app.settings_ui.prompt_preset_workspace.is_some() {
-        prompt_preset_workspace(app, cx)
+        prompt_preset_workspace(app, layout, cx)
     } else {
         match &app.settings_ui.section {
             SettingsSection::General => general_page(app, cx),
@@ -126,8 +132,8 @@ fn detail_page(content: impl IntoElement) -> AnyElement {
         .flex_1()
         .h_full()
         .overflow_y_scroll()
-        .px_8()
-        .py_8()
+        .px_4()
+        .py_6()
         .child(div().mx_auto().w_full().max_w(px(760.0)).child(content))
         .into_any_element()
 }
@@ -233,7 +239,7 @@ fn setting_row_content(
     cx: &App,
 ) -> AnyElement {
     let label = div()
-        .min_w_0()
+        .min_w(px(220.0))
         .flex_1()
         .child(
             div()
@@ -259,11 +265,19 @@ fn setting_row_content(
         .px_4()
         .py_3()
         .flex()
+        .flex_wrap()
         .items_center()
         .justify_between()
         .gap_5()
         .child(label)
-        .child(div().flex_none().child(control))
+        .child(
+            div()
+                .min_w(px(236.0))
+                .flex_1()
+                .flex()
+                .justify_end()
+                .child(control),
+        )
         .into_any_element()
 }
 

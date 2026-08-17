@@ -115,7 +115,8 @@ pub(in crate::desktop::ui::settings) fn theme_color_picker(
         .secondary()
         .outline()
         .large()
-        .w(px(300.0))
+        .w_full()
+        .max_w(px(340.0))
         .h(px(40.0))
         .px(px(12.0))
         .child(

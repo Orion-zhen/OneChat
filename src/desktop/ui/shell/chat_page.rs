@@ -4,6 +4,7 @@ use super::*;
 pub(super) fn render_chat_page(
     app: &OneChat,
     available_width: f32,
+    available_height: f32,
     scale_factor: f32,
     jump_to_latest_progress: f32,
     timeline_expansion: f32,
@@ -56,6 +57,7 @@ pub(super) fn render_chat_page(
         chat::render(
             app,
             available_width,
+            available_height,
             scale_factor,
             jump_to_latest_progress,
             timeline_expansion,

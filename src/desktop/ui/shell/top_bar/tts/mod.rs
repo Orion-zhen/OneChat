@@ -4,7 +4,11 @@ use gpui_component::{Sizable as _, select::Select};
 
 use super::*;
 
-pub(super) fn render_tts_top_bar(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
+pub(super) fn render_tts_top_bar(
+    app: &OneChat,
+    layout: LayoutClass,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
     let inspector_open = app.tts.view.inspector_open;
     let has_models = !app.tts.controller.discovery.catalog.tts.is_empty();
     let busy = app.tts.controller.operation.active().is_some();
@@ -21,7 +25,7 @@ pub(super) fn render_tts_top_bar(app: &OneChat, cx: &mut Context<OneChat>) -> An
                 Select::new(&app.tts.controls.model)
                     .large()
                     .h(px(36.0))
-                    .w(px(184.0))
+                    .w(px(if layout.is_wide() { 184.0 } else { 152.0 }))
                     .px_3()
                     .rounded(px(9.0))
                     .placeholder("TTS model")
@@ -32,7 +36,7 @@ pub(super) fn render_tts_top_bar(app: &OneChat, cx: &mut Context<OneChat>) -> An
                 Select::new(&app.tts.controls.voice)
                     .large()
                     .h(px(36.0))
-                    .w(px(156.0))
+                    .w(px(if layout.is_wide() { 156.0 } else { 132.0 }))
                     .px_3()
                     .rounded(px(9.0))
                     .placeholder("Voice")
@@ -79,21 +83,20 @@ pub(super) fn render_tts_top_bar(app: &OneChat, cx: &mut Context<OneChat>) -> An
         })
         .child(
             div()
-                .min_w(px(220.0))
                 .min_w_0()
                 .flex_1()
                 .flex()
                 .items_center()
                 .gap_3()
-                .child(
+                .children((!layout.is_narrow()).then(|| {
                     div()
                         .overflow_hidden()
                         .whitespace_nowrap()
                         .text_ellipsis()
                         .text_size(px(15.0))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child("TTS Playground"),
-                )
+                        .child("TTS Playground")
+                }))
                 .child(connection::render(app, busy, cx)),
         )
         .child(controls)

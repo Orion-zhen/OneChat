@@ -31,16 +31,9 @@ fn render_user_message(
     typography: MessageTypography,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    let user_message_max_width = message_max_width * USER_MESSAGE_WIDTH_RATIO;
+    let user_max_width = user_message_max_width(message_max_width);
     let action_group: SharedString = format!("user-actions-{}", turn.id).into();
-    let content = render_message_content(
-        app,
-        turn,
-        user_message_max_width,
-        scale_factor,
-        typography,
-        cx,
-    );
+    let content = render_message_content(app, turn, user_max_width, scale_factor, typography, cx);
     let action_bar = render_message_actions(app, turn, action_group.clone(), typography, cx);
     let swipe_turn_id = turn.id.clone();
     div()
@@ -67,7 +60,7 @@ fn render_user_message(
         .child(
             div()
                 .group(action_group)
-                .max_w(px(user_message_max_width))
+                .max_w(px(user_max_width))
                 .min_w_0()
                 .flex()
                 .flex_col()

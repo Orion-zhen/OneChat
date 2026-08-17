@@ -5,6 +5,7 @@ use inspector::{PromptMetrics, inspector, prompt_metrics};
 
 pub(in crate::desktop::ui::settings) fn prompt_preset_workspace(
     app: &OneChat,
+    layout: crate::desktop::ui::layout::LayoutClass,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let workspace = app
@@ -39,6 +40,7 @@ pub(in crate::desktop::ui::settings) fn prompt_preset_workspace(
             dirty,
             focus_mode,
             inspector_open,
+            layout,
             cx,
         ))
         .children(
@@ -49,12 +51,40 @@ pub(in crate::desktop::ui::settings) fn prompt_preset_workspace(
         )
         .child(
             div()
+                .relative()
                 .min_h_0()
                 .flex_1()
                 .flex()
-                .children((!focus_mode).then(|| section_rail(editor, section, cx)))
-                .child(editor_canvas(editor, section, editing, &metrics, cx))
-                .children(inspector_open.then(|| inspector(app, editor, editing, &metrics, cx))),
+                .flex_col()
+                .children((!focus_mode && !layout.is_wide()).then(|| section_tabs(section, cx)))
+                .child(
+                    div()
+                        .relative()
+                        .min_h_0()
+                        .flex_1()
+                        .flex()
+                        .children(
+                            (!focus_mode && layout.is_wide())
+                                .then(|| section_rail(editor, section, cx)),
+                        )
+                        .child(editor_canvas(
+                            editor, section, editing, &metrics, layout, cx,
+                        ))
+                        .children(
+                            (inspector_open && layout.is_wide())
+                                .then(|| inspector(app, editor, editing, &metrics, cx)),
+                        )
+                        .children((inspector_open && !layout.is_wide()).then(|| {
+                            div()
+                                .absolute()
+                                .occlude()
+                                .top_0()
+                                .right_0()
+                                .bottom_0()
+                                .shadow_lg()
+                                .child(inspector(app, editor, editing, &metrics, cx))
+                        })),
+                ),
         )
         .into_any_element()
 }
@@ -65,6 +95,7 @@ fn workspace_toolbar(
     dirty: bool,
     focus_mode: bool,
     inspector_open: bool,
+    layout: crate::desktop::ui::layout::LayoutClass,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     div()
@@ -79,7 +110,7 @@ fn workspace_toolbar(
         .border_color(cx.theme().border)
         .bg(cx.theme().popover.opacity(0.94))
         .child(
-            div().w(px(168.0)).flex_none().child(
+            div().min_w_0().flex_1().child(
                 Compact
                     .icon_action(
                         "close-prompt-preset-workspace",
@@ -101,7 +132,7 @@ fn workspace_toolbar(
                 .items_center()
                 .justify_center()
                 .gap_2()
-                .child(
+                .children((!layout.is_narrow()).then(|| {
                     div()
                         .max_w(px(420.0))
                         .overflow_hidden()
@@ -109,9 +140,9 @@ fn workspace_toolbar(
                         .text_ellipsis()
                         .text_size(px(15.0))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child(title),
-                )
-                .children((editing && dirty).then(|| {
+                        .child(title)
+                }))
+                .children((!layout.is_narrow() && editing && dirty).then(|| {
                     div()
                         .size(px(6.0))
                         .flex_none()
@@ -121,8 +152,8 @@ fn workspace_toolbar(
         )
         .child(
             div()
-                .w(px(168.0))
-                .flex_none()
+                .min_w_0()
+                .flex_1()
                 .flex()
                 .items_center()
                 .justify_end()
@@ -215,6 +246,36 @@ fn workspace_toolbar(
                             this.save_prompt_preset(cx);
                         }))
                 })),
+        )
+        .into_any_element()
+}
+
+fn section_tabs(selected: PromptPresetSection, cx: &mut Context<OneChat>) -> AnyElement {
+    let selected_index = match selected {
+        PromptPresetSection::SystemPrompt => 0,
+        PromptPresetSection::AssistantOpening => 1,
+    };
+    div()
+        .flex_none()
+        .border_b_1()
+        .border_color(cx.theme().border)
+        .bg(cx.theme().sidebar)
+        .p_3()
+        .child(
+            SegmentedControl::new(
+                "prompt-workspace-sections",
+                ["System Prompt", "Assistant Opening"],
+            )
+            .w_full()
+            .selected_index(selected_index)
+            .on_click(cx.listener(|this, index: &usize, window, cx| {
+                let section = if *index == 0 {
+                    PromptPresetSection::SystemPrompt
+                } else {
+                    PromptPresetSection::AssistantOpening
+                };
+                this.select_prompt_preset_section(section, window, cx);
+            })),
         )
         .into_any_element()
 }
@@ -313,6 +374,7 @@ fn editor_canvas(
     section: PromptPresetSection,
     editing: bool,
     metrics: &PromptMetrics,
+    layout: crate::desktop::ui::layout::LayoutClass,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let input = editor.input(section);
@@ -329,52 +391,64 @@ fn editor_canvas(
         .flex()
         .flex_col()
         .child(
-            div().flex_none().px_8().pt_7().pb_4().child(
-                div()
-                    .mx_auto()
-                    .w_full()
-                    .max_w(px(840.0))
-                    .child(
-                        div()
-                            .text_size(px(20.0))
-                            .line_height(px(26.0))
-                            .font_weight(FontWeight::SEMIBOLD)
-                            .child(section.title()),
-                    )
-                    .child(
-                        div()
-                            .pt_1()
-                            .text_size(px(12.0))
-                            .text_color(cx.theme().muted_foreground)
-                            .child(detail),
-                    ),
-            ),
+            div()
+                .flex_none()
+                .when(layout.is_wide(), |header| header.px_8())
+                .when(!layout.is_wide(), |header| header.px_4())
+                .pt_7()
+                .pb_4()
+                .child(
+                    div()
+                        .mx_auto()
+                        .w_full()
+                        .max_w(px(840.0))
+                        .child(
+                            div()
+                                .text_size(px(20.0))
+                                .line_height(px(26.0))
+                                .font_weight(FontWeight::SEMIBOLD)
+                                .child(section.title()),
+                        )
+                        .child(
+                            div()
+                                .pt_1()
+                                .text_size(px(12.0))
+                                .text_color(cx.theme().muted_foreground)
+                                .child(detail),
+                        ),
+                ),
         )
         .child(
-            div().min_h_0().flex_1().px_8().pb_4().child(
-                div()
-                    .mx_auto()
-                    .w_full()
-                    .h_full()
-                    .max_w(px(840.0))
-                    .rounded(px(14.0))
-                    .border_1()
-                    .border_color(cx.theme().border)
-                    .bg(cx.theme().popover)
-                    .overflow_hidden()
-                    .child(
-                        Textarea::new(&input)
-                            .appearance(false)
-                            .disabled(!editing)
-                            .w_full()
-                            .h_full()
-                            .px_4()
-                            .py_3()
-                            .text_size(px(14.0))
-                            .line_height(px(22.0))
-                            .aria_label(section.title()),
-                    ),
-            ),
+            div()
+                .min_h_0()
+                .flex_1()
+                .when(layout.is_wide(), |canvas| canvas.px_8())
+                .when(!layout.is_wide(), |canvas| canvas.px_4())
+                .pb_4()
+                .child(
+                    div()
+                        .mx_auto()
+                        .w_full()
+                        .h_full()
+                        .max_w(px(840.0))
+                        .rounded(px(14.0))
+                        .border_1()
+                        .border_color(cx.theme().border)
+                        .bg(cx.theme().popover)
+                        .overflow_hidden()
+                        .child(
+                            Textarea::new(&input)
+                                .appearance(false)
+                                .disabled(!editing)
+                                .w_full()
+                                .h_full()
+                                .px_4()
+                                .py_3()
+                                .text_size(px(14.0))
+                                .line_height(px(22.0))
+                                .aria_label(section.title()),
+                        ),
+                ),
         )
         .child(
             div()

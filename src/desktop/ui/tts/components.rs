@@ -14,7 +14,9 @@ const SOURCE_PANE_RATIO: f32 = 0.5;
 pub(super) fn panel(stacked: bool, source: bool, cx: &App) -> gpui::Div {
     div()
         .min_w_0()
-        .when(stacked, |panel| panel.w_full().min_h(px(520.0)))
+        .when(stacked, |panel| {
+            panel.w_full().min_h(px(if source { 420.0 } else { 360.0 }))
+        })
         .when(!stacked && source, |panel| {
             panel
                 .w(relative(SOURCE_PANE_RATIO))

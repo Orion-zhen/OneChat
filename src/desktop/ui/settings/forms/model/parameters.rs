@@ -41,13 +41,14 @@ pub(super) fn reasoning_parameter_list(
             div()
                 .w_full()
                 .flex()
+                .flex_wrap()
                 .items_center()
                 .gap_2()
                 .text_size(px(11.0))
                 .text_color(cx.theme().muted_foreground)
-                .child(div().min_w_0().flex_1().child("Path"))
+                .child(div().min_w(px(160.0)).flex_1().child("Path"))
                 .child(div().w(px(104.0)).flex_none().child("Type"))
-                .child(div().min_w_0().flex_1().child("Value"))
+                .child(div().min_w(px(160.0)).flex_1().child("Value"))
                 .child(div().w(px(32.0)).flex_none()),
         );
     }
@@ -112,9 +113,10 @@ pub(super) fn reasoning_parameter_list(
                 div()
                     .w_full()
                     .flex()
+                    .flex_wrap()
                     .items_center()
                     .gap_2()
-                    .child(div().min_w_0().flex_1().child(path))
+                    .child(div().min_w(px(160.0)).flex_1().child(path))
                     .child(
                         div()
                             .w(px(104.0))
@@ -122,7 +124,7 @@ pub(super) fn reasoning_parameter_list(
                             .flex_none()
                             .child(value_type_control),
                     )
-                    .child(div().min_w_0().flex_1().child(value))
+                    .child(div().min_w(px(160.0)).flex_1().child(value))
                     .child(
                         Compact
                             .icon_action(

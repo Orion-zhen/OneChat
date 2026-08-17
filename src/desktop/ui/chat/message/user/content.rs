@@ -22,15 +22,7 @@ pub(super) fn render_message_content(
         let attachments_loading = editor.attachment_load_id.is_some();
         let has_attachments = attachment_count > 0 || attachments_loading;
         let can_save = app.can_save_user_edit(&turn.id, cx);
-        let width = if has_attachments {
-            user_message_max_width
-        } else {
-            user_editor_width(
-                &editor_input.read(cx).value(),
-                user_message_max_width,
-                typography.body_size,
-            )
-        };
+        let width = user_message_max_width;
         let palette = crate::desktop::ui::theme::palette(cx).user_message;
         let attachment_scroll = app
             .chat

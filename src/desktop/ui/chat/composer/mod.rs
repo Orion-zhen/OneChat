@@ -13,6 +13,7 @@ use recording::render_recording_status;
 pub(super) fn render_composer(
     app: &OneChat,
     message_max_width: f32,
+    available_height: f32,
     typography: MessageTypography,
     context_usage_popover_progress: f32,
     cx: &mut Context<OneChat>,
@@ -90,7 +91,11 @@ pub(super) fn render_composer(
             .w_full()
             .text_size(px(typography.body_size))
             .line_height(px(typography.body_line_height));
-        let input = if expanded { input.h(px(480.0)) } else { input };
+        let input = if expanded {
+            input.h(px(expanded_composer_height(available_height)))
+        } else {
+            input
+        };
         div().min_w_0().flex_1().child(input).into_any_element()
     };
 
@@ -182,6 +187,10 @@ pub(super) fn render_composer(
         .into_any_element()
 }
 
+fn expanded_composer_height(available_height: f32) -> f32 {
+    (available_height * 0.6).clamp(240.0, 480.0)
+}
+
 fn composer_is_multiline(app: &OneChat, cx: &App) -> bool {
     let current = app.chat.composer_multiline.get();
     let composer = app.chat.composer.read(cx);
@@ -223,7 +232,7 @@ fn resolve_multiline(
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_multiline;
+    use super::{expanded_composer_height, resolve_multiline};
 
     #[test]
     fn multiline_is_latched_until_the_composer_is_cleared() {
@@ -236,5 +245,12 @@ mod tests {
     fn ime_preedit_does_not_change_the_surrounding_layout() {
         assert!(!resolve_multiline(false, "nihao", "", true));
         assert!(resolve_multiline(false, "你好", "你好", true));
+    }
+
+    #[test]
+    fn expanded_composer_tracks_the_available_page_height() {
+        for (available, expected) in [(400.0, 240.0), (580.0, 348.0), (1_000.0, 480.0)] {
+            assert!((expanded_composer_height(available) - expected).abs() < 0.01);
+        }
     }
 }

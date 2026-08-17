@@ -10,8 +10,6 @@ use crate::desktop::{
     ui::icons::{AppIcon, IconTone, render_icon},
 };
 
-const STACKED_WORKBENCH_WIDTH: f32 = 880.0;
-
 pub(crate) fn render(app: &OneChat, available_width: f32, cx: &mut Context<OneChat>) -> AnyElement {
     if !tts_connected(app) {
         return landing_page(
@@ -39,7 +37,7 @@ pub(crate) fn render(app: &OneChat, available_width: f32, cx: &mut Context<OneCh
             cx,
         );
     }
-    let stacked = available_width < STACKED_WORKBENCH_WIDTH;
+    let stacked = !crate::desktop::ui::layout::LayoutClass::from_width(available_width).is_wide();
     let workbench = div()
         .size_full()
         .min_w_0()

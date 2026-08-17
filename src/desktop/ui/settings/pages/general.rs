@@ -152,7 +152,8 @@ fn send_message_shortcut_selector(app: &OneChat, cx: &mut Context<OneChat>) -> A
         "Ctrl+Enter"
     };
     SegmentedControl::new("send-message-shortcut-selector", ["Enter", secondary_label])
-        .w(px(300.0))
+        .w_full()
+        .max_w(px(340.0))
         .selected_index(selected)
         .on_click(cx.listener(|this, index: &usize, _, cx| {
             let shortcut = [
@@ -171,7 +172,8 @@ fn theme_selector(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
         Theme::Dark => 2,
     };
     SegmentedControl::new("theme-selector", ["System", "Light", "Dark"])
-        .w(px(300.0))
+        .w_full()
+        .max_w(px(340.0))
         .selected_index(selected)
         .on_click(cx.listener(|this, index: &usize, _, cx| {
             let theme = [Theme::System, Theme::Light, Theme::Dark][*index];
@@ -292,7 +294,8 @@ fn font_stack_editor(app: &OneChat, role: FontRole, cx: &mut Context<OneChat>) -
                 )
         }));
     div()
-        .w(px(340.0))
+        .w_full()
+        .max_w(px(340.0))
         .flex()
         .flex_col()
         .gap_2()
@@ -330,7 +333,8 @@ fn font_preview(role: FontRole, cx: &App) -> AnyElement {
 
 fn conversation_history_slider(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
     div()
-        .w(px(300.0))
+        .w_full()
+        .max_w(px(340.0))
         .flex_none()
         .flex()
         .flex_col()
@@ -379,14 +383,15 @@ fn message_width_slider(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement 
 
 fn message_font_size_slider(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
     div()
-        .w(px(236.0))
-        .flex_none()
+        .w_full()
+        .max_w(px(300.0))
         .flex()
         .items_center()
         .gap_3()
         .child(
             Slider::new(&app.settings_ui.message_font_size_slider)
-                .w(px(180.0))
+                .min_w(px(120.0))
+                .flex_1()
                 .bg(cx.theme().primary),
         )
         .child(
@@ -407,12 +412,17 @@ fn percentage_slider(
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     div()
-        .w(px(236.0))
-        .flex_none()
+        .w_full()
+        .max_w(px(300.0))
         .flex()
         .items_center()
         .gap_3()
-        .child(Slider::new(state).w(px(180.0)).bg(cx.theme().primary))
+        .child(
+            Slider::new(state)
+                .min_w(px(120.0))
+                .flex_1()
+                .bg(cx.theme().primary),
+        )
         .child(
             div()
                 .w(px(42.0))
