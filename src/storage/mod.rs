@@ -2,7 +2,10 @@ mod catalog;
 mod codec;
 mod conversation;
 mod prompt;
+mod search;
 mod snapshot;
+
+pub use search::{ConversationSearchEntry, ConversationSearchIndex, ConversationSearchSource};
 
 use std::{
     error::Error,
@@ -58,6 +61,7 @@ pub struct StorageSnapshot {
     pub models: Vec<Model>,
     pub prompt_presets: Vec<PromptPreset>,
     pub conversations: Vec<Conversation>,
+    pub conversation_search: ConversationSearchIndex,
     pub current_turns: Vec<Turn>,
     pub current_requests: Vec<RequestInfo>,
     pub settings: AppSettings,

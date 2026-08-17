@@ -4,7 +4,7 @@ use crate::domain::{
     AutoTitleState, MessageStatus, RequestKind, RequestStatus, ToolExecutionStatus, now_timestamp,
 };
 
-use super::{Result, Storage, StorageSnapshot};
+use super::{ConversationSearchIndex, Result, Storage, StorageSnapshot};
 
 impl Storage {
     pub(super) fn load_snapshot_locked(&self) -> Result<StorageSnapshot> {
@@ -60,6 +60,11 @@ impl Storage {
             })
             .unwrap_or_default();
 
+        let mut conversation_search = ConversationSearchIndex::default();
+        for file in &files {
+            conversation_search.insert_conversation(file.conversation.id.clone(), &file.turns);
+        }
+
         let providers = settings.providers;
         let mut models = settings.models;
         models.sort_by(|a, b| {
@@ -84,6 +89,7 @@ impl Storage {
             models,
             prompt_presets,
             conversations,
+            conversation_search,
             current_turns,
             current_requests,
             settings: settings.app,

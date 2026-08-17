@@ -18,6 +18,8 @@ pub(in crate::desktop::ui::chat) fn render_user_turn(
     animated_message(
         render_user_message(app, turn, message_max_width, scale_factor, typography, cx),
         format!("user-{}", turn.id),
+        app.chat.search_highlight_id.as_deref() == Some(turn.id.as_str()),
+        cx,
     )
 }
 

@@ -15,7 +15,7 @@ pub(super) fn render_sidebar(
     animated_titles: &HashMap<String, String>,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    let groups = app.conversation_groups(cx);
+    let groups = app.conversation_groups();
     let current_id = app.current_conversation_id().map(str::to_owned);
     let mut list = div()
         .id("conversation-list")
@@ -32,13 +32,7 @@ pub(super) fn render_sidebar(
                 .py_5()
                 .text_sm()
                 .text_color(cx.theme().muted_foreground)
-                .child(
-                    if app.sidebar.search_input.read(cx).value().trim().is_empty() {
-                        "No conversations yet"
-                    } else {
-                        "No matching conversations"
-                    },
-                ),
+                .child("No conversations yet"),
         );
     } else {
         for (group, conversations) in groups {
@@ -74,13 +68,15 @@ pub(super) fn render_sidebar(
         .border_r_1()
         .border_color(cx.theme().border)
         .bg(cx.theme().sidebar)
-        .child(render_sidebar_header(app, cx))
+        .child(render_sidebar_header(cx))
         .child(list)
         .child(render_sidebar_footer(app, cx))
         .into_any_element()
 }
 
-fn render_sidebar_header(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
+fn render_sidebar_header(cx: &mut Context<OneChat>) -> AnyElement {
+    let search_hover = crate::desktop::ui::theme::palette(cx).secondary_hover;
+    let search_active = crate::desktop::ui::theme::palette(cx).secondary_active;
     let new_conversation = icon_button("new-conversation", AppIcon::Compose, IconTone::Muted, cx);
     #[cfg(target_os = "macos")]
     let new_conversation = new_conversation
@@ -154,12 +150,43 @@ fn render_sidebar_header(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement
                 ),
         )
         .child(
-            Input::new(&app.sidebar.search_input)
-                .prefix(render_icon(AppIcon::Search, IconTone::Muted, 16.0, cx))
-                .cleanable(true)
+            div()
+                .id("open-conversation-search")
+                .role(gpui::Role::Button)
                 .aria_label("Search conversations")
                 .h(px(40.0))
-                .text_base(),
+                .px_3()
+                .rounded(px(10.0))
+                .border_1()
+                .border_color(cx.theme().border)
+                .bg(crate::desktop::ui::theme::palette(cx).raised)
+                .cursor_pointer()
+                .flex()
+                .items_center()
+                .gap_2()
+                .text_base()
+                .text_color(cx.theme().muted_foreground)
+                .hover(move |style| style.bg(search_hover))
+                .active(move |style| style.bg(search_active))
+                .on_click(
+                    cx.listener(|this, _, window, cx| this.open_conversation_search(window, cx)),
+                )
+                .child(render_icon(AppIcon::Search, IconTone::Muted, 16.0, cx))
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex_1()
+                        .overflow_hidden()
+                        .whitespace_nowrap()
+                        .text_ellipsis()
+                        .child("Search chats"),
+                )
+                .child(
+                    div()
+                        .text_size(px(11.0))
+                        .text_color(cx.theme().muted_foreground)
+                        .child(shortcut_label("F")),
+                ),
         )
         .into_any_element()
 }

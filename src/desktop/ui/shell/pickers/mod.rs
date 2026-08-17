@@ -1,21 +1,20 @@
 use gpui::{
-    AnyElement, App, Context, Entity, Focusable as _, FontWeight, IntoElement, MouseButton, Role,
+    AnyElement, App, Context, Entity, Focusable as _, FontWeight, IntoElement, MouseButton,
     SharedString, Task, Window, div, prelude::*, px,
 };
 use gpui_component::{
-    ActiveTheme as _, FocusTrapElement as _, Icon, IconName, IndexPath, Sizable as _,
-    WindowExt as _,
+    ActiveTheme as _, Icon, IconName, IndexPath, Sizable as _,
     button::{Button, ButtonVariants as _},
-    dialog::{Dialog, DialogFooter},
+    dialog::DialogFooter,
     list::{List, ListDelegate, ListItem, ListState},
 };
 
 use crate::{
     desktop::{
-        app::{OneChat, PaletteCommand, PickerOverlay},
+        app::{OneChat, PaletteCommand, ShellOverlay},
         ui::{
             icons::selected_check_badge, model::capability_summary as model_capability_summary,
-            motion::translated_y, text::summary as text_summary,
+            text::summary as text_summary,
         },
     },
     domain::Model,
@@ -90,37 +89,34 @@ impl<T: Clone> FlatPickerState<T> {
     }
 }
 
-pub(crate) fn command_palette_dialog(
-    dialog: Dialog,
-    list: Entity<ListState<CommandPaletteDelegate>>,
-    cx: &App,
-) -> Dialog {
-    let row_count = list.read(cx).delegate().row_count();
-    picker_dialog(
-        dialog,
-        640.0,
-        "Command Palette",
-        "Jump to an action without leaving the keyboard.",
-        cx,
-    )
-    .child(picker_list(
-        &list,
-        "Type a command…",
-        picker_height(row_count as f32 * 56.0),
-        cx,
-    ))
-    .footer(picker_help(cx))
-}
-
 pub(crate) fn render_picker_overlay(
     app: &OneChat,
-    picker: PickerOverlay,
+    picker: ShellOverlay,
     progress: f32,
     reduce_motion: bool,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let (width, title, subtitle, body, footer, focus) = match picker {
-        PickerOverlay::Model => {
+        ShellOverlay::CommandPalette => {
+            let list = app.overlays.command_picker.clone();
+            let row_count = list.read(cx).delegate().row_count();
+            (
+                640.0,
+                "Command Palette",
+                "Jump to an action without leaving the keyboard.",
+                picker_list(
+                    &list,
+                    "Type a command…",
+                    picker_height(row_count as f32 * 56.0),
+                    cx,
+                )
+                .into_any_element(),
+                picker_help(cx).into_any_element(),
+                list.read(cx).focus_handle(cx),
+            )
+        }
+        ShellOverlay::ConversationSearch => unreachable!("search has a dedicated overlay"),
+        ShellOverlay::ModelPicker => {
             let list = app.overlays.model_picker.clone();
             let adding_response = app.overlays.response_model_turn_id.is_some();
             let content_height = list.read(cx).delegate().content_height();
@@ -142,7 +138,7 @@ pub(crate) fn render_picker_overlay(
                 list.read(cx).focus_handle(cx),
             )
         }
-        PickerOverlay::Reasoning => {
+        ShellOverlay::ReasoningPicker => {
             let list = app.overlays.reasoning_picker.clone();
             let row_count = list.read(cx).delegate().row_count();
             (
@@ -160,7 +156,7 @@ pub(crate) fn render_picker_overlay(
                 list.read(cx).focus_handle(cx),
             )
         }
-        PickerOverlay::Prompt => {
+        ShellOverlay::PromptPicker => {
             let list = app.overlays.prompt_picker.clone();
             let row_count = list.read(cx).delegate().row_count();
             let footer = DialogFooter::new()
@@ -174,7 +170,7 @@ pub(crate) fn render_picker_overlay(
                         .p_0()
                         .icon(IconName::Settings2)
                         .on_click(cx.listener(|this, _, _, cx| {
-                            this.close_picker_overlay(true, cx);
+                            this.close_shell_overlay(true, cx);
                             this.open_prompt_settings(cx);
                         })),
                 )
@@ -203,100 +199,30 @@ pub(crate) fn render_picker_overlay(
         }
     };
 
-    let panel = div()
-        .id("picker-overlay-panel")
-        .role(Role::Dialog)
-        .aria_label(title)
-        .track_focus(&focus)
-        .focus_trap("picker-overlay-focus", &focus)
-        .w(px(width))
-        .p(px(22.0))
-        .rounded(px(22.0))
-        .border_1()
-        .border_color(cx.theme().border)
-        .bg(crate::desktop::ui::theme::palette(cx).overlay_panel)
-        .shadow_xl()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .on_any_mouse_down(|_, _, cx| cx.stop_propagation())
-        .child(picker_header(
-            title,
-            subtitle,
-            Button::new("close-picker-overlay")
-                .ghost()
-                .tooltip("Close")
-                .size(px(36.0))
-                .p_0()
-                .rounded(px(11.0))
-                .child(Icon::new(IconName::Close).size(px(18.0)))
-                .on_click(cx.listener(|this, _, _, cx| this.close_picker_overlay(true, cx))),
-            cx,
-        ))
-        .child(body)
-        .child(footer);
-    let offset = if reduce_motion {
-        0.0
-    } else {
-        -8.0 * (1.0 - progress)
-    };
-
-    div()
-        .id("picker-overlay")
-        .absolute()
-        .top_0()
-        .right_0()
-        .bottom_0()
-        .left_0()
-        .occlude()
-        .bg(cx.theme().overlay)
-        .opacity(progress)
+    let panel =
+        super::floating_overlay::panel("picker-overlay-panel", title, &focus, width, 22.0, cx)
+            .gap_2()
+            .child(picker_header(
+                title,
+                subtitle,
+                Button::new("close-picker-overlay")
+                    .ghost()
+                    .tooltip("Close")
+                    .size(px(36.0))
+                    .p_0()
+                    .rounded(px(11.0))
+                    .child(Icon::new(IconName::Close).size(px(18.0)))
+                    .on_click(cx.listener(|this, _, _, cx| this.close_shell_overlay(true, cx))),
+                cx,
+            ))
+            .child(body)
+            .child(footer);
+    super::floating_overlay::backdrop("picker-overlay", panel, progress, reduce_motion, cx)
         .on_mouse_down(
             MouseButton::Left,
-            cx.listener(|this, _, _, cx| this.close_picker_overlay(true, cx)),
-        )
-        .child(
-            div()
-                .absolute()
-                .top(px(68.0))
-                .left_0()
-                .right_0()
-                .flex()
-                .justify_center()
-                .child(translated_y(panel, px(offset))),
+            cx.listener(|this, _, _, cx| this.close_shell_overlay(true, cx)),
         )
         .into_any_element()
-}
-
-fn picker_dialog(
-    dialog: Dialog,
-    width: f32,
-    title: &'static str,
-    subtitle: &'static str,
-    cx: &App,
-) -> Dialog {
-    dialog
-        .width(px(width))
-        .margin_top(px(56.0))
-        .p(px(22.0))
-        .rounded(px(22.0))
-        .border_color(cx.theme().border)
-        .bg(crate::desktop::ui::theme::palette(cx).overlay_panel)
-        .shadow_xl()
-        .close_button(false)
-        .title(picker_header(
-            title,
-            subtitle,
-            Button::new("close-picker-dialog")
-                .ghost()
-                .tooltip("Close")
-                .size(px(36.0))
-                .p_0()
-                .rounded(px(11.0))
-                .child(Icon::new(IconName::Close).size(px(18.0)))
-                .on_click(|_, window, cx| window.close_dialog(cx)),
-            cx,
-        ))
 }
 
 fn picker_header(
@@ -346,6 +272,7 @@ fn picker_list<D: ListDelegate + 'static>(
         .large()
         .search_placeholder(placeholder)
         .h(px(height))
+        .min_h_0()
         .w_full()
         .p_2()
         .rounded(px(14.0))
@@ -360,7 +287,7 @@ fn picker_height(content_height: f32) -> f32 {
     (61.0 + content_height).clamp(180.0, 420.0)
 }
 
-fn picker_help(cx: &App) -> impl IntoElement {
+pub(super) fn picker_help(cx: &App) -> impl IntoElement {
     DialogFooter::new()
         .justify_between()
         .pt_1()

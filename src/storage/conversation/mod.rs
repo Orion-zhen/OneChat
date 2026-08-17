@@ -281,6 +281,48 @@ impl Storage {
         })
     }
 
+    pub fn select_turn_path(&self, conversation_id: &str, turn_id: &str) -> Result<()> {
+        self.edit_conversation(conversation_id, |file| {
+            let mut path = Vec::new();
+            let mut current_id = turn_id.to_string();
+            loop {
+                let turn = file
+                    .turns
+                    .iter()
+                    .find(|turn| turn.id == current_id)
+                    .ok_or_else(|| missing("turn", &current_id))?;
+                path.push((turn.id.clone(), turn.parent_response_id.clone()));
+                let Some(parent_response_id) = &turn.parent_response_id else {
+                    break;
+                };
+                current_id = file
+                    .turns
+                    .iter()
+                    .find(|candidate| candidate.response(parent_response_id).is_some())
+                    .ok_or_else(|| missing("parent response", parent_response_id))?
+                    .id
+                    .clone();
+            }
+
+            for (selected_id, parent_response_id) in path.iter().rev() {
+                for turn in &mut file.turns {
+                    if turn.parent_response_id == *parent_response_id {
+                        turn.selected = turn.id == *selected_id;
+                    }
+                }
+                if let Some(parent_response_id) = parent_response_id
+                    && let Some(parent) = file
+                        .turns
+                        .iter_mut()
+                        .find(|turn| turn.response(parent_response_id).is_some())
+                {
+                    parent.continuation_response_id = Some(parent_response_id.clone());
+                }
+            }
+            Ok(())
+        })
+    }
+
     pub(super) fn clear_conversation_models(&self, removed_models: &[String]) -> Result<()> {
         if removed_models.is_empty() {
             return Ok(());

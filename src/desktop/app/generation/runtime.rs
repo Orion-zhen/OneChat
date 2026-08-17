@@ -322,6 +322,16 @@ impl OneChat {
                                 &response,
                                 &request,
                             );
+                            if terminal {
+                                this.data
+                                    .snapshot
+                                    .conversation_search
+                                    .update_assistant_response(
+                                        &conversation_id,
+                                        &request.turn_id,
+                                        &response,
+                                    );
+                            }
                             if visible {
                                 for reasoning_id in finished_reasoning_ids {
                                     this.finish_thinking(reasoning_id);

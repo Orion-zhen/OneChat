@@ -7,10 +7,7 @@ use std::{
 
 use gpui::{Entity, FocusHandle, ScrollHandle, Task};
 use gpui_component::{
-    input::{InputState, TextareaState},
-    list::ListState,
-    select::SelectState,
-    slider::SliderState,
+    input::TextareaState, list::ListState, select::SelectState, slider::SliderState,
 };
 use tokio::runtime::Runtime;
 
@@ -36,8 +33,8 @@ use crate::{
                 ReasoningPresetSelectItem, SearchableItems, SettingsSection,
             },
             shell::{
-                CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate,
-                ReasoningPickerDelegate,
+                CommandPaletteDelegate, ConversationSearchDelegate, ModelPickerDelegate,
+                PromptPickerDelegate, ReasoningPickerDelegate,
             },
             stream::HorizontalScrollRegistry,
         },
@@ -100,7 +97,6 @@ pub(crate) struct ConversationPeekState {
 
 pub(crate) struct SidebarState {
     pub(crate) width: f32,
-    pub(crate) search_input: Entity<InputState>,
     pub(crate) hovered_conversation_id: Option<String>,
     pub(crate) generation_border_epoch: Instant,
     pub(crate) unseen_generations: HashMap<String, UnseenGeneration>,
@@ -150,20 +146,30 @@ impl SidebarState {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum PickerOverlay {
-    Model,
-    Prompt,
-    Reasoning,
+pub(crate) enum ShellOverlay {
+    CommandPalette,
+    ConversationSearch,
+    ModelPicker,
+    PromptPicker,
+    ReasoningPicker,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct SearchTarget {
+    pub(crate) conversation_id: String,
+    pub(crate) turn_id: String,
+    pub(crate) response_id: Option<String>,
 }
 
 pub(crate) struct OverlayState {
     pub(crate) command_picker: Entity<ListState<CommandPaletteDelegate>>,
+    pub(crate) conversation_search: Entity<ListState<ConversationSearchDelegate>>,
     pub(crate) model_picker: Entity<ListState<ModelPickerDelegate>>,
     pub(crate) prompt_picker: Entity<ListState<PromptPickerDelegate>>,
     pub(crate) reasoning_picker: Entity<ListState<ReasoningPickerDelegate>>,
-    pub(crate) picker: Option<PickerOverlay>,
-    pub(crate) picker_motion: VisibilityMotion,
-    pub(crate) picker_previous_focus: Option<FocusHandle>,
+    pub(crate) active: Option<ShellOverlay>,
+    pub(crate) motion: VisibilityMotion,
+    pub(crate) previous_focus: Option<FocusHandle>,
     pub(crate) response_model_turn_id: Option<String>,
     pub(crate) destructive_action: Option<DestructiveAction>,
 }
@@ -189,6 +195,8 @@ pub(crate) struct ChatState {
     pub(super) transient_conversation_id: Option<String>,
     pub(super) selected_request_id: Option<String>,
     pub(crate) visible_response_ids: HashMap<String, String>,
+    pub(super) pending_search_target: Option<SearchTarget>,
+    pub(crate) search_highlight_id: Option<String>,
     pub(super) expanded_error_ids: HashSet<String>,
     pub(super) thinking_expansion_overrides: HashSet<String>,
     pub(super) expanded_tool_execution_ids: HashSet<String>,

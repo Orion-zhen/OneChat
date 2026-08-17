@@ -180,3 +180,85 @@ fn conversations_branch_fork_and_keep_attachment_content() {
     assert!(!attachment_path.exists());
     assert!(document_paths.iter().all(|path| !path.exists()));
 }
+
+#[test]
+fn conversation_search_indexes_messages_and_can_restore_a_branch_path() {
+    let (_directory, storage) = open_storage();
+    let (provider, model) = catalog(&storage);
+    let conversation = Conversation::new("Searchable", Some(&model), "secret system prompt");
+    storage.insert_conversation(&conversation).unwrap();
+    storage
+        .save_settings(&AppSettings {
+            current_conversation_id: Some(conversation.id.clone()),
+            ..AppSettings::default()
+        })
+        .unwrap();
+
+    let root = prepare_turn(
+        &storage,
+        &conversation,
+        &provider,
+        &model,
+        &[],
+        None,
+        UserMessage::new("user needle", Vec::new()),
+    );
+    let (_, root_response_id) = begin_and_complete(&storage, root, "assistant needle");
+
+    let turns = storage.load_snapshot().unwrap().current_turns;
+    let first_branch = prepare_turn(
+        &storage,
+        &conversation,
+        &provider,
+        &model,
+        &turns,
+        Some(root_response_id.clone()),
+        UserMessage::new("first branch needle", Vec::new()),
+    );
+    let (first_branch, _) = begin_and_complete(&storage, first_branch, "first branch answer");
+
+    let turns = storage.load_snapshot().unwrap().current_turns;
+    let second_branch = prepare_turn(
+        &storage,
+        &conversation,
+        &provider,
+        &model,
+        &turns,
+        Some(root_response_id),
+        UserMessage::new("second branch needle", Vec::new()),
+    );
+    let (second_branch, _) = begin_and_complete(&storage, second_branch, "second branch answer");
+
+    let snapshot = storage.load_snapshot().unwrap();
+    let entries = snapshot.conversation_search.entries(&conversation.id);
+    assert!(
+        entries
+            .iter()
+            .any(|entry| entry.matches_normalized("user needle"))
+    );
+    assert!(
+        entries
+            .iter()
+            .any(|entry| entry.matches_normalized("assistant needle"))
+    );
+    assert!(
+        entries
+            .iter()
+            .any(|entry| entry.matches_normalized("first branch needle"))
+    );
+    assert!(
+        !entries
+            .iter()
+            .any(|entry| entry.matches_normalized("secret system prompt"))
+    );
+
+    storage
+        .select_turn_path(&conversation.id, &first_branch.id)
+        .unwrap();
+    let snapshot = storage.load_snapshot().unwrap();
+    assert_eq!(active_turns(&snapshot.current_turns)[1].id, first_branch.id);
+    assert_ne!(
+        active_turns(&snapshot.current_turns)[1].id,
+        second_branch.id
+    );
+}

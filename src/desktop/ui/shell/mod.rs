@@ -1,8 +1,11 @@
 mod chat_page;
 #[cfg(target_os = "macos")]
 mod conversation_peek;
+mod floating_overlay;
 mod pickers;
 mod runtime;
+mod search;
+mod search_delegate;
 mod sidebar;
 mod top_bar;
 
@@ -13,9 +16,9 @@ use chat_page::render_chat_page;
 use conversation_peek::render_conversation_peek;
 pub(crate) use pickers::{
     CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate, ReasoningPickerDelegate,
-    command_palette_dialog,
 };
 use runtime::prepare_render;
+pub(crate) use search_delegate::{ConversationSearchDelegate, ConversationSearchResult};
 use sidebar::render_sidebar;
 use top_bar::render_top_bar;
 
@@ -68,6 +71,7 @@ actions!(
         OpenSettings,
         SaveSettingsEdit,
         ShowCommandPalette,
+        ShowConversationSearch,
         ShowModelPicker,
         #[cfg(target_os = "macos")]
         ToggleFullScreen,
@@ -95,6 +99,7 @@ pub fn init(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new(&shortcut("n"), NewConversation, Some("OneChat")),
         KeyBinding::new(&shortcut("k"), ShowCommandPalette, Some("OneChat")),
+        KeyBinding::new(&shortcut("f"), ShowConversationSearch, Some("OneChat")),
         KeyBinding::new(&shortcut("l"), ShowModelPicker, Some("OneChat")),
         KeyBinding::new(&shortcut("shift-s"), ToggleSidebar, Some("OneChat")),
         KeyBinding::new(&shortcut(","), OpenSettings, Some("OneChat")),
@@ -172,11 +177,11 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         .navigation
         .inspector_motion
         .progress(window, reduce_motion);
-    let picker_progress = app.overlays.picker_motion.progress(window, false);
+    let overlay_progress = app.overlays.motion.progress(window, reduce_motion);
     let tts_inspector_progress = app.tts.inspector_motion.progress(window, reduce_motion);
-    if app.overlays.picker.is_some() && app.overlays.picker_motion.is_hidden() {
-        app.overlays.picker = None;
-        if let Some(focus) = app.overlays.picker_previous_focus.take() {
+    if app.overlays.active.is_some() && app.overlays.motion.is_hidden() {
+        app.overlays.active = None;
+        if let Some(focus) = app.overlays.previous_focus.take() {
             window.focus(&focus, cx);
         }
     }
@@ -191,8 +196,11 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
     if app.chat.context_usage_popover_open && app.chat.context_usage_popover_motion.is_hidden() {
         app.chat.context_usage_popover_open = false;
     }
-    let picker_overlay = app.overlays.picker.map(|picker| {
-        pickers::render_picker_overlay(app, picker, picker_progress, reduce_motion, cx)
+    let shell_overlay = app.overlays.active.map(|overlay| match overlay {
+        crate::desktop::app::ShellOverlay::ConversationSearch => {
+            search::render_conversation_search_overlay(app, overlay_progress, reduce_motion, cx)
+        }
+        _ => pickers::render_picker_overlay(app, overlay, overlay_progress, reduce_motion, cx),
     });
     let jump_to_latest_visible = app.navigation.page == Page::Chat
         && app.current_conversation().is_some()
@@ -360,6 +368,9 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         .on_action(cx.listener(|this, _: &ShowCommandPalette, window, cx| {
             this.open_command_palette(window, cx)
         }))
+        .on_action(cx.listener(|this, _: &ShowConversationSearch, window, cx| {
+            this.open_conversation_search(window, cx)
+        }))
         .on_action(cx.listener(|this, _: &ShowModelPicker, window, cx| {
             this.open_model_picker_immediate(window, cx)
         }))
@@ -402,6 +413,6 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         .children(conversation_peek)
         .children(inspector)
         .children(tts_inspector)
-        .children(picker_overlay)
+        .children(shell_overlay)
         .into_any_element()
 }

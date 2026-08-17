@@ -143,7 +143,10 @@ impl OneChat {
                 self.sync_tool_execution_expansions();
                 self.refresh_markdown_documents(cx);
             }
-            Err(error) => self.data.error = Some(format!("Storage error: {error}")),
+            Err(error) => {
+                self.chat.pending_search_target = None;
+                self.data.error = Some(format!("Storage error: {error}"));
+            }
         }
     }
 

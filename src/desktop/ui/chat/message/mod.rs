@@ -209,11 +209,16 @@ fn animated_editor(card: AnyElement, id: SharedString, cx: &App) -> AnyElement {
     }
 }
 
-fn animated_message(message: AnyElement, id: String) -> AnyElement {
+fn animated_message(message: AnyElement, id: String, highlighted: bool, cx: &App) -> AnyElement {
     div()
         .id(SharedString::from(format!("message-anchor-{id}")))
         .relative()
         .w_full()
+        .when(highlighted, |message| {
+            message
+                .rounded(px(16.0))
+                .bg(crate::desktop::ui::theme::palette(cx).accent_soft)
+        })
         .child(message)
         .with_animation(
             SharedString::from(format!("message-appear-{id}")),

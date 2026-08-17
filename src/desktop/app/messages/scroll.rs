@@ -1,9 +1,80 @@
+use std::time::Duration;
+
 use gpui::{Context, ScrollWheelEvent, Window, px};
 
 use super::super::{MessageEditorTarget, OneChat, SystemPromptMode};
 use crate::desktop::ui::stream::follow_after_scroll;
 
 impl OneChat {
+    pub(crate) fn resolve_pending_search_jump(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(target) = self.chat.pending_search_target.clone() else {
+            return;
+        };
+        if self.current_conversation_id() != Some(target.conversation_id.as_str()) {
+            self.chat.pending_search_target = None;
+            return;
+        }
+        if let Some(response_id) = &target.response_id
+            && self
+                .data
+                .snapshot
+                .current_turns
+                .iter()
+                .find(|turn| turn.id == target.turn_id)
+                .is_some_and(|turn| turn.response(response_id).is_some())
+        {
+            self.chat
+                .visible_response_ids
+                .insert(target.turn_id.clone(), response_id.clone());
+        }
+
+        let has_prompt_setup = self.current_conversation().is_some_and(|conversation| {
+            !conversation.system_prompt.trim().is_empty()
+                || !conversation.assistant_opening.trim().is_empty()
+        }) || self.chat.system_prompt_mode == SystemPromptMode::Editing;
+        let mut item = usize::from(has_prompt_setup);
+        let mut target_item = None;
+        for turn in self.current_turns() {
+            if turn.id == target.turn_id {
+                target_item = Some(item + usize::from(target.response_id.is_some()));
+                break;
+            }
+            item += 1 + usize::from(self.visible_response(turn).is_some());
+        }
+        let Some(item) = target_item else {
+            window.request_animation_frame();
+            return;
+        };
+        if self.chat.message_scroll.bounds_for_item(item).is_none() {
+            window.request_animation_frame();
+            return;
+        }
+
+        self.chat.pending_search_target = None;
+        let highlight_id = target
+            .response_id
+            .clone()
+            .unwrap_or_else(|| target.turn_id.clone());
+        self.chat.search_highlight_id = Some(highlight_id.clone());
+        self.jump_to_timeline_item(item, cx);
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(Duration::from_millis(1_200))
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                if this.chat.search_highlight_id.as_deref() == Some(highlight_id.as_str()) {
+                    this.chat.search_highlight_id = None;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+
     fn message_editor_item(&self) -> Option<usize> {
         let target = &self.chat.message_editor.as_ref()?.target;
         let has_prompt_setup = self.current_conversation().is_some_and(|conversation| {

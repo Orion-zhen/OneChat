@@ -99,7 +99,7 @@ pub(in crate::desktop::ui::chat) fn render_assistant_opening(
                 )
         }))
         .into_any_element();
-    animated_message(message, message_id)
+    animated_message(message, message_id, false, cx)
 }
 
 fn render_opening_editor(

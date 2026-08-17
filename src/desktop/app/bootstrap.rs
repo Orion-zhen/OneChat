@@ -7,8 +7,7 @@ use std::{
 
 use gpui::{Context, Entity, ScrollHandle, Task, Window, prelude::*};
 use gpui_component::{
-    WindowExt as _,
-    input::{InputEvent, InputState, TextareaState},
+    input::{InputEvent, TextareaState},
     list::{ListEvent, ListState},
     select::{SelectEvent, SelectState},
     slider::{SliderEvent, SliderState},
@@ -34,8 +33,8 @@ use crate::{
                 SearchableItems, SettingsSection, ThemeColorControl,
             },
             shell::{
-                CommandPaletteDelegate, ModelPickerDelegate, PromptPickerDelegate,
-                ReasoningPickerDelegate,
+                CommandPaletteDelegate, ConversationSearchDelegate, ModelPickerDelegate,
+                PromptPickerDelegate, ReasoningPickerDelegate,
             },
         },
     },
@@ -60,12 +59,12 @@ impl OneChat {
         let timeline_focus = cx.focus_handle().tab_stop(true);
         let applied_component_theme = None;
         let InputControls {
-            search_input,
             composer,
             mcp_json_import,
         } = input_controls(window, cx);
         let PickerControls {
             command_picker,
+            conversation_search,
             model_picker,
             prompt_picker,
             reasoning_picker,
@@ -117,7 +116,6 @@ impl OneChat {
             },
             sidebar: SidebarState {
                 width: SIDEBAR_WIDTH,
-                search_input,
                 hovered_conversation_id: None,
                 generation_border_epoch: Instant::now(),
                 unseen_generations: HashMap::new(),
@@ -135,12 +133,13 @@ impl OneChat {
             },
             overlays: OverlayState {
                 command_picker,
+                conversation_search,
                 model_picker,
                 prompt_picker,
                 reasoning_picker,
-                picker: None,
-                picker_motion: VisibilityMotion::new(false),
-                picker_previous_focus: None,
+                active: None,
+                motion: VisibilityMotion::new(false),
+                previous_focus: None,
                 response_model_turn_id: None,
                 destructive_action: None,
             },
@@ -150,6 +149,8 @@ impl OneChat {
                 transient_conversation_id: None,
                 selected_request_id: None,
                 visible_response_ids: HashMap::new(),
+                pending_search_target: None,
+                search_highlight_id: None,
                 expanded_error_ids: HashSet::new(),
                 thinking_expansion_overrides: HashSet::new(),
                 expanded_tool_execution_ids: HashSet::new(),

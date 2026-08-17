@@ -24,7 +24,7 @@ pub(crate) use playback::{attachment_source_id, tts_combined_source_id, tts_segm
 #[cfg(target_os = "macos")]
 pub(crate) use state::ConversationPeekContent;
 use state::*;
-pub(crate) use state::{GenerationBorderClock, PickerOverlay};
+pub(crate) use state::{GenerationBorderClock, SearchTarget, ShellOverlay};
 pub(crate) use tts::{TtsOperationKind, TtsState};
 
 use std::{
@@ -260,7 +260,7 @@ impl PaletteCommand {
         match self {
             Self::NewConversation => "Start a local conversation",
             Self::ChooseModel => "Choose a conversation model or change the primary model",
-            Self::FocusConversationSearch => "Filter conversations by title",
+            Self::FocusConversationSearch => "Search conversation titles and messages",
             Self::ToggleSidebar => "Expand or collapse conversation navigation",
             Self::ToggleInspector => "Show or hide model, context, and request info",
             Self::EditSystemPrompt => "Customize the system prompt and assistant opening",
@@ -274,7 +274,7 @@ impl PaletteCommand {
         match self {
             Self::NewConversation => "new create conversation chat",
             Self::ChooseModel => "model provider llm select choose",
-            Self::FocusConversationSearch => "search find conversation title",
+            Self::FocusConversationSearch => "search find conversation title message content",
             Self::ToggleSidebar => "sidebar navigation collapse expand",
             Self::ToggleInspector => "inspector parameters context info",
             Self::EditSystemPrompt => "prompt setup system instructions assistant opening edit",
@@ -308,7 +308,6 @@ mod palette_command_tests {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PendingFocus {
     Root,
-    ConversationSearch,
     SystemPrompt,
     AssistantOpening,
     SettingsPrompt,

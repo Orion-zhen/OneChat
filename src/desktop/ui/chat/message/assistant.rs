@@ -28,6 +28,8 @@ pub(in crate::desktop::ui::chat) fn render_assistant_turn(
             cx,
         ),
         format!("assistant-{}", response.id),
+        app.chat.search_highlight_id.as_deref() == Some(response.id.as_str()),
+        cx,
     )
 }
 

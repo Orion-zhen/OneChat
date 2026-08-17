@@ -1,20 +1,11 @@
 use super::*;
 
 pub(super) struct InputControls {
-    pub(super) search_input: Entity<InputState>,
     pub(super) composer: Entity<TextareaState>,
     pub(super) mcp_json_import: Entity<TextareaState>,
 }
 
 pub(super) fn input_controls(window: &mut Window, cx: &mut Context<OneChat>) -> InputControls {
-    let search_input = cx.new(|cx| InputState::new(window, cx).placeholder("Search"));
-    cx.subscribe(&search_input, |_, _, event: &InputEvent, cx| {
-        if matches!(event, InputEvent::Change) {
-            cx.notify();
-        }
-    })
-    .detach();
-
     let composer = cx.new(|cx| {
         TextareaState::new(window, cx)
             .auto_grow(1, 8)
@@ -39,7 +30,6 @@ pub(super) fn input_controls(window: &mut Window, cx: &mut Context<OneChat>) -> 
             .placeholder("Paste a JSON or JSONC object containing mcpServers")
     });
     InputControls {
-        search_input,
         composer,
         mcp_json_import,
     }
@@ -47,6 +37,7 @@ pub(super) fn input_controls(window: &mut Window, cx: &mut Context<OneChat>) -> 
 
 pub(super) struct PickerControls {
     pub(super) command_picker: Entity<ListState<CommandPaletteDelegate>>,
+    pub(super) conversation_search: Entity<ListState<ConversationSearchDelegate>>,
     pub(super) model_picker: Entity<ListState<ModelPickerDelegate>>,
     pub(super) prompt_picker: Entity<ListState<PromptPickerDelegate>>,
     pub(super) reasoning_picker: Entity<ListState<ReasoningPickerDelegate>>,
@@ -64,8 +55,25 @@ pub(super) fn picker_controls(window: &mut Window, cx: &mut Context<OneChat>) ->
             };
             let command = picker.read(cx).delegate().command(*index);
             if let Some(command) = command {
-                window.close_dialog(cx);
+                this.close_shell_overlay_immediate(window, cx);
                 this.execute_command(command, window, cx);
+            }
+        },
+    )
+    .detach();
+
+    let conversation_search = cx
+        .new(|cx| ListState::new(ConversationSearchDelegate::empty(), window, cx).searchable(true));
+    cx.subscribe_in(
+        &conversation_search,
+        window,
+        |this, search, event: &ListEvent, _, cx| {
+            let ListEvent::Confirm(index) = event else {
+                return;
+            };
+            let result = search.read(cx).delegate().result(*index);
+            if let Some(result) = result {
+                this.open_conversation_search_result(result, cx);
             }
         },
     )
@@ -83,7 +91,7 @@ pub(super) fn picker_controls(window: &mut Window, cx: &mut Context<OneChat>) ->
             let model_id = picker.read(cx).delegate().selected_model_id(*index);
             if let Some(model_id) = model_id {
                 this.select_model(model_id, cx);
-                this.close_picker_overlay(true, cx);
+                this.close_shell_overlay(true, cx);
             }
         },
     )
@@ -101,7 +109,7 @@ pub(super) fn picker_controls(window: &mut Window, cx: &mut Context<OneChat>) ->
             let name = picker.read(cx).delegate().selected_name(*index);
             if let Some(name) = name {
                 this.select_prompt_preset(name, cx);
-                this.close_picker_overlay(true, cx);
+                this.close_shell_overlay(true, cx);
             }
         },
     )
@@ -119,7 +127,7 @@ pub(super) fn picker_controls(window: &mut Window, cx: &mut Context<OneChat>) ->
             let preset = picker.read(cx).delegate().selected_id(*index);
             if let Some(preset) = preset {
                 this.select_reasoning_preset(Some(preset), cx);
-                this.close_picker_overlay(true, cx);
+                this.close_shell_overlay(true, cx);
             }
         },
     )
@@ -127,6 +135,7 @@ pub(super) fn picker_controls(window: &mut Window, cx: &mut Context<OneChat>) ->
 
     PickerControls {
         command_picker,
+        conversation_search,
         model_picker,
         prompt_picker,
         reasoning_picker,

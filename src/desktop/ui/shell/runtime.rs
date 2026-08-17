@@ -57,9 +57,6 @@ pub(super) fn prepare_render(
         }
         let focus = match pending {
             PendingFocus::Root => None,
-            PendingFocus::ConversationSearch => {
-                Some(app.sidebar.search_input.read(cx).focus_handle(cx))
-            }
             PendingFocus::SystemPrompt => app
                 .chat
                 .system_prompt_editor
@@ -104,6 +101,7 @@ pub(super) fn prepare_render(
     }
 
     if app.navigation.page == Page::Chat {
+        app.resolve_pending_search_jump(window, cx);
         app.advance_message_scroll(window);
         app.animated_titles(window)
     } else {
