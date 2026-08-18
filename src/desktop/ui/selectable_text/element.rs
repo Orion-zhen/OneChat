@@ -1,5 +1,6 @@
 use super::geometry::selection_quads;
 use super::*;
+use gpui::{Element, GlobalElementId, InspectorElementId, IntoElement, LayoutId};
 
 impl IntoElement for SelectableText {
     type Element = Self;
@@ -90,29 +91,18 @@ impl Element for SelectableText {
     ) -> Self::PrepaintState {
         self.text
             .prepaint(None, inspector_id, bounds, &mut (), window, cx);
-        self.selection.clear_if_unfocused(window);
-        let selected_range =
-            self.selection
-                .selected_range(&self.id, &self.source, &self.source_range);
-        let hitbox = self.selection.is_collecting().then(|| {
-            let hitbox = window.insert_hitbox(bounds, HitboxBehavior::Normal);
-            self.selection.register(
-                self.id.clone(),
-                self.source.clone(),
-                self.source_range.clone(),
-                self.text.layout().clone(),
-                request_state.clone(),
-                hitbox.clone(),
-            );
-            hitbox
-        });
-        let selection = selection_quads(
-            self.text.layout(),
-            &self.source[self.source_range.clone()],
-            &selected_range,
-            self.selection_color,
+        self.group.register_text_bounds(bounds);
+        #[cfg(target_os = "macos")]
+        self.group.register_region(
+            self.source.clone(),
+            self.source_range.clone(),
+            self.text.layout().clone(),
+            request_state.clone(),
+            bounds,
         );
-        PrepaintState { hitbox, selection }
+        #[cfg(not(target_os = "macos"))]
+        let _ = request_state;
+        PrepaintState
     }
 
     fn paint(
@@ -121,17 +111,25 @@ impl Element for SelectableText {
         inspector_id: Option<&InspectorElementId>,
         bounds: Bounds<Pixels>,
         _: &mut Self::RequestLayoutState,
-        prepaint: &mut Self::PrepaintState,
+        _: &mut Self::PrepaintState,
         window: &mut Window,
         cx: &mut App,
     ) {
-        if let Some(hitbox) = prepaint.hitbox.as_ref()
-            && hitbox.is_hovered(window)
-        {
-            window.set_cursor_style(CursorStyle::IBeam, hitbox);
-        }
-        for quad in prepaint.selection.drain(..) {
-            window.paint_quad(quad);
+        let text: SharedString = self.source[self.source_range.clone()].to_string().into();
+        let selected_range = self.group.project_text(
+            self.order,
+            self.section,
+            self.source_range.start,
+            text.clone(),
+            self.text.layout().clone(),
+            bounds,
+            window,
+            cx,
+        );
+        if let Some(range) = selected_range {
+            for quad in selection_quads(self.text.layout(), &range, self.selection_color) {
+                window.paint_quad(quad);
+            }
         }
         self.text
             .paint(None, inspector_id, bounds, &mut (), &mut (), window, cx);

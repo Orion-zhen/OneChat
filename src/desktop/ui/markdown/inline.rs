@@ -7,12 +7,12 @@ use gpui::{
 use unicode_linebreak::{BreakOpportunity, linebreaks};
 
 use super::{
-    InlineMetrics, MarkdownContext, MarkdownPalette, next_text_index, render_formula_element,
-    selectable,
+    InlineMetrics, MarkdownContext, MarkdownPalette, formula_copy_text, next_text_index,
+    render_formula_element, selectable,
 };
 use crate::{
     desktop::ui::{
-        selectable_text::{AdaptiveHighlight, SelectableText},
+        selectable_text::{AdaptiveHighlight, SelectableText, SelectionGroup},
         theme,
     },
     markdown::Inline,
@@ -25,7 +25,22 @@ pub(super) fn render_inlines(
     context: &MarkdownContext<'_>,
 ) -> AnyElement {
     let message_id = context.message_id;
-    let selection = context.selection;
+    let group_index = next_text_index(text_index);
+    let group = context
+        .selection
+        .group(format!("markdown-inline-{message_id}-{group_index}"));
+    let content = render_inlines_in_group(inlines, text_index, metrics, context, &group, 0);
+    group.wrap(content)
+}
+
+pub(super) fn render_inlines_in_group(
+    inlines: &[Inline],
+    text_index: &mut usize,
+    metrics: InlineMetrics,
+    context: &MarkdownContext<'_>,
+    group: &SelectionGroup,
+    section: u64,
+) -> AnyElement {
     let scale_factor = context.scale_factor;
     let palette = context.palette;
     let cx = context.cx;
@@ -34,7 +49,7 @@ pub(super) fn render_inlines(
         matches!(inline, Inline::Formula(_))
             || matches!(inline, Inline::Text { style, .. } if style.code)
     }) {
-        return render_mixed_inlines(inlines, text_index, metrics, context);
+        return render_mixed_inlines(inlines, text_index, metrics, context, group, section);
     }
 
     let mut elements = Vec::with_capacity(inlines.len());
@@ -49,14 +64,9 @@ pub(super) fn render_inlines(
                         .max_w_full()
                         .whitespace_normal()
                         .child(
-                            selectable(
-                                message_id,
-                                next_text_index(text_index),
-                                text.content,
-                                selection,
-                                palette,
-                            )
-                            .with_adaptive_highlights(highlights),
+                            selectable(group, next_text_index(text_index), text.content, palette)
+                                .section(section)
+                                .with_adaptive_highlights(highlights),
                         )
                         .into_any_element(),
                 );
@@ -74,12 +84,12 @@ pub(super) fn render_inlines(
                         .text_size(px(metrics.code_size()))
                         .child(
                             selectable(
-                                message_id,
+                                group,
                                 next_text_index(text_index),
                                 content.clone(),
-                                selection,
                                 palette,
                             )
+                            .section(section)
                             .with_adaptive_highlights([
                                 adaptive_highlight(
                                     0..content.len(),
@@ -94,7 +104,14 @@ pub(super) fn render_inlines(
                 inline_index += 1;
             }
             Inline::Formula(formula) => {
-                elements.push(render_formula_element(formula, scale_factor, metrics, cx));
+                let order = next_text_index(text_index) as u64;
+                elements.push(group.atom(
+                    order,
+                    section,
+                    formula_copy_text(formula),
+                    palette.selection,
+                    render_formula_element(formula, scale_factor, metrics, cx),
+                ));
                 inline_index += 1;
             }
             Inline::Break => {
@@ -119,7 +136,7 @@ const INLINE_ATOM: char = '\u{fffc}';
 
 struct FlowText {
     virtual_range: Range<usize>,
-    id: SharedString,
+    order: u64,
     source: SharedString,
     styles: Vec<(Range<usize>, crate::markdown::InlineStyle)>,
 }
@@ -150,9 +167,9 @@ fn render_mixed_inlines(
     text_index: &mut usize,
     metrics: InlineMetrics,
     context: &MarkdownContext<'_>,
+    group: &SelectionGroup,
+    section: u64,
 ) -> AnyElement {
-    let message_id = context.message_id;
-    let selection = context.selection;
     let scale_factor = context.scale_factor;
     let palette = context.palette;
     let cx = context.cx;
@@ -169,7 +186,7 @@ fn render_mixed_inlines(
                 virtual_source.push_str(&text.content);
                 parts.push(FlowPart::Text(FlowText {
                     virtual_range: start..virtual_source.len(),
-                    id: format!("message-text-{message_id}-{}", next_text_index(text_index)).into(),
+                    order: next_text_index(text_index) as u64,
                     source: text.content.into(),
                     styles: text.styles,
                 }));
@@ -181,7 +198,7 @@ fn render_mixed_inlines(
                 parts.push(FlowPart::Atom(FlowAtom {
                     virtual_range: start..virtual_source.len(),
                     element: Some(render_inline_code(
-                        content, *style, text_index, metrics, context,
+                        content, *style, text_index, metrics, context, group, section,
                     )),
                 }));
                 inline_index += 1;
@@ -189,9 +206,16 @@ fn render_mixed_inlines(
             Inline::Formula(formula) => {
                 let start = virtual_source.len();
                 virtual_source.push(INLINE_ATOM);
+                let order = next_text_index(text_index) as u64;
                 parts.push(FlowPart::Atom(FlowAtom {
                     virtual_range: start..virtual_source.len(),
-                    element: Some(render_formula_element(formula, scale_factor, metrics, cx)),
+                    element: Some(group.atom(
+                        order,
+                        section,
+                        formula_copy_text(formula),
+                        palette.selection,
+                        render_formula_element(formula, scale_factor, metrics, cx),
+                    )),
                 }));
                 inline_index += 1;
             }
@@ -225,12 +249,13 @@ fn render_mixed_inlines(
                     let highlights = text_highlights(&text.styles, source_range.clone(), palette);
                     unit.push(
                         SelectableText::fragment(
-                            text.id.clone(),
+                            group.clone(),
+                            text.order,
                             text.source.clone(),
                             source_range,
-                            selection.clone(),
                             palette.selection,
                         )
+                        .section(section)
                         .with_adaptive_highlights(highlights)
                         .into_any_element(),
                     );
@@ -280,9 +305,9 @@ fn render_inline_code(
     text_index: &mut usize,
     metrics: InlineMetrics,
     context: &MarkdownContext<'_>,
+    group: &SelectionGroup,
+    section: u64,
 ) -> AnyElement {
-    let message_id = context.message_id;
-    let selection = context.selection;
     let palette = context.palette;
     let cx = context.cx;
 
@@ -296,12 +321,12 @@ fn render_inline_code(
         .text_size(px(metrics.code_size()))
         .child(
             selectable(
-                message_id,
+                group,
                 next_text_index(text_index),
                 content.to_string(),
-                selection,
                 palette,
             )
+            .section(section)
             .with_adaptive_highlights([adaptive_highlight(
                 0..content.len(),
                 0..content.len(),

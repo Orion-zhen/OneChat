@@ -86,7 +86,7 @@ impl OneChat {
             ui_font_select,
             code_font_select,
         } = select_controls(window, cx);
-        let text_selection = TextSelection::new(cx.focus_handle());
+        let text_selection = TextSelection::new();
         let mcp_snapshot = McpSnapshot::empty(mcp.config_path());
         let mut this = Self {
             root_focus,

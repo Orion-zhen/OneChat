@@ -185,6 +185,10 @@ fn render_reasoning_text(
 ) -> AnyElement {
     let scroll = app.chat.thinking_scrolls.get(reasoning_id).cloned();
     let boundary_scroll = scroll.clone();
+    let selection_group = app
+        .chat
+        .text_selection
+        .group(format!("thinking-text-{reasoning_id}"));
     let body = div()
         .id(SharedString::from(format!(
             "thinking-content-{reasoning_id}"
@@ -192,12 +196,12 @@ fn render_reasoning_text(
         .whitespace_normal()
         .overflow_y_scroll()
         .pr_2()
-        .child(SelectableText::new(
-            SharedString::from(format!("thinking-text-{reasoning_id}")),
+        .child(selection_group.wrap(SelectableText::new(
+            selection_group.clone(),
+            0,
             content.to_string(),
-            app.chat.text_selection.clone(),
             selection_color(cx),
-        ));
+        )));
     let body = if let Some(scroll) = scroll.as_ref() {
         body.track_scroll(scroll)
     } else {

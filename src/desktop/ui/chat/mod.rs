@@ -145,13 +145,7 @@ pub(crate) fn render(
         !conversation.assistant_opening.is_empty() && !editing_prompt_setup;
     let show_prompt_setup = has_prompt_setup || editing_prompt_setup;
     let text_selection = app.chat.text_selection.clone();
-    text_selection.begin_frame();
-    let selection_focus = text_selection.focus_handle().clone();
-    let selection_mouse_down = text_selection.clone();
-    let selection_mouse_move = text_selection.clone();
-    let selection_mouse_up = text_selection.clone();
-    let selection_mouse_up_out = text_selection.clone();
-    let selection_copy = text_selection.clone();
+    text_selection.begin_frame(app.chat.message_scroll.clone());
     #[cfg(target_os = "macos")]
     let selection_pressure = text_selection.clone();
     let mut messages = div()
@@ -161,19 +155,7 @@ pub(crate) fn render(
         .overflow_y_scroll()
         .restrict_scroll_to_axis()
         .track_scroll(&app.chat.message_scroll)
-        .track_focus(&selection_focus)
         .on_scroll_wheel(cx.listener(OneChat::on_message_scroll))
-        .on_mouse_down(MouseButton::Left, move |event, window, cx| {
-            selection_mouse_down.mouse_down(event, window, cx)
-        })
-        .on_mouse_move(move |event, window, _| selection_mouse_move.mouse_move(event, window))
-        .on_mouse_up(MouseButton::Left, move |event, window, _| {
-            selection_mouse_up.mouse_up(event, window)
-        })
-        .on_mouse_up_out(MouseButton::Left, move |event, window, _| {
-            selection_mouse_up_out.mouse_up(event, window)
-        })
-        .on_key_down(move |event, window, cx| selection_copy.copy(event, window, cx))
         .px_6()
         .pt_7()
         .pb_6()

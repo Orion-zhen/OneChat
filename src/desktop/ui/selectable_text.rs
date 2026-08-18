@@ -1,65 +1,119 @@
-use std::{cell::RefCell, collections::HashMap, ops::Range, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, HashMap},
+    ops::Range,
+    rc::{Rc, Weak},
+    time::Duration,
+};
 
 use gpui::{
-    App, Bounds, ClipboardItem, CursorStyle, Element, ElementId, FocusHandle, Font, FontWeight,
-    GlobalElementId, HighlightStyle, Hitbox, HitboxBehavior, InspectorElementId, IntoElement,
-    KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad,
-    Pixels, Point, Rgba, SharedString, StyledText, TextStyle, Window, fill, size,
+    AnyElement, App, Bounds, CursorStyle, ElementId, Font, FontWeight, HighlightStyle, PaintQuad,
+    Pixels, Point, Rgba, ScrollHandle, SharedString, StyledText, TextStyle, Window, canvas, div,
+    fill, prelude::*,
 };
-use unicode_segmentation::UnicodeSegmentation;
+use gpui_base::{
+    ElementExt as _, TextSelectionCoverage, TextSelectionEvent, TextSelectionHandle,
+    TextSelectionRegistration, TextSelectionRun,
+};
 
 #[cfg(target_os = "macos")]
 use crate::desktop::pressure_touch::{ForceClickChange, ForceClickState};
 
 #[derive(Clone)]
 pub(crate) struct TextSelection {
-    focus: FocusHandle,
-    state: Rc<RefCell<SelectionState>>,
-    regions: Rc<RefCell<HashMap<SharedString, Vec<TextRegion>>>>,
-}
-
-struct SelectionState {
-    active_id: Option<SharedString>,
-    source: SharedString,
-    anchor: usize,
-    selection: Range<usize>,
-    selecting: bool,
-    collecting: bool,
-    pending_position: Option<Point<Pixels>>,
+    registry: Rc<RefCell<SelectionRegistry>>,
+    message_scroll: Rc<RefCell<Option<ScrollHandle>>>,
+    auto_scroll: Rc<RefCell<AutoScrollState>>,
     #[cfg(target_os = "macos")]
-    force_click: ForceClickState,
+    force_click: Rc<RefCell<ForceClickState>>,
 }
 
-impl SelectionState {
-    fn clear(&mut self) {
-        self.active_id = None;
-        self.source = "".into();
-        self.anchor = 0;
-        self.selection = 0..0;
-        self.selecting = false;
-        self.collecting = false;
-        self.pending_position = None;
+#[derive(Default)]
+struct AutoScrollState {
+    delta: Option<Pixels>,
+    running: bool,
+}
+
+#[derive(Default)]
+struct SelectionRegistry {
+    generation: u64,
+    next_document_order: u64,
+    groups: HashMap<SharedString, GroupEntry>,
+}
+
+struct GroupEntry {
+    handle: Option<TextSelectionHandle>,
+    runtime: Rc<RefCell<GroupRuntime>>,
+    last_seen: u64,
+    document_order: u64,
+}
+
+#[derive(Default)]
+struct GroupRuntime {
+    generation: u64,
+    section_separator: SharedString,
+    runs: Vec<TextSelectionRun>,
+    bounds: Option<Bounds<Pixels>>,
+    text_bounds: Vec<Bounds<Pixels>>,
+    selected: BTreeMap<(u64, u64, usize), String>,
+    #[cfg(target_os = "macos")]
+    regions: Vec<TextRegion>,
+}
+
+impl GroupRuntime {
+    fn begin_frame(&mut self, generation: u64, section_separator: SharedString) {
+        if self.generation == generation {
+            return;
+        }
+        self.generation = generation;
+        self.section_separator = section_separator;
+        self.runs.clear();
+        self.text_bounds.clear();
+        self.selected.clear();
         #[cfg(target_os = "macos")]
-        self.force_click.cancel();
+        self.regions.clear();
+    }
+
+    fn selected_text(&self) -> String {
+        let mut sections: BTreeMap<u64, String> = BTreeMap::new();
+        for ((section, _, _), text) in &self.selected {
+            sections.entry(*section).or_default().push_str(text);
+        }
+        sections
+            .into_values()
+            .filter(|text| !text.is_empty())
+            .collect::<Vec<_>>()
+            .join(&self.section_separator)
     }
 }
 
 #[derive(Clone)]
+pub(crate) struct SelectionGroup {
+    key: SharedString,
+    document_order: u64,
+    generation: u64,
+    section_separator: SharedString,
+    selection: TextSelection,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Clone)]
 struct TextRegion {
     layout: gpui::TextLayout,
+    source: SharedString,
     source_range: Range<usize>,
-    #[cfg(target_os = "macos")]
     font: Font,
-    hitbox: Hitbox,
+    bounds: Bounds<Pixels>,
 }
 
 pub(crate) struct SelectableText {
-    id: SharedString,
+    group: SelectionGroup,
+    order: u64,
+    section: u64,
     source: SharedString,
     source_range: Range<usize>,
     text: StyledText,
     highlights: Vec<AdaptiveHighlight>,
-    selection: TextSelection,
     selection_color: Rgba,
 }
 
@@ -71,178 +125,186 @@ pub(crate) struct AdaptiveHighlight {
     pub missing_style: Option<HighlightStyle>,
 }
 
-pub(crate) struct PrepaintState {
-    hitbox: Option<Hitbox>,
-    selection: Vec<PaintQuad>,
-}
+pub(crate) struct PrepaintState;
 
 impl TextSelection {
-    pub(crate) fn new(focus: FocusHandle) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
-            focus,
-            state: Rc::new(RefCell::new(SelectionState {
-                active_id: None,
-                source: "".into(),
-                anchor: 0,
-                selection: 0..0,
-                selecting: false,
-                collecting: false,
-                pending_position: None,
-                #[cfg(target_os = "macos")]
-                force_click: ForceClickState::default(),
-            })),
-            regions: Rc::new(RefCell::new(HashMap::new())),
+            registry: Rc::new(RefCell::new(SelectionRegistry::default())),
+            message_scroll: Rc::new(RefCell::new(None)),
+            auto_scroll: Rc::new(RefCell::new(AutoScrollState::default())),
+            #[cfg(target_os = "macos")]
+            force_click: Rc::new(RefCell::new(ForceClickState::default())),
         }
     }
 
-    pub(crate) fn focus_handle(&self) -> &FocusHandle {
-        &self.focus
+    pub(crate) fn begin_frame(&self, message_scroll: ScrollHandle) {
+        *self.message_scroll.borrow_mut() = Some(message_scroll);
+        let mut registry = self.registry.borrow_mut();
+        let previous = registry.generation;
+        registry
+            .groups
+            .retain(|_, entry| entry.last_seen == previous);
+        registry.generation = registry.generation.wrapping_add(1).max(1);
+        registry.next_document_order = 0;
     }
 
-    pub(crate) fn begin_frame(&self) {
-        self.regions.borrow_mut().clear();
+    pub(crate) fn group(&self, key: impl Into<SharedString>) -> SelectionGroup {
+        self.group_with_separator(key, "")
     }
 
-    pub(crate) fn clear(&self, window: &mut Window) {
-        self.state.borrow_mut().clear();
-        self.regions.borrow_mut().clear();
+    pub(crate) fn group_with_separator(
+        &self,
+        key: impl Into<SharedString>,
+        separator: impl Into<SharedString>,
+    ) -> SelectionGroup {
+        let key = key.into();
+        let section_separator = separator.into();
+        let mut registry = self.registry.borrow_mut();
+        let generation = registry.generation;
+        if !registry.groups.contains_key(&key) {
+            registry.groups.insert(
+                key.clone(),
+                GroupEntry {
+                    handle: None,
+                    runtime: Rc::new(RefCell::new(GroupRuntime::default())),
+                    last_seen: 0,
+                    document_order: 0,
+                },
+            );
+        }
+        let needs_order = registry
+            .groups
+            .get(&key)
+            .is_some_and(|entry| entry.last_seen != generation);
+        if needs_order {
+            let order = registry.next_document_order;
+            registry.next_document_order += 1;
+            let entry = registry.groups.get_mut(&key).unwrap();
+            entry.last_seen = generation;
+            entry.document_order = order;
+        }
+        let entry = registry.groups.get(&key).unwrap();
+        let document_order = entry.document_order;
+        SelectionGroup {
+            key,
+            document_order,
+            generation,
+            section_separator,
+            selection: self.clone(),
+        }
+    }
+
+    pub(crate) fn clear(&self, window: &mut Window, cx: &mut App) {
+        gpui_base::TextSelection::clear(window, cx);
+        for entry in self.registry.borrow().groups.values() {
+            entry.runtime.borrow_mut().selected.clear();
+        }
+        self.auto_scroll.borrow_mut().delta = None;
+        #[cfg(target_os = "macos")]
+        self.force_click.borrow_mut().cancel();
         window.refresh();
     }
 
-    fn clear_if_unfocused(&self, window: &Window) {
-        if !self.focus.is_focused(window) {
-            self.state.borrow_mut().clear();
-            self.regions.borrow_mut().clear();
+    fn handle(&self, group: &SelectionGroup, window: &Window, cx: &mut App) -> TextSelectionHandle {
+        let (runtime, existing) = {
+            let registry = self.registry.borrow();
+            let entry = registry
+                .groups
+                .get(&group.key)
+                .expect("selection group must be allocated before paint");
+            (entry.runtime.clone(), entry.handle.clone())
+        };
+        if let Some(handle) = existing {
+            return handle;
         }
-    }
 
-    fn is_collecting(&self) -> bool {
-        self.state.borrow().collecting
-    }
+        let handle = TextSelectionHandle::new("", cx);
+        let weak_runtime: Weak<RefCell<GroupRuntime>> = Rc::downgrade(&runtime);
+        handle.copy_with(
+            move |_| {
+                weak_runtime
+                    .upgrade()
+                    .map(|runtime| runtime.borrow().selected_text())
+                    .unwrap_or_default()
+            },
+            cx,
+        );
+        handle.refresh_window_on_change(window, cx).detach();
 
-    fn register(
-        &self,
-        id: SharedString,
-        source: SharedString,
-        source_range: Range<usize>,
-        layout: gpui::TextLayout,
-        font: Font,
-        hitbox: Hitbox,
-    ) {
-        let mut state = self.state.borrow_mut();
-        if !state.collecting {
-            return;
-        }
-        if state.pending_position.is_some_and(|position| {
-            hitbox.bounds.contains(&position) && hitbox.content_mask.bounds.contains(&position)
-        }) {
-            let position = state.pending_position.take().unwrap();
-            let offset = source_range.start + nearest_index(&layout, position);
-            state.active_id = Some(id.clone());
-            state.source = source.clone();
-            state.anchor = offset;
-            state.selection = offset..offset;
-            state.selecting = true;
-        }
-        drop(state);
-        #[cfg(not(target_os = "macos"))]
-        let _ = font;
-        self.regions
+        let scroll = self.message_scroll.clone();
+        let auto_scroll = self.auto_scroll.clone();
+        let auto_scroll_runtime = Rc::downgrade(&runtime);
+        let window_handle = window.window_handle();
+        handle
+            .subscribe(
+                move |event, cx| {
+                    let TextSelectionEvent::AutoScroll(delta) = event else {
+                        return;
+                    };
+                    let delta = delta.filter(|delta| {
+                        let Some(scroll) = scroll.borrow().clone() else {
+                            return false;
+                        };
+                        let Some(runtime) = auto_scroll_runtime.upgrade() else {
+                            return false;
+                        };
+                        let Some(participant) = runtime.borrow().bounds else {
+                            return false;
+                        };
+                        let viewport = scroll.bounds();
+                        if *delta > gpui::px(0.) {
+                            participant.bottom() >= viewport.bottom() - gpui::px(16.)
+                        } else {
+                            participant.top() <= viewport.top() + gpui::px(16.)
+                        }
+                    });
+                    let should_start = {
+                        let mut state = auto_scroll.borrow_mut();
+                        state.delta = delta;
+                        let start = delta.is_some() && !state.running;
+                        state.running |= start;
+                        start
+                    };
+                    if !should_start {
+                        return;
+                    }
+                    let scroll = scroll.clone();
+                    let auto_scroll = Rc::downgrade(&auto_scroll);
+                    let window_handle = window_handle.clone();
+                    cx.spawn(async move |cx| {
+                        loop {
+                            cx.background_executor()
+                                .timer(Duration::from_millis(16))
+                                .await;
+                            let Some(state) = auto_scroll.upgrade() else {
+                                break;
+                            };
+                            let Some(delta) = state.borrow().delta else {
+                                state.borrow_mut().running = false;
+                                break;
+                            };
+                            if let Some(scroll) = scroll.borrow().as_ref() {
+                                let mut offset = scroll.offset();
+                                offset.y -= delta;
+                                scroll.set_offset(offset);
+                                _ = window_handle.update(cx, |_, window, _| window.refresh());
+                            }
+                        }
+                    })
+                    .detach();
+                },
+                cx,
+            )
+            .detach();
+
+        self.registry
             .borrow_mut()
-            .entry(id)
-            .or_default()
-            .push(TextRegion {
-                layout,
-                source_range,
-                #[cfg(target_os = "macos")]
-                font,
-                hitbox,
-            });
-    }
-
-    fn selected_range(
-        &self,
-        id: &SharedString,
-        source: &SharedString,
-        source_range: &Range<usize>,
-    ) -> Range<usize> {
-        let mut state = self.state.borrow_mut();
-        if state.active_id.as_ref() != Some(id) {
-            return 0..0;
-        }
-        if state.source != *source {
-            state.clear();
-            return 0..0;
-        }
-        let start = state.selection.start.max(source_range.start);
-        let end = state.selection.end.min(source_range.end);
-        if start >= end {
-            0..0
-        } else {
-            (start - source_range.start)..(end - source_range.start)
-        }
-    }
-
-    pub(crate) fn mouse_down(&self, event: &MouseDownEvent, window: &mut Window, cx: &mut App) {
-        window.focus(&self.focus, cx);
-        let mut state = self.state.borrow_mut();
-        state.active_id = None;
-        state.source = "".into();
-        state.anchor = 0;
-        state.selection = 0..0;
-        state.selecting = false;
-        state.collecting = true;
-        state.pending_position = Some(event.position);
-        #[cfg(target_os = "macos")]
-        state.force_click.cancel();
-        self.regions.borrow_mut().clear();
-        window.refresh();
-        cx.stop_propagation();
-    }
-
-    pub(crate) fn mouse_move(&self, event: &MouseMoveEvent, window: &mut Window) {
-        if event.pressed_button != Some(MouseButton::Left) {
-            return;
-        }
-        let (active_id, anchor) = {
-            let state = self.state.borrow();
-            if !state.selecting {
-                return;
-            }
-            (state.active_id.clone(), state.anchor)
-        };
-        let Some(regions) = active_id.and_then(|id| self.regions.borrow().get(&id).cloned()) else {
-            return;
-        };
-        let Some(region) = regions.iter().min_by(|left, right| {
-            distance_to_bounds(left.hitbox.bounds, event.position)
-                .total_cmp(&distance_to_bounds(right.hitbox.bounds, event.position))
-        }) else {
-            return;
-        };
-        let cursor = (region.source_range.start + nearest_index(&region.layout, event.position))
-            .min(region.source_range.end);
-        self.state.borrow_mut().selection = normalized_range(anchor, cursor);
-        window.refresh();
-    }
-
-    pub(crate) fn mouse_up(&self, _: &MouseUpEvent, window: &mut Window) {
-        let mut state = self.state.borrow_mut();
-        let changed = state.collecting || state.selecting;
-        state.collecting = false;
-        state.selecting = false;
-        state.pending_position = None;
-        #[cfg(target_os = "macos")]
-        state.force_click.cancel();
-        if state.selection.is_empty() {
-            state.active_id = None;
-            state.source = "".into();
-        }
-        drop(state);
-        self.regions.borrow_mut().clear();
-        if changed {
-            window.refresh();
-        }
+            .groups
+            .get_mut(&group.key)
+            .expect("selection group disappeared during paint")
+            .handle = Some(handle.clone());
+        handle
     }
 
     #[cfg(target_os = "macos")]
@@ -251,30 +313,229 @@ impl TextSelection {
         event: &gpui::MousePressureEvent,
         window: &Window,
     ) -> bool {
-        let mut state = self.state.borrow_mut();
-        let triggered = state.force_click.update(event) == ForceClickChange::Triggered;
-        let has_selection = state.selecting;
-        drop(state);
+        if self.force_click.borrow_mut().update(event) != ForceClickChange::Triggered {
+            return false;
+        }
+        dictionary::show_at(self, event.position, window)
+    }
+}
 
-        triggered && has_selection && dictionary::show_at(self, event.position, window)
+impl SelectionGroup {
+    pub(crate) fn wrap(&self, content: impl IntoElement) -> AnyElement {
+        let group = self.clone();
+        div()
+            .relative()
+            .on_prepaint(move |bounds, window, cx| group.register(bounds, window, cx))
+            .child(content)
+            .into_any_element()
     }
 
-    pub(crate) fn copy(&self, event: &KeyDownEvent, window: &Window, cx: &mut App) {
-        let copy_modifier = if cfg!(target_os = "macos") {
-            event.keystroke.modifiers.platform
-        } else {
-            event.keystroke.modifiers.control
+    fn register(&self, bounds: Bounds<Pixels>, window: &mut Window, cx: &mut App) {
+        let runtime = self
+            .selection
+            .registry
+            .borrow()
+            .groups
+            .get(&self.key)
+            .expect("selection group must remain live during prepaint")
+            .runtime
+            .clone();
+        let text_bounds = runtime.borrow().text_bounds.clone();
+        runtime
+            .borrow_mut()
+            .begin_frame(self.generation, self.section_separator.clone());
+        runtime.borrow_mut().bounds = Some(bounds);
+        let handle = self.selection.handle(self, window, cx);
+        let hitbox = window.insert_hitbox(bounds, gpui::HitboxBehavior::Normal);
+        if hitbox.is_hovered(window) {
+            window.set_cursor_style(CursorStyle::IBeam, &hitbox);
+        }
+        handle.register(
+            TextSelectionRegistration::new(hitbox, bounds)
+                .with_document_order(self.document_order)
+                .with_text_bounds(if text_bounds.is_empty() {
+                    vec![bounds]
+                } else {
+                    text_bounds
+                }),
+            window,
+            cx,
+        );
+    }
+
+    fn runtime_and_handle(
+        &self,
+        window: &Window,
+        cx: &mut App,
+    ) -> (Rc<RefCell<GroupRuntime>>, TextSelectionHandle) {
+        let handle = self.selection.handle(self, window, cx);
+        let runtime = self
+            .selection
+            .registry
+            .borrow()
+            .groups
+            .get(&self.key)
+            .expect("selection group must remain live during paint")
+            .runtime
+            .clone();
+        runtime
+            .borrow_mut()
+            .begin_frame(self.generation, self.section_separator.clone());
+        (runtime, handle)
+    }
+
+    fn project_text(
+        &self,
+        order: u64,
+        section: u64,
+        source_start: usize,
+        text: SharedString,
+        layout: gpui::TextLayout,
+        bounds: Bounds<Pixels>,
+        window: &Window,
+        cx: &mut App,
+    ) -> Option<Range<usize>> {
+        let (runtime, handle) = self.runtime_and_handle(window, cx);
+        let run_index = {
+            let mut runtime = runtime.borrow_mut();
+            let index = runtime.runs.len();
+            runtime.runs.push(
+                TextSelectionRun::new(text.clone(), layout, bounds)
+                    .with_document_order(index as u64),
+            );
+            index
         };
-        if !self.focus.is_focused(window) || !copy_modifier || event.keystroke.key != "c" {
-            return;
+        let runs = runtime.borrow().runs.clone();
+        let projection = handle.update_runs(&runs, cx);
+        let range = projection.ranges().get(run_index).cloned().flatten();
+        let mut runtime = runtime.borrow_mut();
+        runtime.selected.remove(&(section, order, source_start));
+        if let Some(range) = range.clone() {
+            runtime
+                .selected
+                .insert((section, order, source_start), text[range].to_string());
         }
-        let state = self.state.borrow();
-        if !state.selection.is_empty() {
-            cx.write_to_clipboard(ClipboardItem::new_string(
-                state.source[state.selection.clone()].to_string(),
-            ));
-            cx.stop_propagation();
-        }
+        range
+    }
+
+    fn register_text_bounds(&self, bounds: Bounds<Pixels>) {
+        let runtime = self
+            .selection
+            .registry
+            .borrow()
+            .groups
+            .get(&self.key)
+            .expect("selection group must remain live during prepaint")
+            .runtime
+            .clone();
+        runtime
+            .borrow_mut()
+            .begin_frame(self.generation, self.section_separator.clone());
+        runtime.borrow_mut().text_bounds.push(bounds);
+    }
+
+    #[cfg(target_os = "macos")]
+    fn register_region(
+        &self,
+        source: SharedString,
+        source_range: Range<usize>,
+        layout: gpui::TextLayout,
+        font: Font,
+        bounds: Bounds<Pixels>,
+    ) {
+        let runtime = self
+            .selection
+            .registry
+            .borrow()
+            .groups
+            .get(&self.key)
+            .expect("selection group must remain live during prepaint")
+            .runtime
+            .clone();
+        runtime.borrow_mut().regions.push(TextRegion {
+            layout,
+            source,
+            source_range,
+            font,
+            bounds,
+        });
+    }
+
+    pub(crate) fn atom(
+        &self,
+        order: u64,
+        section: u64,
+        text: impl Into<SharedString>,
+        selection_color: Rgba,
+        content: impl IntoElement,
+    ) -> AnyElement {
+        let text = text.into();
+        let selected = Rc::new(RefCell::new(false));
+        let prepaint_group = self.clone();
+        let prepaint_text = text.clone();
+        let prepaint_selected = selected.clone();
+        let paint_selected = selected;
+        div()
+            .relative()
+            .child(
+                canvas(
+                    move |bounds, window, cx| {
+                        prepaint_group.register_text_bounds(bounds);
+                        let (runtime, handle) = prepaint_group.runtime_and_handle(window, cx);
+                        let is_selected = handle
+                            .snapshot(cx)
+                            .is_some_and(|snapshot| atom_is_selected(snapshot, bounds));
+                        *prepaint_selected.borrow_mut() = is_selected;
+                        let mut runtime = runtime.borrow_mut();
+                        runtime.selected.remove(&(section, order, 0));
+                        if is_selected {
+                            runtime
+                                .selected
+                                .insert((section, order, 0), prepaint_text.to_string());
+                        }
+                    },
+                    move |bounds, _, window, _| {
+                        if *paint_selected.borrow() {
+                            window.paint_quad(fill(bounds, selection_color));
+                        }
+                    },
+                )
+                .absolute()
+                .size_full(),
+            )
+            .child(content)
+            .into_any_element()
+    }
+}
+
+fn atom_is_selected(snapshot: gpui_base::TextSelectionSnapshot, bounds: Bounds<Pixels>) -> bool {
+    if snapshot.coverage() == TextSelectionCoverage::Full {
+        return true;
+    }
+    let Some(points) = snapshot.window_points() else {
+        return false;
+    };
+    let center = bounds.center();
+    let start = points.anchor();
+    let end = points.cursor();
+    let line_height = bounds.size.height;
+    let same_line = (start.y - end.y).abs() < line_height;
+    if same_line {
+        let left = start.x.min(end.x);
+        let right = start.x.max(end.x);
+        center.y >= start.y.min(end.y) - line_height
+            && center.y <= start.y.max(end.y) + line_height
+            && center.x >= left
+            && center.x <= right
+    } else {
+        let (top, bottom) = if start.y <= end.y {
+            (start, end)
+        } else {
+            (end, start)
+        };
+        center.y > top.y && center.y < bottom.y
+            || (center.y - top.y).abs() < line_height && center.x >= top.x
+            || (center.y - bottom.y).abs() < line_height && center.x <= bottom.x
     }
 }
 
@@ -284,29 +545,30 @@ pub(crate) fn selection_color(cx: &App) -> Rgba {
 
 impl SelectableText {
     pub(crate) fn new(
-        id: impl Into<SharedString>,
+        group: SelectionGroup,
+        order: u64,
         source: impl Into<SharedString>,
-        selection: TextSelection,
         selection_color: Rgba,
     ) -> Self {
         let source = source.into();
         let source_range = 0..source.len();
         Self {
-            id: id.into(),
+            group,
+            order,
+            section: 0,
             text: StyledText::new(source.clone()),
             source,
             source_range,
             highlights: Vec::new(),
-            selection,
             selection_color,
         }
     }
 
     pub(crate) fn fragment(
-        id: impl Into<SharedString>,
+        group: SelectionGroup,
+        order: u64,
         source: impl Into<SharedString>,
         source_range: Range<usize>,
-        selection: TextSelection,
         selection_color: Rgba,
     ) -> Self {
         let source = source.into();
@@ -314,14 +576,20 @@ impl SelectableText {
             .get(source_range.clone())
             .expect("selectable text fragment must be a valid source range");
         Self {
-            id: id.into(),
+            group,
+            order,
+            section: 0,
             text: StyledText::new(text.to_string()),
             source,
             source_range,
             highlights: Vec::new(),
-            selection,
             selection_color,
         }
+    }
+
+    pub(crate) fn section(mut self, section: u64) -> Self {
+        self.section = section;
+        self
     }
 
     pub(crate) fn with_highlights(
@@ -392,4 +660,28 @@ mod dictionary;
 mod element;
 mod geometry;
 
-use geometry::{distance_to_bounds, nearest_index, normalized_range};
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selected_parts_are_concatenated_by_section() {
+        let mut runtime = GroupRuntime {
+            section_separator: "\t".into(),
+            ..Default::default()
+        };
+        runtime.selected.insert((1, 3, 0), "right".into());
+        runtime.selected.insert((0, 1, 0), "left".into());
+        runtime.selected.insert((0, 2, 0), " side".into());
+        assert_eq!(runtime.selected_text(), "left side\tright");
+    }
+
+    #[test]
+    fn formula_source_stays_atomic_in_rendered_copy() {
+        let mut runtime = GroupRuntime::default();
+        runtime.selected.insert((0, 0, 0), "before ".into());
+        runtime.selected.insert((0, 1, 0), "x^2".into());
+        runtime.selected.insert((0, 2, 0), " after".into());
+        assert_eq!(runtime.selected_text(), "before x^2 after");
+    }
+}

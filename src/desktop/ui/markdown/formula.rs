@@ -7,6 +7,11 @@ use crate::{
     markdown::{Formula, render_formula_cached},
 };
 
+pub(super) fn formula_copy_text(formula: &Formula) -> String {
+    let delimiter = if formula.display { "$$" } else { "$" };
+    format!("{delimiter}{}{delimiter}", formula.source)
+}
+
 pub(super) fn render_formula_element(
     formula: &Formula,
     scale_factor: f32,
@@ -52,5 +57,28 @@ pub(super) fn render_formula_element(
             .text_color(cx.theme().danger)
             .child(format!("{} · {error}", formula.source))
             .into_any_element(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn copied_formula_keeps_its_markdown_delimiters() {
+        assert_eq!(
+            formula_copy_text(&Formula {
+                source: "x^2".into(),
+                display: false,
+            }),
+            "$x^2$"
+        );
+        assert_eq!(
+            formula_copy_text(&Formula {
+                source: "E=mc^2".into(),
+                display: true,
+            }),
+            "$$E=mc^2$$"
+        );
     }
 }

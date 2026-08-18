@@ -2,8 +2,9 @@ use gpui::{AnyElement, FontWeight, HighlightStyle, SharedString, div, prelude::*
 use gpui_component::ActiveTheme as _;
 
 use super::{
-    InlineMetrics, MarkdownContext, element_key, next_text_index, render_blocks,
-    render_formula_element, render_inlines, selectable,
+    InlineMetrics, MarkdownContext, element_key, formula_copy_text,
+    inline::render_inlines_in_group, next_text_index, render_blocks, render_formula_element,
+    render_inlines, selectable,
 };
 use crate::{
     desktop::ui::{
@@ -73,28 +74,16 @@ pub(super) fn render_block(
             .flex_col()
             .gap_2()
             .children(items.iter().enumerate().map(|(index, blocks)| {
-                div()
-                    .w_full()
-                    .flex()
-                    .items_start()
-                    .gap_2()
-                    .child(
-                        div()
-                            .w(px(24.0))
-                            .flex_none()
-                            .text_color(palette.muted_foreground)
-                            .child(if *ordered {
-                                format!("{}.", start + index)
-                            } else {
-                                "•".into()
-                            }),
-                    )
-                    .child(
-                        div()
-                            .min_w_0()
-                            .flex_1()
-                            .child(render_blocks(blocks, text_index, context)),
-                    )
+                render_list_item(
+                    if *ordered {
+                        format!("{}.", start + index)
+                    } else {
+                        "•".into()
+                    },
+                    blocks,
+                    text_index,
+                    context,
+                )
             }))
             .into_any_element(),
         Block::Code {
@@ -104,6 +93,12 @@ pub(super) fn render_block(
         } => {
             let language_text_index = next_text_index(text_index);
             let content_text_index = next_text_index(text_index);
+            let language_group = selection.group(format!(
+                "markdown-code-language-{message_id}-{language_text_index}"
+            ));
+            let content_group = selection.group(format!(
+                "markdown-code-content-{message_id}-{content_text_index}"
+            ));
             let copy_button_id =
                 SharedString::from(format!("copy-code-block-{message_id}-{content_text_index}"));
             let content_to_copy = content.clone();
@@ -136,17 +131,21 @@ pub(super) fn render_block(
                         .text_size(px(typography.micro_size))
                         .line_height(px(typography.micro_line_height))
                         .text_color(palette.muted_foreground)
-                        .child(div().min_w_0().flex_1().child(selectable(
-                            message_id,
-                            language_text_index,
-                            if language.is_empty() {
-                                "Code".into()
-                            } else {
-                                language.clone()
-                            },
-                            selection,
-                            palette,
-                        )))
+                        .child(
+                            div()
+                                .min_w_0()
+                                .flex_1()
+                                .child(language_group.wrap(selectable(
+                                    &language_group,
+                                    language_text_index,
+                                    if language.is_empty() {
+                                        "Code".into()
+                                    } else {
+                                        language.clone()
+                                    },
+                                    palette,
+                                ))),
+                        )
                         .child(CopyButton::new(copy_button_id, content_to_copy)),
                 )
                 .child(
@@ -176,26 +175,29 @@ pub(super) fn render_block(
                                 .text_size(px(typography.code_size))
                                 .line_height(px(typography.code_line_height))
                                 .child(
-                                    selectable(
-                                        message_id,
-                                        content_text_index,
-                                        content.clone(),
-                                        selection,
-                                        palette,
-                                    )
-                                    .with_highlights(
-                                        if cx.theme().is_dark() {
-                                            &highlights.dark
-                                        } else {
-                                            &highlights.light
-                                        }
-                                        .iter()
-                                        .map(|highlight| {
-                                            (
-                                                highlight.range.clone(),
-                                                HighlightStyle::from(rgba(highlight.rgba)),
-                                            )
-                                        }),
+                                    content_group.wrap(
+                                        selectable(
+                                            &content_group,
+                                            content_text_index,
+                                            content.clone(),
+                                            palette,
+                                        )
+                                        .with_highlights(
+                                            if cx.theme().is_dark() {
+                                                &highlights.dark
+                                            } else {
+                                                &highlights.light
+                                            }
+                                            .iter()
+                                            .map(
+                                                |highlight| {
+                                                    (
+                                                        highlight.range.clone(),
+                                                        HighlightStyle::from(rgba(highlight.rgba)),
+                                                    )
+                                                },
+                                            ),
+                                        ),
                                     ),
                                 )
                                 .when(!context.code_block_wrap, |element| element.pb_6()),
@@ -210,12 +212,22 @@ pub(super) fn render_block(
                 )
                 .into_any_element()
         }
-        Block::Formula(formula) => render_formula_element(
-            formula,
-            scale_factor,
-            InlineMetrics::new(typography.body_size, typography.body_line_height),
-            cx,
-        ),
+        Block::Formula(formula) => {
+            let index = next_text_index(text_index);
+            let group = selection.group(format!("markdown-formula-{message_id}-{index}"));
+            group.wrap(group.atom(
+                index as u64,
+                0,
+                formula_copy_text(formula),
+                palette.selection,
+                render_formula_element(
+                    formula,
+                    scale_factor,
+                    InlineMetrics::new(typography.body_size, typography.body_line_height),
+                    cx,
+                ),
+            ))
+        }
         Block::Table {
             alignments,
             header,
@@ -238,6 +250,81 @@ pub(super) fn render_block(
     }
 }
 
+fn render_list_item(
+    marker: String,
+    blocks: &[Block],
+    text_index: &mut usize,
+    context: &MarkdownContext<'_>,
+) -> AnyElement {
+    let Some((Block::Paragraph(first), rest)) = blocks.split_first() else {
+        return div()
+            .w_full()
+            .flex()
+            .items_start()
+            .gap_2()
+            .child(
+                div()
+                    .w(px(24.0))
+                    .flex_none()
+                    .text_color(context.palette.muted_foreground)
+                    .child(marker),
+            )
+            .child(
+                div()
+                    .min_w_0()
+                    .flex_1()
+                    .child(render_blocks(blocks, text_index, context)),
+            )
+            .into_any_element();
+    };
+
+    let group_index = next_text_index(text_index);
+    let group = context.selection.group_with_separator(
+        format!("markdown-list-item:{}:{group_index}", context.message_id),
+        " ",
+    );
+    let marker_index = next_text_index(text_index);
+    let first = render_inlines_in_group(
+        first,
+        text_index,
+        InlineMetrics::new(
+            context.typography.body_size,
+            context.typography.body_line_height,
+        ),
+        context,
+        &group,
+        1,
+    );
+    let first_row = group.wrap(
+        div()
+            .w_full()
+            .flex()
+            .items_start()
+            .gap_2()
+            .child(
+                div()
+                    .w(px(24.0))
+                    .flex_none()
+                    .text_color(context.palette.muted_foreground)
+                    .child(selectable(&group, marker_index, marker, context.palette).section(0)),
+            )
+            .child(div().min_w_0().flex_1().child(first)),
+    );
+
+    div()
+        .w_full()
+        .flex()
+        .flex_col()
+        .gap_2()
+        .child(first_row)
+        .children((!rest.is_empty()).then(|| {
+            div()
+                .pl(px(32.0))
+                .child(render_blocks(rest, text_index, context))
+        }))
+        .into_any_element()
+}
+
 fn render_table(
     table: TableContent<'_>,
     text_index: &mut usize,
@@ -256,7 +343,12 @@ fn render_table(
         .len()
         .max(table.rows.iter().map(Vec::len).max().unwrap_or_default());
     let mut render_row = |cells: &[Vec<Inline>], header_row: bool| {
-        div()
+        let row_index = next_text_index(text_index);
+        let group = context.selection.group_with_separator(
+            format!("markdown-table-row:{}:{row_index}", context.message_id),
+            "\t",
+        );
+        let row = div()
             .min_w(px(columns.max(1) as f32 * 130.0))
             .flex()
             .children((0..columns).map(|index| {
@@ -284,7 +376,7 @@ fn render_table(
                         element.text_right()
                     })
                     .children(cells.get(index).map(|cell| {
-                        render_inlines(
+                        render_inlines_in_group(
                             cell,
                             text_index,
                             InlineMetrics::new(
@@ -292,9 +384,12 @@ fn render_table(
                                 typography.table_line_height(),
                             ),
                             context,
+                            &group,
+                            index as u64,
                         )
                     }))
-            }))
+            }));
+        group.wrap(row)
     };
 
     div()

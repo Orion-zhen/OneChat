@@ -12,6 +12,9 @@ pub(crate) fn render(
     scale_factor: f32,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
+    app.chat
+        .text_selection
+        .begin_frame(app.translation.result_scroll.clone());
     let layout = LayoutClass::from_width(available_width);
     let stacked = !layout.is_wide();
     let workbench = div()

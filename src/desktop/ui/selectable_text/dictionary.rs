@@ -8,34 +8,43 @@ use objc2_foundation::{NSAttributedString, NSDictionary, NSPoint, NSString};
 use objc2_natural_language::{NLTokenUnit, NLTokenizer};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 
+use super::geometry::nearest_index;
 use super::*;
 
 pub(super) fn show_at(selection: &TextSelection, position: Point<Pixels>, window: &Window) -> bool {
-    let state = selection.state.borrow();
-    let Some(id) = state.active_id.as_ref() else {
+    let registry = selection.registry.borrow();
+    let runtime = registry.groups.values().find_map(|entry| {
+        let runtime = entry.runtime.borrow();
+        runtime
+            .regions
+            .iter()
+            .any(|region| region.bounds.contains(&position))
+            .then(|| entry.runtime.clone())
+    });
+    drop(registry);
+    let Some(runtime) = runtime else {
         return false;
     };
-    let source = state.source.clone();
-    let regions = selection.regions.borrow();
-    let Some(active_regions) = regions.get(id) else {
+    let runtime = runtime.borrow();
+    let Some(region) = runtime
+        .regions
+        .iter()
+        .find(|region| region.bounds.contains(&position))
+    else {
         return false;
     };
-    let Some(region) = active_regions.iter().find(|region| {
-        region.hitbox.bounds.contains(&position)
-            && region.hitbox.content_mask.bounds.contains(&position)
-    }) else {
-        return false;
-    };
-
+    let source = region.source.clone();
     let source_offset = (region.source_range.start + nearest_index(&region.layout, position))
         .min(region.source_range.end);
     let Some(word_range) = native_word_range(&source, source_offset) else {
         return false;
     };
     let word = &source[word_range.clone()];
-    let word_region = active_regions
+    let word_region = runtime
+        .regions
         .iter()
-        .find(|region| region_contains_offset(region, word_range.start))
+        .filter(|candidate| candidate.source == source)
+        .find(|candidate| region_contains_offset(candidate, word_range.start))
         .unwrap_or(region);
     let origin = baseline_for_offset(word_region, word_range.start)
         .or_else(|| baseline_for_offset(region, source_offset))

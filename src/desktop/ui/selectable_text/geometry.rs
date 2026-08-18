@@ -7,77 +7,94 @@ pub(super) fn nearest_index(layout: &gpui::TextLayout, position: gpui::Point<Pix
         .min(layout.len())
 }
 
-pub(super) fn normalized_range(anchor: usize, cursor: usize) -> Range<usize> {
-    anchor.min(cursor)..anchor.max(cursor)
-}
+fn selection_quad_bounds(
+    start: Point<Pixels>,
+    end: Point<Pixels>,
+    bounds: Bounds<Pixels>,
+    line_height: Pixels,
+) -> Vec<Bounds<Pixels>> {
+    if start.y == end.y {
+        return vec![Bounds::from_corners(
+            start,
+            Point::new(end.x, end.y + line_height),
+        )];
+    }
 
-pub(super) fn distance_to_bounds(bounds: Bounds<Pixels>, position: Point<Pixels>) -> f32 {
-    let dx = if position.x < bounds.left() {
-        (bounds.left() - position.x).into()
-    } else if position.x > bounds.right() {
-        (position.x - bounds.right()).into()
-    } else {
-        0.0
-    };
-    let dy = if position.y < bounds.top() {
-        (bounds.top() - position.y).into()
-    } else if position.y > bounds.bottom() {
-        (position.y - bounds.bottom()).into()
-    } else {
-        0.0
-    };
-    dx * dx + dy * dy
+    let mut quads = vec![Bounds::from_corners(
+        start,
+        Point::new(bounds.right(), start.y + line_height),
+    )];
+    if end.y > start.y + line_height {
+        quads.push(Bounds::from_corners(
+            Point::new(bounds.left(), start.y + line_height),
+            Point::new(bounds.right(), end.y),
+        ));
+    }
+    quads.push(Bounds::from_corners(
+        Point::new(bounds.left(), end.y),
+        Point::new(end.x, end.y + line_height),
+    ));
+    quads
 }
 
 pub(super) fn selection_quads(
     layout: &gpui::TextLayout,
-    text: &str,
     selection: &Range<usize>,
     color: Rgba,
 ) -> Vec<PaintQuad> {
     if selection.is_empty() {
         return Vec::new();
     }
-
-    let selection = selection.start.min(text.len())..selection.end.min(text.len());
-    let Some(selected_text) = text.get(selection.clone()) else {
+    let (Some(start), Some(end)) = (
+        layout.position_for_index(selection.start),
+        layout.position_for_index(selection.end),
+    ) else {
         return Vec::new();
     };
-    let bounds = layout.bounds();
-    let line_height = layout.line_height();
-    let mut quads: Vec<PaintQuad> = Vec::new();
-    let mut current: Option<Bounds<Pixels>> = None;
 
-    for (local_start, grapheme) in selected_text.grapheme_indices(true) {
-        let start = selection.start + local_start;
-        let end = start + grapheme.len();
-        let Some(from) = layout.position_for_index(start) else {
-            continue;
-        };
-        let Some(to) = layout.position_for_index(end) else {
-            continue;
-        };
-        let width = if to.y == from.y {
-            (to.x - from.x).max(gpui::px(1.0))
-        } else {
-            (bounds.right() - from.x).max(gpui::px(3.0))
-        };
-        let glyph_bounds = Bounds::new(from, size(width, line_height));
+    selection_quad_bounds(start, end, layout.bounds(), layout.line_height())
+        .into_iter()
+        .map(|bounds| fill(bounds, color))
+        .collect()
+}
 
-        if let Some(existing) = current.as_mut()
-            && existing.top() == glyph_bounds.top()
-            && (existing.right() - glyph_bounds.left()).abs() <= gpui::px(1.0)
-        {
-            existing.size.width = glyph_bounds.right() - existing.left();
-        } else {
-            if let Some(existing) = current.take() {
-                quads.push(fill(existing, color));
-            }
-            current = Some(glyph_bounds);
-        }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::{point, px, size};
+
+    #[test]
+    fn single_line_selection_uses_one_tight_quad() {
+        let bounds = Bounds::new(point(px(10.), px(20.)), size(px(100.), px(60.)));
+        assert_eq!(
+            selection_quad_bounds(
+                point(px(30.), px(20.)),
+                point(px(70.), px(20.)),
+                bounds,
+                px(20.),
+            ),
+            vec![Bounds::from_corners(
+                point(px(30.), px(20.)),
+                point(px(70.), px(40.)),
+            )]
+        );
     }
-    if let Some(existing) = current {
-        quads.push(fill(existing, color));
+
+    #[test]
+    fn wrapped_selection_matches_text_view_quads() {
+        let bounds = Bounds::new(point(px(10.), px(20.)), size(px(100.), px(100.)));
+        assert_eq!(
+            selection_quad_bounds(
+                point(px(40.), px(20.)),
+                point(px(30.), px(80.)),
+                bounds,
+                px(20.),
+            ),
+            vec![
+                Bounds::from_corners(point(px(40.), px(20.)), point(px(110.), px(40.))),
+                Bounds::from_corners(point(px(10.), px(40.)), point(px(110.), px(80.))),
+                Bounds::from_corners(point(px(10.), px(80.)), point(px(30.), px(100.))),
+            ]
+        );
     }
-    quads
 }

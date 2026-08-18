@@ -213,6 +213,10 @@ fn tool_detail(
     typography: MessageTypography,
     cx: &App,
 ) -> AnyElement {
+    let selection_group = app
+        .chat
+        .text_selection
+        .group(format!("tool-{}-{execution_id}", label.to_lowercase()));
     div()
         .flex()
         .flex_col()
@@ -240,12 +244,12 @@ fn tool_detail(
                     cx.theme().foreground
                 })
                 .whitespace_normal()
-                .child(SelectableText::new(
-                    SharedString::from(format!("tool-{}-{}", label.to_lowercase(), execution_id)),
+                .child(selection_group.wrap(SelectableText::new(
+                    selection_group.clone(),
+                    0,
                     content,
-                    app.chat.text_selection.clone(),
                     selection_color(cx),
-                )),
+                ))),
         )
         .into_any_element()
 }

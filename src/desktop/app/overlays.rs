@@ -82,7 +82,7 @@ impl OneChat {
     }
 
     pub(crate) fn open_command_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.chat.text_selection.clear(window);
+        self.chat.text_selection.clear(window, cx);
         self.overlays.response_model_turn_id = None;
         self.overlays.command_picker.update(cx, |picker, cx| {
             *picker.delegate_mut() = CommandPaletteDelegate::new();
@@ -209,7 +209,7 @@ impl OneChat {
     }
 
     pub(crate) fn open_conversation_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.chat.text_selection.clear(window);
+        self.chat.text_selection.clear(window, cx);
         let delegate = ConversationSearchDelegate::from_app(self);
         let selected = (delegate.row_count() > 0).then(gpui_component::IndexPath::default);
         self.overlays.conversation_search.update(cx, |search, cx| {
@@ -299,7 +299,7 @@ impl OneChat {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.chat.text_selection.clear(window);
+        self.chat.text_selection.clear(window, cx);
         self.overlays.response_model_turn_id = turn_id;
         let delegate = ModelPickerDelegate::from_app(self);
         let selected = delegate.initial_selection();
@@ -328,7 +328,7 @@ impl OneChat {
         if unavailable || model.is_none_or(|model| model.reasoning.is_none()) {
             return;
         }
-        self.chat.text_selection.clear(window);
+        self.chat.text_selection.clear(window, cx);
         self.overlays.response_model_turn_id = None;
         let delegate = ReasoningPickerDelegate::from_app(self);
         let selected = delegate.initial_selection();
@@ -349,7 +349,7 @@ impl OneChat {
         if self.current_conversation().is_none() || self.is_current_generating() {
             return;
         }
-        self.chat.text_selection.clear(window);
+        self.chat.text_selection.clear(window, cx);
         self.overlays.response_model_turn_id = None;
         let delegate = PromptPickerDelegate::from_app(self);
         let selected = delegate.initial_selection();

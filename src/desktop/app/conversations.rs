@@ -370,7 +370,7 @@ impl OneChat {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.chat.text_selection.clear(window);
+        self.chat.text_selection.clear(window, cx);
         let title = action.title();
         let description = action.description();
         self.overlays.destructive_action = Some(action);

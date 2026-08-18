@@ -5,7 +5,7 @@ use std::{
 
 use gpui::{AnyElement, App, Hsla, Rgba, SharedString, div, prelude::*, px};
 
-use super::selectable_text::{SelectableText, TextSelection, selection_color};
+use super::selectable_text::{SelectableText, SelectionGroup, TextSelection, selection_color};
 use super::stream::HorizontalScrollRegistry;
 use super::typography::MessageTypography;
 use crate::markdown::{Block, MarkdownDocument};
@@ -15,7 +15,7 @@ mod formula;
 mod inline;
 
 use block::render_block;
-use formula::render_formula_element;
+use formula::{formula_copy_text, render_formula_element};
 use inline::render_inlines;
 
 #[derive(Clone, Copy)]
@@ -210,19 +210,14 @@ fn render_plain_with_palette(
     typography: MessageTypography,
     palette: MarkdownPalette,
 ) -> AnyElement {
-    div()
+    let group = selection.group(format!("plain-{message_id}"));
+    let content = div()
         .whitespace_normal()
         .text_size(px(typography.body_size))
         .line_height(px(typography.body_line_height))
-        .child(selectable(
-            message_id,
-            0,
-            source.to_string(),
-            selection,
-            palette,
-        ))
-        .text_color(palette.foreground)
-        .into_any_element()
+        .child(selectable(&group, 0, source.to_string(), palette))
+        .text_color(palette.foreground);
+    group.wrap(content)
 }
 
 fn render_blocks(
@@ -252,18 +247,12 @@ fn next_text_index(index: &mut usize) -> usize {
 }
 
 fn selectable(
-    message_id: &str,
+    group: &SelectionGroup,
     index: usize,
     content: String,
-    selection: &TextSelection,
     palette: MarkdownPalette,
 ) -> SelectableText {
-    SelectableText::new(
-        SharedString::from(format!("message-text-{message_id}-{index}")),
-        content,
-        selection.clone(),
-        palette.selection,
-    )
+    SelectableText::new(group.clone(), index as u64, content, palette.selection)
 }
 
 fn element_key(prefix: &str, content: &str) -> SharedString {
