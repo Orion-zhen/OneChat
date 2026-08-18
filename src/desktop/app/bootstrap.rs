@@ -17,7 +17,8 @@ use tokio::runtime::Runtime;
 use super::{
     ChatState, DataState, DefaultModelRole, DrawerMotion, FontRole, McpState, MessageScrollMotion,
     NavigationState, OneChat, OverlayState, Page, PlaybackState, Services, SettingsState,
-    SidebarState, SidebarWidthMotion, SystemPromptMode, TimelineState, TtsState, VisibilityMotion,
+    SidebarState, SidebarWidthMotion, SystemPromptMode, TimelineState, TranslationState, TtsState,
+    VisibilityMotion,
 };
 use crate::{
     application::generation::GenerationManager,
@@ -202,6 +203,7 @@ impl OneChat {
                 pending_title_transitions: HashMap::new(),
                 title_transitions: HashMap::new(),
             },
+            translation: TranslationState::new(window, cx),
             tts: TtsState::new(window, cx),
             settings_ui: SettingsState {
                 section: SettingsSection::default(),
@@ -228,6 +230,8 @@ impl OneChat {
                 prompt_variable_test_revision: 0,
                 prompt_builtins_expanded: false,
                 title_prompt_editor: None,
+                translation_system_prompt_editor: None,
+                translation_user_prompt_editor: None,
                 mcp_json_import,
                 mcp_server_editor: None,
                 mcp_error: None,

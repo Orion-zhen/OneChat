@@ -75,7 +75,8 @@ use crate::{
     desktop::app::{ConnectionTestStatus, DefaultModelRole, FontRole, OneChat},
     domain::{
         BUILTIN_PROMPT_VARIABLES, CustomReasoningPreset, DEFAULT_PROMPT_COMMAND_TIMEOUT_MS,
-        DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, KnownReasoningFormat, KnownReasoningPreset, Model,
+        DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, DEFAULT_TRANSLATION_SYSTEM_PROMPT,
+        DEFAULT_TRANSLATION_USER_PROMPT, KnownReasoningFormat, KnownReasoningPreset, Model,
         ModelCapabilities, ModelReasoningConfig, PROVIDER_DEFAULT_REASONING_PRESET, PromptPreset,
         PromptVariableSource, Provider, ProviderKind, ReasoningLevel, ReasoningParameter,
         ReasoningParameterValue, SendMessageShortcut, Theme, now_timestamp,

@@ -78,6 +78,7 @@ The primary shortcuts use Command on macOS and Ctrl on Linux/Windows:
 - `Cmd/Ctrl+N`: new conversation
 - `Cmd/Ctrl+K`: command palette
 - `Cmd/Ctrl+L`: model picker
+- `Cmd/Ctrl+Enter`: run the current Translation Playground request
 - `Cmd/Ctrl+Shift+S`: toggle sidebar
 - `Cmd/Ctrl+,`: settings
 - `Enter`: send or confirm; `Shift+Enter`: insert a newline
@@ -121,6 +122,12 @@ Models with the **Audio** capability accept WAV and MP3 attachments up to 10 MiB
 Audio support differs by provider. Native OpenAI models with the **Audio** capability always use Chat Completions, including for text-only turns; other native OpenAI models continue to use Responses. OpenAI-compatible providers use Chat Completions, Gemini receives inline audio, and Anthropic does not accept audio. Chat requests text output only and do not request provider audio output or transcription. Switching to a model without Audio is allowed, but generation is blocked locally while the retained request context still contains audio; audio in complete turns removed by history or context-window limits does not block the request.
 
 Audio files and recordings use the same conversation-local attachment storage as other files. They remain local until a generation request includes them, at which point their contents are sent to the selected provider, including when replayed as retained conversation history. OneChat does not upload them to a provider file cache or retain provider file IDs. Cancelled or failed recordings are discarded without creating an attachment.
+
+### Translation Playground
+
+Open **Translation** from the sidebar or command palette to translate with any configured streaming model. The workbench supports custom system and user prompts with `{{text}}`, `{{sourceLanguage}}`, and `{{targetLanguage}}` variables, and streams output and model reasoning using the same presentation as chat responses.
+
+Translation source text, prompts, generated responses, request metrics, and selected language/model are held in memory only. The Translation Playground never sends them to `Storage` or writes them to disk, and the current workspace is discarded when OneChat quits.
 
 ### Text to Speech
 

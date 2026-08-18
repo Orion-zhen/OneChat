@@ -3,7 +3,7 @@ use std::{collections::BTreeSet, time::Duration};
 use gpui::{Context, Window, prelude::*};
 
 use super::{
-    CONTENT_EDITOR_MAX_ROWS, DestructiveAction, OneChat, PendingFocus, SystemPromptMode,
+    CONTENT_EDITOR_MAX_ROWS, DestructiveAction, OneChat, Page, PendingFocus, SystemPromptMode,
     multiline_input,
 };
 use crate::{
@@ -189,6 +189,11 @@ impl OneChat {
         preset: Option<String>,
         cx: &mut Context<Self>,
     ) {
+        if self.navigation.page == Page::Translate {
+            self.translation.reasoning_preset = preset;
+            cx.notify();
+            return;
+        }
         if let Some(editor) = &mut self.chat.generation_config_editor {
             editor.set_reasoning_preset(preset);
             self.schedule_generation_config_save(cx);

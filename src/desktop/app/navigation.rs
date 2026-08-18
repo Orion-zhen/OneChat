@@ -6,6 +6,7 @@ use crate::domain::{Conversation, Timestamp};
 pub enum Page {
     #[default]
     Chat,
+    Translate,
     Tts,
     Settings,
 }

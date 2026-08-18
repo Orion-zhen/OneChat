@@ -63,7 +63,10 @@ impl OneChat {
                     snapshot.current_turns = turns;
                     snapshot.current_requests = requests;
                 }
-                if matches!(self.navigation.page, Page::Chat | Page::Tts) {
+                if matches!(
+                    self.navigation.page,
+                    Page::Chat | Page::Translate | Page::Tts
+                ) {
                     let width = if snapshot.settings.sidebar_collapsed {
                         0.0
                     } else {
@@ -129,7 +132,21 @@ impl OneChat {
                     self.data.snapshot.settings.current_conversation_id.clone();
                 let conversation_changed =
                     previous_conversation_id != snapshot.settings.current_conversation_id;
+                let translation_used_defaults = self.translation.uses_default_prompts(
+                    &self.data.snapshot.settings.translation_system_prompt,
+                    &self.data.snapshot.settings.translation_user_prompt,
+                );
                 self.data.snapshot = snapshot;
+                if translation_used_defaults {
+                    self.translation.system_prompt = self
+                        .data
+                        .snapshot
+                        .settings
+                        .translation_system_prompt
+                        .clone();
+                    self.translation.user_prompt =
+                        self.data.snapshot.settings.translation_user_prompt.clone();
+                }
                 self.settings_ui.history_limit_save_pending = false;
                 self.chat.history_limit_preview = None;
                 self.data.error = None;

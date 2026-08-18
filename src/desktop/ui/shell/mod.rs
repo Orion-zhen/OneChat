@@ -1,7 +1,7 @@
 mod chat_page;
 #[cfg(target_os = "macos")]
 mod conversation_peek;
-mod floating_overlay;
+pub(in crate::desktop::ui) mod floating_overlay;
 mod pickers;
 mod runtime;
 mod search;
@@ -42,7 +42,7 @@ use super::{
 
 use crate::{
     desktop::app::{ConnectionTestStatus, OneChat, Page, PendingFocus},
-    desktop::ui::{chat, inspector, settings, tts},
+    desktop::ui::{chat, inspector, settings, translate, tts},
     domain::{AutoTitleState, Conversation, ModelCapabilities},
     mcp::McpServerStatus,
 };
@@ -69,6 +69,7 @@ actions!(
         MinimizeWindow,
         NewConversation,
         OpenSettings,
+        RunTranslation,
         SaveSettingsEdit,
         ShowCommandPalette,
         ShowConversationSearch,
@@ -101,6 +102,7 @@ pub fn init(cx: &mut App) {
         KeyBinding::new(&shortcut("k"), ShowCommandPalette, Some("OneChat")),
         KeyBinding::new(&shortcut("f"), ShowConversationSearch, Some("OneChat")),
         KeyBinding::new(&shortcut("l"), ShowModelPicker, Some("OneChat")),
+        KeyBinding::new(&shortcut("enter"), RunTranslation, Some("OneChat")),
         KeyBinding::new(&shortcut("shift-s"), ToggleSidebar, Some("OneChat")),
         KeyBinding::new(&shortcut(","), OpenSettings, Some("OneChat")),
         KeyBinding::new(&shortcut("s"), SaveSettingsEdit, Some("OneChat")),
@@ -200,6 +202,26 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         crate::desktop::app::ShellOverlay::ConversationSearch => {
             search::render_conversation_search_overlay(app, overlay_progress, reduce_motion, cx)
         }
+        crate::desktop::app::ShellOverlay::TranslationSystemPrompt => {
+            super::translate::render_prompt_overlay(
+                app,
+                crate::desktop::app::TranslationPromptKind::System,
+                overlay_progress,
+                reduce_motion,
+                window,
+                cx,
+            )
+        }
+        crate::desktop::app::ShellOverlay::TranslationUserPrompt => {
+            super::translate::render_prompt_overlay(
+                app,
+                crate::desktop::app::TranslationPromptKind::User,
+                overlay_progress,
+                reduce_motion,
+                window,
+                cx,
+            )
+        }
         _ => pickers::render_picker_overlay(app, overlay, overlay_progress, reduce_motion, cx),
     });
     let jump_to_latest_visible = app.navigation.page == Page::Chat
@@ -225,7 +247,10 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         .progress(window, reduce_motion);
     let page_available_width = (f32::from(window.bounds().size.width) - sidebar_width).max(0.0);
     let page_available_height = (f32::from(window.bounds().size.height) - 60.0).max(0.0);
-    let sidebar = (matches!(app.navigation.page, Page::Chat | Page::Tts) && sidebar_width > 0.01)
+    let sidebar = (matches!(
+        app.navigation.page,
+        Page::Chat | Page::Translate | Page::Tts
+    ) && sidebar_width > 0.01)
         .then(|| {
             div()
                 .w(px(sidebar_width))
@@ -234,8 +259,10 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
                 .overflow_hidden()
                 .child(render_sidebar(app, sidebar_width, &animated_titles, cx))
         });
-    let sidebar_resize_handle = (matches!(app.navigation.page, Page::Chat | Page::Tts)
-        && !app.settings().sidebar_collapsed)
+    let sidebar_resize_handle = (matches!(
+        app.navigation.page,
+        Page::Chat | Page::Translate | Page::Tts
+    ) && !app.settings().sidebar_collapsed)
         .then(|| {
             div()
                 .id("sidebar-resize-handle")
@@ -288,6 +315,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
             context_usage_popover_progress,
             cx,
         ),
+        Page::Translate => translate::render(app, page_available_width, scale_factor, cx),
         Page::Tts => tts::render(app, page_available_width, cx),
         Page::Settings => settings::render(app, sidebar_width, page_available_width, cx),
     };
@@ -378,6 +406,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
         }))
         .on_action(cx.listener(|this, _: &ToggleSidebar, _, cx| this.toggle_sidebar(cx)))
         .on_action(cx.listener(|this, _: &OpenSettings, _, cx| this.set_page(Page::Settings, cx)))
+        .on_action(cx.listener(|this, _: &RunTranslation, _, cx| this.run_translation_action(cx)))
         .on_action(cx.listener(|this, _: &SaveSettingsEdit, window, cx| {
             if this.navigation.page != Page::Settings {
                 return;

@@ -176,6 +176,8 @@ impl OneChat {
         self.settings_ui.pending_provider_exit = None;
         self.settings_ui.model_editor = None;
         self.settings_ui.title_prompt_editor = None;
+        self.settings_ui.translation_system_prompt_editor = None;
+        self.settings_ui.translation_user_prompt_editor = None;
         self.settings_ui.mcp_server_editor = None;
         self.settings_ui.mcp_error = None;
         self.settings_ui.form_error = None;

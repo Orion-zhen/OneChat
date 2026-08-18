@@ -143,13 +143,10 @@ pub(super) fn render_chat_top_bar(
                         .items_center()
                         .gap_2()
                         .child(render_model_capability_icon(model_capabilities, cx))
-                        .children((!layout.is_narrow()).then(|| {
-                            div()
-                                .max_w(px(180.0))
-                                .min_w_0()
-                                .truncate()
-                                .child(model_label)
-                        }))
+                        .children(
+                            (!layout.is_narrow())
+                                .then(|| div().whitespace_nowrap().child(model_label)),
+                        )
                         .children(
                             (!layout.is_narrow()).then(|| {
                                 render_icon(AppIcon::ChevronDown, IconTone::Muted, 14.0, cx)
@@ -171,11 +168,6 @@ pub(super) fn render_chat_top_bar(
                         .flex()
                         .items_center()
                         .gap_2()
-                        .on_click(
-                            cx.listener(|this, _, window, cx| {
-                                this.open_reasoning_picker(window, cx)
-                            }),
-                        )
                         .child(render_icon(AppIcon::Brain, IconTone::Muted, 14.0, cx))
                         .children(layout.is_wide().then(|| {
                             div()
@@ -188,6 +180,11 @@ pub(super) fn render_chat_top_bar(
                         .children(
                             layout.is_wide().then(|| {
                                 render_icon(AppIcon::ChevronDown, IconTone::Muted, 14.0, cx)
+                            }),
+                        )
+                        .on_click(
+                            cx.listener(|this, _, window, cx| {
+                                this.open_reasoning_picker(window, cx)
                             }),
                         )
                 }))

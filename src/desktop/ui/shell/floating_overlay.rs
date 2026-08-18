@@ -1,9 +1,9 @@
-use gpui::{App, FocusHandle, Role, SharedString, div, prelude::*, px};
+use gpui::{App, FocusHandle, FontWeight, Role, SharedString, div, prelude::*, px};
 use gpui_component::{ActiveTheme as _, FocusTrapElement as _};
 
 use crate::desktop::ui::motion::translated_y;
 
-pub(super) fn panel(
+pub(crate) fn panel(
     id: impl Into<SharedString>,
     label: impl Into<SharedString>,
     focus: &FocusHandle,
@@ -32,7 +32,43 @@ pub(super) fn panel(
         .on_any_mouse_down(|_, _, cx| cx.stop_propagation())
 }
 
-pub(super) fn backdrop(
+pub(crate) fn header(
+    title: &'static str,
+    subtitle: &'static str,
+    close: impl IntoElement,
+    cx: &App,
+) -> gpui::Div {
+    div()
+        .w_full()
+        .flex()
+        .items_start()
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .pr(px(4.0))
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .text_size(px(19.0))
+                        .line_height(px(24.0))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(title),
+                )
+                .child(
+                    div()
+                        .text_size(px(12.0))
+                        .line_height(px(18.0))
+                        .text_color(cx.theme().muted_foreground)
+                        .child(subtitle),
+                ),
+        )
+        .child(div().flex_none().child(close))
+}
+
+pub(crate) fn backdrop(
     id: impl Into<SharedString>,
     panel: impl IntoElement,
     progress: f32,

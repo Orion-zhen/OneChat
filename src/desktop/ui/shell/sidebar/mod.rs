@@ -192,6 +192,7 @@ fn render_sidebar_header(cx: &mut Context<OneChat>) -> AnyElement {
 }
 
 fn render_sidebar_footer(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
+    let translation_selected = app.navigation.page == Page::Translate;
     let tts_selected = app.navigation.page == Page::Tts;
     div()
         .flex_none()
@@ -199,6 +200,44 @@ fn render_sidebar_footer(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement
         .flex()
         .flex_col()
         .gap_1()
+        .child(
+            button_base("open-translation")
+                .ghost()
+                .selected(translation_selected)
+                .w_full()
+                .h(px(36.0))
+                .px_2p5()
+                .rounded(px(9.0))
+                .tooltip("Open Translation Playground")
+                .child(
+                    div()
+                        .w_full()
+                        .flex()
+                        .items_center()
+                        .justify_start()
+                        .gap_2()
+                        .child(render_icon(
+                            AppIcon::Languages,
+                            if translation_selected {
+                                IconTone::Accent
+                            } else {
+                                IconTone::Muted
+                            },
+                            16.0,
+                            cx,
+                        ))
+                        .child(
+                            div()
+                                .font_weight(if translation_selected {
+                                    FontWeight::SEMIBOLD
+                                } else {
+                                    FontWeight::NORMAL
+                                })
+                                .child("Translation"),
+                        ),
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.set_page(Page::Translate, cx))),
+        )
         .child(
             button_base("open-text-to-speech")
                 .ghost()

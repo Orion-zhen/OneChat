@@ -18,6 +18,7 @@ pub(crate) mod shell;
 pub(crate) mod stream;
 mod text;
 pub(crate) mod theme;
+pub(crate) mod translate;
 pub(crate) mod tts;
 pub(crate) mod typography;
 

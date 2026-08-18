@@ -16,6 +16,7 @@ mod recording;
 mod settings;
 mod state;
 mod tokio_bridge;
+mod translate;
 mod tts;
 
 use motion::*;
@@ -25,6 +26,7 @@ pub(crate) use playback::{attachment_source_id, tts_combined_source_id, tts_segm
 pub(crate) use state::ConversationPeekContent;
 use state::*;
 pub(crate) use state::{GenerationBorderClock, SearchTarget, ShellOverlay};
+pub(crate) use translate::{TranslationPromptKind, TranslationState};
 pub(crate) use tts::{TtsOperationKind, TtsState};
 
 use std::{
@@ -225,12 +227,13 @@ pub(crate) enum PaletteCommand {
     ToggleInspector,
     EditSystemPrompt,
     OpenChat,
+    OpenTranslation,
     OpenTextToSpeech,
     OpenSettings,
 }
 
 impl PaletteCommand {
-    pub(crate) const ALL: [Self; 9] = [
+    pub(crate) const ALL: [Self; 10] = [
         Self::NewConversation,
         Self::ChooseModel,
         Self::FocusConversationSearch,
@@ -238,6 +241,7 @@ impl PaletteCommand {
         Self::ToggleInspector,
         Self::EditSystemPrompt,
         Self::OpenChat,
+        Self::OpenTranslation,
         Self::OpenTextToSpeech,
         Self::OpenSettings,
     ];
@@ -251,6 +255,7 @@ impl PaletteCommand {
             Self::ToggleInspector => "Toggle Inspector",
             Self::EditSystemPrompt => "Edit Prompt Setup",
             Self::OpenChat => "Open chat",
+            Self::OpenTranslation => "Open Translation Playground",
             Self::OpenTextToSpeech => "Open Text to Speech",
             Self::OpenSettings => "Open settings",
         }
@@ -265,6 +270,7 @@ impl PaletteCommand {
             Self::ToggleInspector => "Show or hide model, context, and request info",
             Self::EditSystemPrompt => "Customize the system prompt and assistant opening",
             Self::OpenChat => "Return to the current conversation",
+            Self::OpenTranslation => "Translate with custom system and user prompts",
             Self::OpenTextToSpeech => "Open the audio.cpp TTS Playground",
             Self::OpenSettings => "Manage providers, models, and appearance",
         }
@@ -279,6 +285,7 @@ impl PaletteCommand {
             Self::ToggleInspector => "inspector parameters context info",
             Self::EditSystemPrompt => "prompt setup system instructions assistant opening edit",
             Self::OpenChat => "chat conversation messages",
+            Self::OpenTranslation => "translate translation language prompt playground",
             Self::OpenTextToSpeech => "tts text speech voice audio playground audio.cpp",
             Self::OpenSettings => "settings provider model appearance preferences",
         }
@@ -302,6 +309,14 @@ mod palette_command_tests {
         assert!(PaletteCommand::OpenTextToSpeech.matches("text to speech"));
         assert!(PaletteCommand::OpenTextToSpeech.matches("voice"));
         assert!(PaletteCommand::OpenTextToSpeech.matches("audio.cpp"));
+    }
+
+    #[test]
+    fn translation_is_discoverable_by_label_and_language_keywords() {
+        assert!(PaletteCommand::ALL.contains(&PaletteCommand::OpenTranslation));
+        assert!(PaletteCommand::OpenTranslation.matches("translation"));
+        assert!(PaletteCommand::OpenTranslation.matches("language"));
+        assert!(PaletteCommand::OpenTranslation.matches("prompt"));
     }
 }
 
@@ -327,6 +342,7 @@ pub struct OneChat {
     pub(crate) overlays: OverlayState,
     pub(crate) playback: PlaybackState,
     pub(crate) chat: ChatState,
+    pub(crate) translation: TranslationState,
     pub(crate) tts: TtsState,
     pub(crate) settings_ui: SettingsState,
     pub(crate) applied_component_theme: Option<(gpui_component::ThemeMode, String)>,

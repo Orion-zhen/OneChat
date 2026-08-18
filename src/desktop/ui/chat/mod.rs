@@ -8,6 +8,7 @@ mod timeline;
 use attachment::{attachment_detail, render_audio_attachment_card};
 use composer::render_composer;
 use context_indicator::render_context_indicator;
+pub(in crate::desktop::ui) use message::render_readonly_assistant_content;
 use message::{render_assistant_opening, render_assistant_turn, render_user_turn};
 use system_prompt::render_prompt_setup_card;
 use timeline::{TimelineEntry, TimelineXray};

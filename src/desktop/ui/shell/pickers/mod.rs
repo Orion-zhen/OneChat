@@ -11,7 +11,7 @@ use gpui_component::{
 
 use crate::{
     desktop::{
-        app::{OneChat, PaletteCommand, ShellOverlay},
+        app::{OneChat, Page, PaletteCommand, ShellOverlay},
         ui::{
             icons::selected_check_badge, model::capability_summary as model_capability_summary,
             text::summary as text_summary,
@@ -197,12 +197,15 @@ pub(crate) fn render_picker_overlay(
                 list.read(cx).focus_handle(cx),
             )
         }
+        ShellOverlay::TranslationSystemPrompt | ShellOverlay::TranslationUserPrompt => {
+            unreachable!("translation prompts use a dedicated overlay")
+        }
     };
 
     let panel =
         super::floating_overlay::panel("picker-overlay-panel", title, &focus, width, 22.0, cx)
             .gap_2()
-            .child(picker_header(
+            .child(super::floating_overlay::header(
                 title,
                 subtitle,
                 Button::new("close-picker-overlay")
@@ -223,43 +226,6 @@ pub(crate) fn render_picker_overlay(
             cx.listener(|this, _, _, cx| this.close_shell_overlay(true, cx)),
         )
         .into_any_element()
-}
-
-fn picker_header(
-    title: &'static str,
-    subtitle: &'static str,
-    close: impl IntoElement,
-    cx: &App,
-) -> gpui::Div {
-    div()
-        .w_full()
-        .flex()
-        .items_start()
-        .child(
-            div()
-                .min_w_0()
-                .flex_1()
-                .pr(px(4.0))
-                .flex()
-                .flex_col()
-                .gap_1()
-                .child(
-                    div()
-                        .text_size(px(19.0))
-                        .line_height(px(24.0))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(title),
-                )
-                .child(
-                    div()
-                        .text_size(px(12.0))
-                        .line_height(px(18.0))
-                        .font_weight(FontWeight::NORMAL)
-                        .text_color(cx.theme().muted_foreground)
-                        .child(subtitle),
-                ),
-        )
-        .child(div().flex_none().child(close))
 }
 
 fn picker_list<D: ListDelegate + 'static>(

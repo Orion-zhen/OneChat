@@ -12,7 +12,8 @@ mod reasoning;
 mod tools;
 mod user;
 
-pub(super) use assistant::render_assistant_turn;
+pub(in crate::desktop::ui::chat) use assistant::render_assistant_turn;
+pub(in crate::desktop::ui) use assistant::render_readonly_assistant_content;
 use attachments::render_sent_attachment;
 pub(super) use opening::render_assistant_opening;
 use reasoning::{render_reasoning, render_reasoning_block};

@@ -11,6 +11,7 @@ pub(crate) const LUCIDE_FONT_FAMILY: &str = "lucide";
 pub(crate) enum AppIcon {
     Archive,
     ArrowDown,
+    ArrowLeftRight,
     ArrowUp,
     At,
     AudioLines,
@@ -37,6 +38,7 @@ pub(crate) enum AppIcon {
     Image,
     Info,
     Key,
+    Languages,
     Layers,
     Maximize,
     MessageText,
@@ -73,6 +75,7 @@ impl AppIcon {
         match self {
             Self::Archive => IconBackend::Lucide(LucideIcon::Archive),
             Self::ArrowDown => IconBackend::Component(IconName::ArrowDown),
+            Self::ArrowLeftRight => IconBackend::Lucide(LucideIcon::ArrowLeftRight),
             Self::ArrowUp => IconBackend::Component(IconName::ArrowUp),
             Self::At => IconBackend::Lucide(LucideIcon::AtSign),
             Self::AudioLines => IconBackend::Lucide(LucideIcon::AudioLines),
@@ -99,6 +102,7 @@ impl AppIcon {
             Self::Image => IconBackend::Lucide(LucideIcon::Image),
             Self::Info => IconBackend::Component(IconName::Info),
             Self::Key => IconBackend::Lucide(LucideIcon::KeyRound),
+            Self::Languages => IconBackend::Lucide(LucideIcon::Languages),
             Self::Layers => IconBackend::Lucide(LucideIcon::Layers),
             Self::Maximize => IconBackend::Lucide(LucideIcon::Maximize),
             Self::MessageText => IconBackend::Lucide(LucideIcon::MessageSquareText),

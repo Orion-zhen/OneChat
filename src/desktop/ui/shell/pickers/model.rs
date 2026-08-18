@@ -1,4 +1,5 @@
 use super::*;
+use crate::desktop::app::Page;
 
 #[derive(Clone)]
 struct ModelPickerItem {
@@ -63,7 +64,13 @@ impl ModelPickerDelegate {
             })
             .unwrap_or_default();
         let current_model_id = (!adding_response)
-            .then(|| app.selected_model().map(|model| model.id.as_str()))
+            .then(|| {
+                if app.navigation.page == Page::Translate {
+                    app.translation_model().map(|model| model.id.as_str())
+                } else {
+                    app.selected_model().map(|model| model.id.as_str())
+                }
+            })
             .flatten();
         let all = app
             .data

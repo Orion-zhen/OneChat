@@ -4,14 +4,16 @@ pub(super) fn render_reasoning(
     app: &OneChat,
     message: &AssistantResponse,
     request: Option<&RequestInfo>,
+    editable: bool,
     typography: MessageTypography,
     cx: &mut Context<OneChat>,
 ) -> Option<AnyElement> {
     if message.thinking.is_empty() {
         return None;
     }
-    let editor = app
-        .assistant_reasoning_editor(message, &message.id)
+    let editor = editable
+        .then(|| app.assistant_reasoning_editor(message, &message.id))
+        .flatten()
         .map(|editor| &editor.input);
     render_reasoning_block(
         app,
@@ -22,6 +24,7 @@ pub(super) fn render_reasoning(
         0,
         request.and_then(|request| request.thinking_duration_ms),
         request,
+        editable,
         typography,
         cx,
     )
@@ -37,6 +40,7 @@ pub(super) fn render_reasoning_block(
     started_after_ms: u64,
     duration_ms: Option<u64>,
     request: Option<&RequestInfo>,
+    editable: bool,
     typography: MessageTypography,
     cx: &mut Context<OneChat>,
 ) -> Option<AnyElement> {
@@ -91,25 +95,27 @@ pub(super) fn render_reasoning_block(
                 .child(duration),
         );
     }
-    let edit_response_id = message.id.clone();
-    let edit_reasoning_id = reasoning_id.to_string();
-    controls = controls.child(
-        icon_button(
-            SharedString::from(format!("edit-thinking-{reasoning_id}")),
-            AppIcon::Pencil,
-            IconTone::Muted,
-            cx,
-        )
-        .disabled(app.is_current_generating() || app.active_message_editor().is_some())
-        .on_click(cx.listener(move |this, _, window, cx| {
-            this.begin_edit_assistant_reasoning(
-                edit_response_id.clone(),
-                edit_reasoning_id.clone(),
-                window,
+    if editable {
+        let edit_response_id = message.id.clone();
+        let edit_reasoning_id = reasoning_id.to_string();
+        controls = controls.child(
+            icon_button(
+                SharedString::from(format!("edit-thinking-{reasoning_id}")),
+                AppIcon::Pencil,
+                IconTone::Muted,
                 cx,
             )
-        })),
-    );
+            .disabled(app.is_current_generating() || app.active_message_editor().is_some())
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.begin_edit_assistant_reasoning(
+                    edit_response_id.clone(),
+                    edit_reasoning_id.clone(),
+                    window,
+                    cx,
+                )
+            })),
+        );
+    }
 
     let toggle_id = reasoning_id.to_string();
     controls = controls.child(

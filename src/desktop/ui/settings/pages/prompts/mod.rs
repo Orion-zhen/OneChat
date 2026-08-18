@@ -1,6 +1,7 @@
 mod components;
 mod presets;
 mod titles;
+mod translations;
 mod variable_dialog;
 mod variables;
 mod workspace;
@@ -8,6 +9,7 @@ mod workspace;
 use super::super::*;
 use presets::{default_prompt_select, prompt_presets_content};
 use titles::title_prompt_content;
+use translations::translation_prompts_content;
 use variables::prompt_variables_content;
 
 pub(in crate::desktop::ui::settings) use variable_dialog::prompt_variable_dialog_body;
@@ -120,6 +122,12 @@ pub(in crate::desktop::ui::settings) fn system_prompts_page(
                 "Automatic Titles",
                 Some("Instructions used after the first completed response."),
                 title_prompt_content(app, cx),
+                cx,
+            ))
+            .child(section(
+                "Translation",
+                Some("Defaults used by the translation workspace. Temporary overrides stay local to the current app session."),
+                translation_prompts_content(app, cx),
                 cx,
             ))
             .child(section_with_actions(

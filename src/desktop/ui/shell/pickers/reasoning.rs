@@ -24,23 +24,28 @@ impl ReasoningPickerDelegate {
     }
 
     pub(crate) fn from_app(app: &OneChat) -> Self {
-        let Some(reasoning) = app
-            .current_model()
-            .and_then(|model| model.reasoning.as_ref())
-        else {
+        let model = if app.navigation.page == Page::Translate {
+            app.translation_model()
+        } else {
+            app.current_model()
+        };
+        let Some(reasoning) = model.and_then(|model| model.reasoning.as_ref()) else {
             return Self::empty();
         };
-        let selected_id = app
-            .chat
-            .generation_config_editor
-            .as_ref()
-            .and_then(|editor| editor.reasoning_preset())
-            .or_else(|| {
-                app.current_conversation().and_then(|conversation| {
-                    conversation.generation_config.reasoning_preset.as_deref()
+        let selected_id = if app.navigation.page == Page::Translate {
+            app.translation.reasoning_preset.as_deref()
+        } else {
+            app.chat
+                .generation_config_editor
+                .as_ref()
+                .and_then(|editor| editor.reasoning_preset())
+                .or_else(|| {
+                    app.current_conversation().and_then(|conversation| {
+                        conversation.generation_config.reasoning_preset.as_deref()
+                    })
                 })
-            })
-            .unwrap_or_else(|| reasoning.default_preset());
+        }
+        .unwrap_or_else(|| reasoning.default_preset());
         let all = reasoning
             .preset_options()
             .into_iter()

@@ -33,6 +33,31 @@ pub(in crate::desktop::ui::chat) fn render_assistant_turn(
     )
 }
 
+pub(in crate::desktop::ui) fn render_readonly_assistant_content(
+    app: &OneChat,
+    message: &AssistantResponse,
+    request: Option<&RequestInfo>,
+    scale_factor: f32,
+    typography: MessageTypography,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    let content = if message.blocks.is_empty() {
+        render_message_content(app, message, scale_factor, typography, cx)
+    } else {
+        render_ordered_content(app, message, request, false, scale_factor, typography, cx)
+    };
+    div()
+        .children(
+            message
+                .blocks
+                .is_empty()
+                .then(|| render_reasoning(app, message, request, false, typography, cx))
+                .flatten(),
+        )
+        .child(content)
+        .into_any_element()
+}
+
 fn render_assistant_message(
     app: &OneChat,
     turn: &Turn,
@@ -49,7 +74,7 @@ fn render_assistant_message(
     let content = if message.blocks.is_empty() {
         render_message_content(app, message, scale_factor, typography, cx)
     } else {
-        render_ordered_content(app, message, request, scale_factor, typography, cx)
+        render_ordered_content(app, message, request, true, scale_factor, typography, cx)
     };
     let actions = render_message_actions(
         app,
@@ -92,7 +117,9 @@ fn render_assistant_message(
         .child(header)
         .children(message.blocks.is_empty().then(|| {
             div()
-                .children(render_reasoning(app, message, request, typography, cx))
+                .children(render_reasoning(
+                    app, message, request, true, typography, cx,
+                ))
                 .children(render_tool_executions(app, message, typography, cx))
         }))
         .child(content)
@@ -143,6 +170,7 @@ fn render_ordered_content(
     app: &OneChat,
     message: &AssistantResponse,
     request: Option<&RequestInfo>,
+    editable: bool,
     scale_factor: f32,
     typography: MessageTypography,
     cx: &mut Context<OneChat>,
@@ -163,8 +191,9 @@ fn render_ordered_content(
                 duration_ms,
                 ..
             } => {
-                let reasoning_editor = app
-                    .assistant_reasoning_editor(message, id)
+                let reasoning_editor = editable
+                    .then(|| app.assistant_reasoning_editor(message, id))
+                    .flatten()
                     .map(|editor| &editor.input);
                 body = body.children(render_reasoning_block(
                     app,
@@ -175,12 +204,15 @@ fn render_ordered_content(
                     *started_after_ms,
                     *duration_ms,
                     request,
+                    editable,
                     typography,
                     cx,
                 ));
             }
             AssistantBlock::Output { id, content } => {
-                let output = if let Some(output_editor) = app.assistant_output_editor(message, id) {
+                let output = if editable
+                    && let Some(output_editor) = app.assistant_output_editor(message, id)
+                {
                     render_output_editor(
                         id,
                         &output_editor.input,
@@ -233,7 +265,7 @@ fn render_ordered_content(
                 .child(waiting_label(message)),
         );
     }
-    if app.assistant_output_editing(message) {
+    if editable && app.assistant_output_editing(message) {
         body = body.child(render_editor_controls(app, message, typography, cx));
     }
     body.into_any_element()

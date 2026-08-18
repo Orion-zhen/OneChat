@@ -66,8 +66,10 @@ impl OneChat {
         }
         if self.navigation.page != page {
             let sidebar_width = match page {
-                Page::Chat | Page::Tts if self.settings().sidebar_collapsed => 0.0,
-                Page::Chat | Page::Tts => self.sidebar.width,
+                Page::Chat | Page::Translate | Page::Tts if self.settings().sidebar_collapsed => {
+                    0.0
+                }
+                Page::Chat | Page::Translate | Page::Tts => self.sidebar.width,
                 Page::Settings => SIDEBAR_WIDTH,
             };
             self.navigation
@@ -121,6 +123,7 @@ impl OneChat {
                 self.navigation.pending_focus = Some(PendingFocus::Composer);
                 cx.notify();
             }
+            PaletteCommand::OpenTranslation => self.set_page(Page::Translate, cx),
             PaletteCommand::OpenTextToSpeech => self.set_page(Page::Tts, cx),
             PaletteCommand::OpenSettings => self.set_page(Page::Settings, cx),
         }
@@ -147,6 +150,8 @@ impl OneChat {
             self.cancel_provider_editor(window, cx);
         } else if self.settings_ui.title_prompt_editor.is_some() {
             self.cancel_title_prompt_edit(cx);
+        } else if self.settings_ui.translation_system_prompt_editor.is_some() {
+            self.cancel_translation_prompt_edit(cx);
         }
     }
 
@@ -155,7 +160,10 @@ impl OneChat {
         self.close_conversation_peek(cx);
         self.data.snapshot.settings.sidebar_collapsed =
             !self.data.snapshot.settings.sidebar_collapsed;
-        if matches!(self.navigation.page, Page::Chat | Page::Tts) {
+        if matches!(
+            self.navigation.page,
+            Page::Chat | Page::Translate | Page::Tts
+        ) {
             let width = if self.data.snapshot.settings.sidebar_collapsed {
                 0.0
             } else {
@@ -309,12 +317,15 @@ impl OneChat {
     }
 
     pub(crate) fn open_reasoning_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.current_conversation().is_none()
-            || self
-                .current_model()
-                .is_none_or(|model| model.reasoning.is_none())
-            || self.is_current_generating()
-        {
+        let (model, unavailable) = if self.navigation.page == Page::Translate {
+            (self.translation_model(), self.translation.is_generating())
+        } else {
+            (
+                self.current_model(),
+                self.current_conversation().is_none() || self.is_current_generating(),
+            )
+        };
+        if unavailable || model.is_none_or(|model| model.reasoning.is_none()) {
             return;
         }
         self.chat.text_selection.clear(window);
@@ -356,7 +367,7 @@ impl OneChat {
         self.reload_snapshot(cx);
     }
 
-    fn open_shell_overlay(
+    pub(super) fn open_shell_overlay(
         &mut self,
         overlay: ShellOverlay,
         animated: bool,
@@ -454,6 +465,16 @@ impl OneChat {
             cx.notify();
             return;
         }
+        if self.navigation.page == Page::Translate {
+            self.translation.reasoning_preset = model
+                .reasoning
+                .as_ref()
+                .map(|reasoning| reasoning.default_preset().to_string());
+            self.translation.model_id = Some(model.id);
+            cx.notify();
+            return;
+        }
+
         let conversation = self.current_conversation().cloned();
         let response_turn_id = self.overlays.response_model_turn_id.take();
 

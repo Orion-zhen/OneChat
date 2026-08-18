@@ -152,6 +152,8 @@ pub(crate) enum ShellOverlay {
     ModelPicker,
     PromptPicker,
     ReasoningPicker,
+    TranslationSystemPrompt,
+    TranslationUserPrompt,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -275,6 +277,8 @@ pub(crate) struct SettingsState {
     pub(crate) prompt_variable_test_revision: u64,
     pub(crate) prompt_builtins_expanded: bool,
     pub(crate) title_prompt_editor: Option<Entity<TextareaState>>,
+    pub(crate) translation_system_prompt_editor: Option<Entity<TextareaState>>,
+    pub(crate) translation_user_prompt_editor: Option<Entity<TextareaState>>,
     pub(crate) mcp_json_import: Entity<TextareaState>,
     pub(crate) mcp_server_editor: Option<McpServerEditor>,
     pub(crate) mcp_error: Option<String>,
