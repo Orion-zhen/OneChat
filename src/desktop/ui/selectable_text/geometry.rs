@@ -1,5 +1,6 @@
 use super::*;
 
+#[cfg(target_os = "macos")]
 pub(super) fn nearest_index(layout: &gpui::TextLayout, position: gpui::Point<Pixels>) -> usize {
     layout
         .index_for_position(position)
