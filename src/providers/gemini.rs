@@ -2,7 +2,7 @@ use async_channel::Sender;
 use rig_core::{
     client::{CompletionClient, VerifyClient},
     completion::Message,
-    providers::gemini::{self as rig_gemini, completion::gemini_api_types::FinishReason},
+    providers::gemini as rig_gemini,
 };
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
@@ -34,35 +34,7 @@ pub async fn stream(
     let client = build_client(&request.provider)?;
     let model = client.completion_model(request.model.remote_id.clone());
     let sdk_request = sdk_request(&request, additional_parameters(&request)?)?;
-    stream_model(
-        model,
-        sdk_request,
-        events,
-        cancellation,
-        true,
-        validate_final_response,
-    )
-    .await
-}
-
-fn validate_final_response(
-    response: &rig_gemini::streaming::StreamingCompletionResponse,
-) -> Result<(), GenerationError> {
-    match response.finish_reason {
-        Some(FinishReason::Stop | FinishReason::MaxTokens) => Ok(()),
-        Some(ref reason) => Err(GenerationError::new(
-            GenerationErrorKind::Unknown,
-            "Gemini stopped without completing the response",
-        )
-        .with_detail(format!(
-            "finish_reason={reason:?}, message={}",
-            response.finish_message.as_deref().unwrap_or("none")
-        ))),
-        None => Err(GenerationError::new(
-            GenerationErrorKind::StreamInterrupted,
-            "Provider stream ended before completion",
-        )),
-    }
+    stream_model(model, sdk_request, events, cancellation, true).await
 }
 
 fn additional_parameters(
@@ -167,46 +139,9 @@ fn build_client(provider: &Provider) -> Result<rig_gemini::Client, GenerationErr
 mod tests {
     use super::*;
     use rig_core::{
-        OneOrMany,
         message::{AudioMediaType, UserContent},
-        providers::gemini::{
-            completion::gemini_api_types::Content,
-            streaming::{PartialUsage, StreamingCompletionResponse},
-        },
+        providers::gemini::completion::gemini_api_types::Content,
     };
-
-    fn final_response(
-        finish_reason: Option<FinishReason>,
-        finish_message: Option<&str>,
-    ) -> StreamingCompletionResponse {
-        StreamingCompletionResponse {
-            usage_metadata: PartialUsage::default(),
-            finish_reason,
-            finish_message: finish_message.map(str::to_string),
-            model_version: None,
-        }
-    }
-
-    #[test]
-    fn accepts_only_successful_gemini_finish_reasons() {
-        for reason in [FinishReason::Stop, FinishReason::MaxTokens] {
-            assert!(validate_final_response(&final_response(Some(reason), None)).is_ok());
-        }
-
-        let error = validate_final_response(&final_response(
-            Some(FinishReason::Safety),
-            Some("unsafe content"),
-        ))
-        .unwrap_err();
-        assert_eq!(error.kind, GenerationErrorKind::Unknown);
-        assert_eq!(
-            error.detail.as_deref(),
-            Some("finish_reason=Safety, message=unsafe content")
-        );
-
-        let error = validate_final_response(&final_response(None, None)).unwrap_err();
-        assert_eq!(error.kind, GenerationErrorKind::StreamInterrupted);
-    }
 
     #[test]
     fn strips_audio_output_modalities() {
@@ -234,13 +169,12 @@ mod tests {
     #[test]
     fn serializes_ordered_wav_and_mp3_inline_audio_without_audio_output() {
         let message = Message::User {
-            content: OneOrMany::many(vec![
+            content: vec![
                 UserContent::text("First"),
                 UserContent::audio("d2F2", Some(AudioMediaType::WAV)),
                 UserContent::text("Second"),
                 UserContent::audio("bXAz", Some(AudioMediaType::MP3)),
-            ])
-            .unwrap(),
+            ],
         };
         let value = serde_json::to_value(Content::try_from(message).unwrap()).unwrap();
 

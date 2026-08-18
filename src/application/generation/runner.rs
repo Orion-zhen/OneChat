@@ -6,9 +6,8 @@ use std::{
 use async_channel::Sender;
 use futures_util::future::join_all;
 use rig_core::{
-    OneOrMany,
     completion::{Message, ToolDefinition},
-    message::{ToolCall, ToolResult, ToolResultContent, UserContent},
+    message::{ToolCall, ToolResultContent, UserContent},
 };
 use rmcp::model::{CallToolResult, ContentBlock};
 use serde_json::{Map, Value};
@@ -142,7 +141,6 @@ async fn agent_loop(
                 .cloned();
             let execution = ToolExecution::new(
                 call.id.clone(),
-                call.call_id.clone(),
                 route
                     .as_ref()
                     .map_or_else(|| "unknown".to_string(), |tool| tool.server_id.clone()),
@@ -172,9 +170,7 @@ async fn agent_loop(
         }))
         .await;
         let cancelled = cancellation.is_cancelled();
-        let results = Message::User {
-            content: OneOrMany::many(results).expect("tool call batches are non-empty"),
-        };
+        let results = Message::User { content: results };
         events
             .send(GenerationEvent::TranscriptAppended(Box::new(
                 results.clone(),
@@ -253,15 +249,17 @@ async fn execute_tool(
             error
         }
     };
+    let tool_name = execution.tool_name.clone();
     let _ = events
         .send(GenerationEvent::ToolExecutionUpdated(Box::new(execution)))
         .await;
 
-    UserContent::ToolResult(ToolResult {
-        id: call.id,
-        call_id: call.call_id,
-        content: OneOrMany::one(ToolResultContent::text(model_result)),
-    })
+    UserContent::tool_result_for(
+        call.id,
+        call.provider,
+        tool_name,
+        vec![ToolResultContent::text(model_result)],
+    )
 }
 
 fn tool_result_text(result: CallToolResult) -> Result<String, String> {

@@ -1,5 +1,4 @@
 use rig_core::{
-    OneOrMany,
     completion::{AssistantContent, Message},
     message::{Audio, DocumentSourceKind, UserContent},
 };
@@ -67,9 +66,7 @@ fn message_characters_without_audio_data(message: &Message) -> usize {
             content => content.clone(),
         })
         .collect::<Vec<_>>();
-    let message = Message::User {
-        content: OneOrMany::many(content).expect("user messages have content"),
-    };
+    let message = Message::User { content };
     serialized_characters(&message)
 }
 
@@ -153,7 +150,6 @@ fn message_replays_reasoning(message: &Message) -> bool {
 #[cfg(test)]
 mod tests {
     use rig_core::{
-        OneOrMany,
         completion::AssistantContent,
         message::{AudioMediaType, Reasoning, UserContent},
     };
@@ -202,7 +198,7 @@ mod tests {
     fn reasoning_counts_only_when_it_is_replayed_in_the_transcript() {
         let reasoning = Message::Assistant {
             id: None,
-            content: OneOrMany::one(AssistantContent::Reasoning(Reasoning::new("thinking"))),
+            content: vec![AssistantContent::Reasoning(Reasoning::new("thinking"))],
         };
         let usage = project_context_usage("", &[reasoning], 0, None, None);
         assert!(usage.replays_reasoning);
@@ -232,7 +228,7 @@ mod tests {
     #[test]
     fn audio_estimate_uses_duration_instead_of_base64_size() {
         let message = |data: String| Message::User {
-            content: OneOrMany::one(UserContent::audio(data, Some(AudioMediaType::WAV))),
+            content: vec![UserContent::audio(data, Some(AudioMediaType::WAV))],
         };
         let small = message("YQ==".into());
         let large = message("YQ==".repeat(100_000));
@@ -246,7 +242,7 @@ mod tests {
     #[test]
     fn audio_estimate_grows_at_thirty_two_tokens_per_second() {
         let message = Message::User {
-            content: OneOrMany::one(UserContent::audio("YQ==", Some(AudioMediaType::WAV))),
+            content: vec![UserContent::audio("YQ==", Some(AudioMediaType::WAV))],
         };
         let baseline = estimate_input_tokens("", std::slice::from_ref(&message), 0);
         assert_eq!(

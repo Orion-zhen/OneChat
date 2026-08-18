@@ -4,8 +4,7 @@ use async_channel::Sender;
 use futures_util::StreamExt;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use rig_core::{
-    OneOrMany,
-    completion::{CompletionModel, CompletionRequest, GetTokenUsage, Message},
+    completion::{CompletionModel, CompletionRequest, FinishReason, Message},
     streaming::{StreamedAssistantContent, StreamingCompletionResponse},
 };
 use serde::Serialize;
@@ -122,17 +121,24 @@ pub(crate) fn sdk_request(
     request: &GenerationRequest,
     additional_params: Map<String, Value>,
 ) -> Result<CompletionRequest, GenerationError> {
-    let chat_history = OneOrMany::many(request.messages.clone()).map_err(|_| {
-        GenerationError::new(
+    if request.messages.is_empty() {
+        return Err(GenerationError::new(
             GenerationErrorKind::UnsupportedParameter,
             "At least one chat message is required",
-        )
-    })?;
+        ));
+    }
     let capabilities = &request.model.capabilities;
+    let mut chat_history = Vec::with_capacity(request.messages.len() + 1);
+    if !request.system_prompt.trim().is_empty() {
+        chat_history.push(Message::System {
+            content: request.system_prompt.clone(),
+        });
+    }
+    chat_history.extend(request.messages.clone());
 
-    Ok(CompletionRequest {
+    let sdk_request = CompletionRequest {
         model: Some(request.model.remote_id.clone()),
-        preamble: (!request.system_prompt.trim().is_empty()).then(|| request.system_prompt.clone()),
+        preamble: None,
         chat_history,
         documents: Vec::new(),
         tools: if capabilities.tools {
@@ -154,7 +160,11 @@ pub(crate) fn sdk_request(
             .then_some(Value::Object(additional_params)),
         output_schema: None,
         record_telemetry_content: false,
-    })
+    };
+    sdk_request
+        .validate_message_content()
+        .map_err(|error| super::sdk_completion_error(error, false))?;
+    Ok(sdk_request)
 }
 
 pub(crate) async fn stream_model<M>(
@@ -163,7 +173,6 @@ pub(crate) async fn stream_model<M>(
     events: &Sender<GenerationEvent>,
     cancellation: CancellationToken,
     require_usage: bool,
-    validate_final: impl FnMut(&M::StreamingResponse) -> Result<(), GenerationError>,
 ) -> Result<Message, GenerationError>
 where
     M: CompletionModel,
@@ -178,26 +187,15 @@ where
         }
     };
 
-    consume_stream(
-        response,
-        events,
-        cancellation,
-        require_usage,
-        validate_final,
-    )
-    .await
+    consume_stream(response, events, cancellation, require_usage).await
 }
 
-async fn consume_stream<R>(
-    mut response: StreamingCompletionResponse<R>,
+async fn consume_stream(
+    mut response: StreamingCompletionResponse,
     events: &Sender<GenerationEvent>,
     cancellation: CancellationToken,
     require_usage: bool,
-    mut validate_final: impl FnMut(&R) -> Result<(), GenerationError>,
-) -> Result<Message, GenerationError>
-where
-    R: Clone + Unpin + GetTokenUsage,
-{
+) -> Result<Message, GenerationError> {
     events
         .send(GenerationEvent::Started)
         .await
@@ -205,9 +203,6 @@ where
 
     let mut had_output = false;
     let mut reasoning_delta_ids = HashSet::new();
-    let mut had_unidentified_reasoning_delta = false;
-    let mut saw_final = false;
-    let mut saw_usage = false;
     loop {
         let item = tokio::select! {
             _ = cancellation.cancelled() => return Err(GenerationError::cancelled()),
@@ -222,28 +217,23 @@ where
                     .await
                     .map_err(|_| GenerationError::cancelled())?;
             }
-            StreamedAssistantContent::ReasoningDelta { id, reasoning } if !reasoning.is_empty() => {
+            StreamedAssistantContent::ReasoningDelta {
+                id,
+                provider_id,
+                reasoning,
+            } if !reasoning.is_empty() => {
                 had_output = true;
-                match id.as_ref() {
-                    Some(id) => {
-                        reasoning_delta_ids.insert(id.clone());
-                    }
-                    None => had_unidentified_reasoning_delta = true,
-                }
+                reasoning_delta_ids.insert(id);
                 events
                     .send(GenerationEvent::ThinkingDelta {
-                        provider_id: id,
+                        provider_id,
                         delta: reasoning,
                     })
                     .await
                     .map_err(|_| GenerationError::cancelled())?;
             }
-            StreamedAssistantContent::Reasoning(reasoning) => {
-                let had_delta = reasoning.id.as_ref().map_or(
-                    had_unidentified_reasoning_delta || !reasoning_delta_ids.is_empty(),
-                    |id| reasoning_delta_ids.contains(id),
-                );
-                if !had_delta {
+            StreamedAssistantContent::Reasoning { reasoning, id } => {
+                if !reasoning_delta_ids.contains(&id) {
                     let text = reasoning
                         .content
                         .iter()
@@ -274,45 +264,65 @@ where
                 had_output = true;
                 events
                     .send(GenerationEvent::ToolCallObserved {
-                        internal_call_id,
-                        provider_tool_call_id: tool_call.id,
+                        stream_call_id: internal_call_id,
+                        call_id: Some(tool_call.id.into_string()),
                     })
                     .await
                     .map_err(|_| GenerationError::cancelled())?;
             }
             StreamedAssistantContent::ToolCallDelta {
-                id,
-                internal_call_id,
-                ..
+                internal_call_id, ..
             } => {
                 had_output = true;
                 events
                     .send(GenerationEvent::ToolCallObserved {
-                        internal_call_id,
-                        provider_tool_call_id: id,
+                        stream_call_id: internal_call_id,
+                        call_id: None,
                     })
                     .await
                     .map_err(|_| GenerationError::cancelled())?;
             }
-            StreamedAssistantContent::Final(final_response) => {
-                validate_final(&final_response)?;
-                saw_final = true;
-                saw_usage |= emit_usage(final_response.token_usage(), events).await?;
-            }
-            _ => {}
+            StreamedAssistantContent::Text(_)
+            | StreamedAssistantContent::ReasoningDelta { .. }
+            | StreamedAssistantContent::Final(_)
+            | StreamedAssistantContent::Unknown(_) => {}
         }
     }
 
-    if !saw_final || (require_usage && !saw_usage) || (had_output && !saw_usage) {
+    let Some(final_response) = response.response.as_ref() else {
+        return Err(GenerationError::new(
+            GenerationErrorKind::StreamInterrupted,
+            "Provider stream ended before completion",
+        ));
+    };
+    validate_finish_reason(final_response.finish_reason.as_ref())?;
+    let usage = final_response.usage;
+    let has_usage = emit_usage(usage, events).await?;
+    if (require_usage || had_output) && !has_usage {
         return Err(GenerationError::new(
             GenerationErrorKind::StreamInterrupted,
             "Provider stream ended before completion",
         ));
     }
     Ok(Message::Assistant {
-        id: response.message_id.clone(),
-        content: response.choice.clone(),
+        id: response.message_id,
+        content: response.choice,
     })
+}
+
+fn validate_finish_reason(reason: Option<&FinishReason>) -> Result<(), GenerationError> {
+    match reason {
+        Some(FinishReason::ContentFilter) => Err(GenerationError::new(
+            GenerationErrorKind::Unknown,
+            "Provider filtered the response",
+        )),
+        Some(FinishReason::Other(reason)) => Err(GenerationError::new(
+            GenerationErrorKind::Unknown,
+            "Provider stopped without completing the response",
+        )
+        .with_detail(format!("finish_reason={reason}"))),
+        Some(FinishReason::Stop | FinishReason::Length | FinishReason::ToolCalls) | None => Ok(()),
+    }
 }
 
 pub(crate) async fn emit_usage(
@@ -357,12 +367,12 @@ mod tests {
     };
 
     use rig_core::{
-        OneOrMany,
-        completion::{CompletionError, CompletionResponse},
-        streaming::{RawStreamingChoice, StreamingResult},
+        completion::{CompletionError, CompletionResponse, Usage},
+        streaming::{RawStreamingChoice, StreamFinal, StreamingResult},
     };
 
     use super::*;
+    use crate::domain::{GenerationConfig, Model};
 
     #[derive(Clone, Copy)]
     enum StreamScenario {
@@ -387,28 +397,22 @@ mod tests {
     }
 
     impl CompletionModel for MockModel {
-        type Response = ();
-        type StreamingResponse = ();
-        type Client = ();
-
-        fn make(_client: &Self::Client, _model: impl Into<String>) -> Self {
-            Self::new(StreamScenario::Final)
-        }
-
         async fn completion(
             &self,
             _request: CompletionRequest,
-        ) -> Result<CompletionResponse<Self::Response>, CompletionError> {
+        ) -> Result<CompletionResponse, CompletionError> {
             panic!("completion is not used by stream_model tests")
         }
 
         async fn stream(
             &self,
             _request: CompletionRequest,
-        ) -> Result<StreamingCompletionResponse<Self::StreamingResponse>, CompletionError> {
+        ) -> Result<StreamingCompletionResponse, CompletionError> {
             self.stream_calls.fetch_add(1, Ordering::SeqCst);
             let items = match self.scenario {
-                StreamScenario::Final => vec![Ok(RawStreamingChoice::FinalResponse(()))],
+                StreamScenario::Final => vec![Ok(RawStreamingChoice::FinalResponse(
+                    StreamFinal::new("mock", Usage::default()),
+                ))],
                 StreamScenario::Interrupted => vec![
                     Ok(RawStreamingChoice::Message("partial".into())),
                     Err(CompletionError::ProviderError("stream failed".into())),
@@ -417,8 +421,8 @@ mod tests {
                     return std::future::pending().await;
                 }
             };
-            let stream: StreamingResult<()> = Box::pin(futures_util::stream::iter(items));
-            Ok(StreamingCompletionResponse::stream(stream))
+            let stream: StreamingResult = Box::pin(futures_util::stream::iter(items));
+            Ok(StreamingCompletionResponse::stream("mock", stream))
         }
     }
 
@@ -426,7 +430,7 @@ mod tests {
         CompletionRequest {
             model: Some("model".into()),
             preamble: None,
-            chat_history: OneOrMany::one(Message::user("Hello")),
+            chat_history: vec![Message::user("Hello")],
             documents: Vec::new(),
             tools: Vec::new(),
             temperature: None,
@@ -438,6 +442,40 @@ mod tests {
         }
     }
 
+    fn generation_request(system_prompt: &str, messages: Vec<Message>) -> GenerationRequest {
+        let provider = Provider::new("Provider", ProviderKind::OpenAi);
+        let model = Model::new(&provider.id, "model", "Model");
+        GenerationRequest {
+            provider,
+            model,
+            system_prompt: system_prompt.into(),
+            config: GenerationConfig::default(),
+            messages,
+            audio_duration_ms: 0,
+            tools: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn sdk_request_uses_system_messages_and_validates_empty_content() {
+        let request = generation_request("System prompt", vec![Message::user("Hello")]);
+        let sdk = sdk_request(&request, Map::new()).unwrap();
+        assert!(sdk.preamble.is_none());
+        assert!(matches!(
+            sdk.chat_history.first(),
+            Some(Message::System { content }) if content == "System prompt"
+        ));
+
+        let request = generation_request(
+            "",
+            vec![Message::User {
+                content: Vec::new(),
+            }],
+        );
+        let error = sdk_request(&request, Map::new()).unwrap_err();
+        assert_eq!(error.kind, GenerationErrorKind::UnsupportedParameter);
+    }
+
     #[tokio::test]
     async fn stream_model_does_not_send_an_already_cancelled_request() {
         let model = MockModel::new(StreamScenario::Final);
@@ -446,7 +484,7 @@ mod tests {
         let cancellation = CancellationToken::new();
         cancellation.cancel();
 
-        let error = stream_model(model, request(), &events, cancellation, false, |_| Ok(()))
+        let error = stream_model(model, request(), &events, cancellation, false)
             .await
             .unwrap_err();
 
@@ -462,10 +500,7 @@ mod tests {
         let cancellation = CancellationToken::new();
         let task_cancellation = cancellation.clone();
         let task = tokio::spawn(async move {
-            stream_model(model, request(), &events, task_cancellation, false, |_| {
-                Ok(())
-            })
-            .await
+            stream_model(model, request(), &events, task_cancellation, false).await
         });
         while calls.load(Ordering::SeqCst) == 0 {
             tokio::task::yield_now().await;
@@ -477,33 +512,23 @@ mod tests {
         assert_eq!(error.kind, GenerationErrorKind::UserCancelled);
     }
 
-    #[tokio::test]
-    async fn stream_model_runs_the_final_validator() {
-        let (events, _event_rx) = async_channel::unbounded();
-        stream_model(
-            MockModel::new(StreamScenario::Final),
-            request(),
-            &events,
-            CancellationToken::new(),
-            false,
-            |_| Ok(()),
-        )
-        .await
-        .unwrap();
+    #[test]
+    fn normalized_finish_reasons_have_one_provider_independent_policy() {
+        for reason in [
+            None,
+            Some(FinishReason::Stop),
+            Some(FinishReason::Length),
+            Some(FinishReason::ToolCalls),
+        ] {
+            assert!(validate_finish_reason(reason.as_ref()).is_ok());
+        }
 
-        let expected = GenerationError::new(GenerationErrorKind::Unknown, "invalid final");
-        let error = stream_model(
-            MockModel::new(StreamScenario::Final),
-            request(),
-            &events,
-            CancellationToken::new(),
-            false,
-            |_| Err(expected.clone()),
-        )
-        .await
-        .unwrap_err();
+        let filtered = validate_finish_reason(Some(&FinishReason::ContentFilter)).unwrap_err();
+        assert_eq!(filtered.kind, GenerationErrorKind::Unknown);
 
-        assert_eq!(error, expected);
+        let other =
+            validate_finish_reason(Some(&FinishReason::Other("blocked".into()))).unwrap_err();
+        assert_eq!(other.detail.as_deref(), Some("finish_reason=blocked"));
     }
 
     #[tokio::test]
@@ -515,7 +540,6 @@ mod tests {
             &events,
             CancellationToken::new(),
             true,
-            |_| Ok(()),
         )
         .await
         .unwrap_err();
@@ -527,7 +551,6 @@ mod tests {
             &events,
             CancellationToken::new(),
             false,
-            |_| Ok(()),
         )
         .await
         .unwrap_err();

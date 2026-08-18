@@ -37,7 +37,7 @@ pub async fn stream(
     if sdk_request.max_tokens.is_none() {
         sdk_request.max_tokens = Some(4096);
     }
-    stream_model(model, sdk_request, events, cancellation, true, |_| Ok(())).await
+    stream_model(model, sdk_request, events, cancellation, true).await
 }
 
 fn additional_parameters(

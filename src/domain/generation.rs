@@ -1,6 +1,5 @@
 pub use rig_core::completion::{Message, ToolDefinition};
 use rig_core::{
-    OneOrMany,
     completion::AssistantContent,
     message::{Reasoning, ToolCall},
 };
@@ -28,8 +27,8 @@ pub enum GenerationEvent {
         delta: String,
     },
     ToolCallObserved {
-        internal_call_id: String,
-        provider_tool_call_id: String,
+        stream_call_id: String,
+        call_id: Option<String>,
     },
     StepStarted {
         estimated_input_tokens: u64,
@@ -71,8 +70,8 @@ pub fn continue_last_assistant(messages: &mut Vec<Message>, continuation: Messag
 }
 
 fn strip_replayed_assistant_prefix(
-    existing: &OneOrMany<AssistantContent>,
-    continuation: OneOrMany<AssistantContent>,
+    existing: &[AssistantContent],
+    continuation: Vec<AssistantContent>,
 ) -> Vec<AssistantContent> {
     let (existing_text, existing_reasoning) = assistant_channels(existing.iter());
     let (continued_text, continued_reasoning) = assistant_channels(continuation.iter());
@@ -91,9 +90,9 @@ fn strip_replayed_assistant_prefix(
                 let id = reasoning.id.clone();
                 let mut content = reasoning.display_text();
                 if strip_prefix(&mut content, &mut reasoning_prefix) {
-                    normalized.push(AssistantContent::Reasoning(
-                        Reasoning::new(&content).optional_id(id),
-                    ));
+                    let mut reasoning = Reasoning::new(&content);
+                    reasoning.id = id;
+                    normalized.push(AssistantContent::Reasoning(reasoning));
                 }
             }
             item => normalized.push(item),
@@ -243,8 +242,7 @@ impl ToolExecutionStatus {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct ToolExecution {
     pub id: String,
-    pub provider_tool_call_id: String,
-    pub provider_call_id: Option<String>,
+    pub call_id: String,
     pub server_id: String,
     pub tool_name: String,
     pub arguments: serde_json::Value,
@@ -258,16 +256,14 @@ pub struct ToolExecution {
 
 impl ToolExecution {
     pub fn new(
-        provider_tool_call_id: impl Into<String>,
-        provider_call_id: Option<String>,
+        call_id: impl Into<String>,
         server_id: impl Into<String>,
         tool_name: impl Into<String>,
         arguments: serde_json::Value,
     ) -> Self {
         Self {
             id: new_id("tool"),
-            provider_tool_call_id: provider_tool_call_id.into(),
-            provider_call_id,
+            call_id: call_id.into(),
             server_id: server_id.into(),
             tool_name: tool_name.into(),
             arguments,

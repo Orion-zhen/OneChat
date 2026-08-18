@@ -1,5 +1,5 @@
 use super::*;
-use rig_core::{OneOrMany, completion::AssistantContent, message::Reasoning};
+use rig_core::{completion::AssistantContent, message::Reasoning};
 
 #[test]
 fn streaming_events_produce_completed_and_cancelled_states() {
@@ -93,19 +93,17 @@ fn continued_transcript_merges_into_the_existing_assistant_message() {
 fn continued_transcript_removes_a_replayed_assistant_prefill() {
     let existing = Message::Assistant {
         id: None,
-        content: OneOrMany::many(vec![
+        content: vec![
             AssistantContent::Reasoning(Reasoning::new("old reasoning")),
             AssistantContent::text("old answer"),
-        ])
-        .unwrap(),
+        ],
     };
     let replayed = Message::Assistant {
         id: None,
-        content: OneOrMany::many(vec![
+        content: vec![
             AssistantContent::Reasoning(Reasoning::new("old reasoning")),
             AssistantContent::text("old answer continued"),
-        ])
-        .unwrap(),
+        ],
     };
     let mut transcript = vec![existing];
 
@@ -116,12 +114,12 @@ fn continued_transcript_removes_a_replayed_assistant_prefill() {
     };
     assert_eq!(content.len(), 2);
     assert!(matches!(
-        content.first_ref(),
-        AssistantContent::Reasoning(reasoning) if reasoning.display_text() == "old reasoning"
+        content.first(),
+        Some(AssistantContent::Reasoning(reasoning)) if reasoning.display_text() == "old reasoning"
     ));
     assert!(matches!(
         content.last(),
-        AssistantContent::Text(text) if text.text == "old answer continued"
+        Some(AssistantContent::Text(text)) if text.text == "old answer continued"
     ));
 }
 
@@ -135,8 +133,8 @@ fn continued_transcript_preserves_a_suffix_only_response() {
         panic!("expected assistant transcript");
     };
     assert!(matches!(
-        content.first_ref(),
-        AssistantContent::Text(text) if text.text == "old answer continued"
+        content.first(),
+        Some(AssistantContent::Text(text)) if text.text == "old answer continued"
     ));
 }
 
@@ -214,14 +212,23 @@ fn interleaved_reasoning_output_and_tools_keep_stream_order() {
     );
     apply(
         GenerationEvent::ToolCallObserved {
-            internal_call_id: "internal-a".into(),
-            provider_tool_call_id: "call-a".into(),
+            stream_call_id: "internal-a".into(),
+            call_id: None,
         },
         20,
         &mut response,
         &mut request,
     );
-    let tool_a = ToolExecution::new("call-a", None, "server", "tool-a", Value::Null);
+    apply(
+        GenerationEvent::ToolCallObserved {
+            stream_call_id: "internal-a".into(),
+            call_id: Some("call-a".into()),
+        },
+        20,
+        &mut response,
+        &mut request,
+    );
+    let tool_a = ToolExecution::new("call-a", "server", "tool-a", Value::Null);
     apply(
         GenerationEvent::ToolExecutionUpdated(Box::new(tool_a.clone())),
         25,
@@ -251,14 +258,14 @@ fn interleaved_reasoning_output_and_tools_keep_stream_order() {
     );
     apply(
         GenerationEvent::ToolCallObserved {
-            internal_call_id: "internal-b".into(),
-            provider_tool_call_id: "call-b".into(),
+            stream_call_id: "internal-b".into(),
+            call_id: Some("call-b".into()),
         },
         50,
         &mut response,
         &mut request,
     );
-    let tool_b = ToolExecution::new("call-b", None, "server", "tool-b", Value::Null);
+    let tool_b = ToolExecution::new("call-b", "server", "tool-b", Value::Null);
     apply(
         GenerationEvent::ToolExecutionUpdated(Box::new(tool_b)),
         55,
@@ -292,9 +299,10 @@ fn interleaved_reasoning_output_and_tools_keep_stream_order() {
     assert!(matches!(
         &response.blocks[1],
         AssistantBlock::ToolCall {
+            call_id,
             execution_id: Some(_),
             ..
-        }
+        } if call_id == "call-a"
     ));
     assert!(matches!(
         &response.blocks[2],
@@ -322,7 +330,6 @@ fn interleaved_reasoning_output_and_tools_keep_stream_order() {
 #[test]
 fn editing_reasoning_updates_native_transcript_content() {
     use rig_core::{
-        OneOrMany,
         completion::AssistantContent,
         message::{Reasoning, ReasoningContent},
     };
@@ -347,13 +354,12 @@ fn editing_reasoning_updates_native_transcript_content() {
     ];
     response.transcript = vec![Message::Assistant {
         id: None,
-        content: OneOrMany::many([
+        content: vec![
             AssistantContent::Reasoning(
                 Reasoning::new("original reasoning").with_id("reasoning-provider".into()),
             ),
             AssistantContent::text("answer"),
-        ])
-        .unwrap(),
+        ],
     }];
 
     response.replace_editable_text(
@@ -370,7 +376,7 @@ fn editing_reasoning_updates_native_transcript_content() {
     let Message::Assistant { content, .. } = &response.transcript[0] else {
         panic!("expected assistant transcript");
     };
-    let AssistantContent::Reasoning(reasoning) = content.first_ref() else {
+    let Some(AssistantContent::Reasoning(reasoning)) = content.first() else {
         panic!("edited reasoning must remain native reasoning content");
     };
     assert_eq!(reasoning.id.as_deref(), Some("reasoning-provider"));
@@ -392,7 +398,7 @@ fn editing_reasoning_updates_native_transcript_content() {
 
 #[test]
 fn clearing_reasoning_removes_it_from_blocks_and_native_transcript() {
-    use rig_core::{OneOrMany, completion::AssistantContent, message::Reasoning};
+    use rig_core::{completion::AssistantContent, message::Reasoning};
 
     let provider = Provider::new("Local", ProviderKind::OpenAiCompatible);
     let model = Model::new(&provider.id, "qwen", "Qwen");
@@ -414,11 +420,10 @@ fn clearing_reasoning_removes_it_from_blocks_and_native_transcript() {
     ];
     response.transcript = vec![Message::Assistant {
         id: None,
-        content: OneOrMany::many([
+        content: vec![
             AssistantContent::Reasoning(Reasoning::new("reasoning")),
             AssistantContent::text("answer"),
-        ])
-        .unwrap(),
+        ],
     }];
 
     response.replace_editable_text(
@@ -464,8 +469,8 @@ fn editing_legacy_reasoning_creates_native_transcript() {
         panic!("expected assistant transcript");
     };
     assert!(matches!(
-        content.first_ref(),
-        AssistantContent::Reasoning(reasoning) if reasoning.display_text() == "edited"
+        content.first(),
+        Some(AssistantContent::Reasoning(reasoning)) if reasoning.display_text() == "edited"
     ));
     assert!(matches!(
         content.iter().nth(1),

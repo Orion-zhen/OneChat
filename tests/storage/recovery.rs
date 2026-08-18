@@ -76,13 +76,8 @@ fn startup_recovers_interrupted_generation_and_auto_title() {
     storage.begin_turn(&turn, &prepared.request_info).unwrap();
 
     let mut response = prepared.response;
-    let mut execution = ToolExecution::new(
-        "provider-call",
-        None,
-        "server",
-        "tool",
-        serde_json::json!({}),
-    );
+    let mut execution =
+        ToolExecution::new("provider-call", "server", "tool", serde_json::json!({}));
     execution.status = ToolExecutionStatus::Running;
     response.tool_executions.push(execution);
     storage

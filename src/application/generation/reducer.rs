@@ -48,12 +48,12 @@ pub fn apply_event(
             }
         }
         GenerationEvent::ToolCallObserved {
-            internal_call_id,
-            provider_tool_call_id,
+            stream_call_id,
+            call_id,
         } => {
             mark_first_token(request, elapsed);
             let finished_reasoning_id =
-                assistant.observe_tool_call(internal_call_id, provider_tool_call_id, elapsed_ms);
+                assistant.observe_tool_call(stream_call_id, call_id, elapsed_ms);
             record_thinking_duration(request, elapsed, finished_reasoning_id.is_some());
             assistant.updated_at = now_timestamp();
             EventOutcome {

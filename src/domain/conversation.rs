@@ -1,7 +1,6 @@
 use std::collections::BTreeSet;
 
 use rig_core::{
-    OneOrMany,
     completion::AssistantContent,
     message::{Reasoning, ReasoningContent},
 };
@@ -335,8 +334,7 @@ pub enum AssistantBlock {
     },
     ToolCall {
         id: String,
-        internal_call_id: String,
-        provider_tool_call_id: String,
+        call_id: String,
         execution_id: Option<String>,
     },
 }
@@ -460,26 +458,25 @@ impl AssistantResponse {
 
     pub fn observe_tool_call(
         &mut self,
-        internal_call_id: String,
-        provider_tool_call_id: String,
+        stream_call_id: String,
+        call_id: Option<String>,
         elapsed_ms: u64,
     ) -> Option<String> {
         let finished = self.finish_reasoning(elapsed_ms);
         if let Some(AssistantBlock::ToolCall {
-            provider_tool_call_id: stored_provider_id,
+            call_id: stored_call_id,
             ..
         }) = self.blocks.iter_mut().find(|block| {
-            matches!(block, AssistantBlock::ToolCall { internal_call_id: stored, .. } if stored == &internal_call_id)
+            matches!(block, AssistantBlock::ToolCall { call_id, .. } if call_id == &stream_call_id)
         }) {
-            if !provider_tool_call_id.is_empty() {
-                *stored_provider_id = provider_tool_call_id;
+            if let Some(call_id) = call_id {
+                *stored_call_id = call_id;
             }
             return finished;
         }
         self.blocks.push(AssistantBlock::ToolCall {
             id: new_id("tool-call"),
-            internal_call_id,
-            provider_tool_call_id,
+            call_id: call_id.unwrap_or(stream_call_id),
             execution_id: None,
         });
         finished
@@ -492,7 +489,7 @@ impl AssistantResponse {
     ) -> Option<String> {
         let finished = self.finish_reasoning(elapsed_ms);
         let execution_id = execution.id.clone();
-        let provider_tool_call_id = execution.provider_tool_call_id.clone();
+        let call_id = execution.call_id.clone();
         if let Some(stored) = self
             .tool_executions
             .iter_mut()
@@ -506,14 +503,13 @@ impl AssistantResponse {
             execution_id: stored_execution_id,
             ..
         }) = self.blocks.iter_mut().find(|block| {
-            matches!(block, AssistantBlock::ToolCall { provider_tool_call_id: stored, .. } if stored == &provider_tool_call_id)
+            matches!(block, AssistantBlock::ToolCall { call_id: stored, .. } if stored == &call_id)
         }) {
             *stored_execution_id = Some(execution_id);
         } else {
             self.blocks.push(AssistantBlock::ToolCall {
                 id: new_id("tool-call"),
-                internal_call_id: provider_tool_call_id.clone(),
-                provider_tool_call_id,
+                call_id,
                 execution_id: Some(execution_id),
             });
         }
@@ -666,8 +662,8 @@ impl AssistantResponse {
                 }];
                 items.push(AssistantContent::Reasoning(native));
             }
-            if let Some(content) = OneOrMany::from_iter_optional(items) {
-                transcript.push(Message::Assistant { id, content });
+            if !items.is_empty() {
+                transcript.push(Message::Assistant { id, content: items });
             }
         }
 
@@ -675,7 +671,9 @@ impl AssistantResponse {
             .into_iter()
             .filter_map(|(provider_id, content, used)| {
                 (!used && !content.is_empty()).then(|| {
-                    AssistantContent::Reasoning(Reasoning::new(&content).optional_id(provider_id))
+                    let mut reasoning = Reasoning::new(&content);
+                    reasoning.id = provider_id;
+                    AssistantContent::Reasoning(reasoning)
                 })
             })
             .collect::<Vec<_>>();
@@ -692,10 +690,7 @@ impl AssistantResponse {
                 if !self.content.is_empty() {
                     content.push(AssistantContent::text(self.content.clone()));
                 }
-                transcript.push(Message::Assistant {
-                    id: None,
-                    content: OneOrMany::many(content).expect("reasoning transcript is non-empty"),
-                });
+                transcript.push(Message::Assistant { id: None, content });
             }
         }
         self.transcript = transcript;

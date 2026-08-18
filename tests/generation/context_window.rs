@@ -155,9 +155,7 @@ fn trimming_audio_history_restores_duration_based_capacity() {
                 Some(rig_core::message::AudioMediaType::WAV),
             ));
         }
-        Ok(Message::User {
-            content: rig_core::OneOrMany::many(content).unwrap(),
-        })
+        Ok(Message::User { content })
     };
     let prepare = |limit| {
         PreparedGeneration::new(

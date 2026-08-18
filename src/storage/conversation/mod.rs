@@ -12,9 +12,8 @@ use crate::domain::{
 };
 
 use super::{
-    Result, Storage, StorageError,
-    codec::{read_jsonc, write_json},
-    conflict, missing,
+    Result, Storage, StorageError, codec::write_json, conflict,
+    migration::read_conversation as read_and_migrate, missing,
 };
 
 mod attachments;
@@ -368,7 +367,7 @@ impl Storage {
             if !path.is_file() {
                 continue;
             }
-            let file: ConversationFile = match read_jsonc(&path) {
+            let file = match read_and_migrate(&path) {
                 Ok(file) => file,
                 Err(StorageError::Parse { .. }) => continue,
                 Err(error) => return Err(error),
@@ -388,7 +387,7 @@ impl Storage {
 
     fn read_conversation(&self, id: &str) -> Result<ConversationFile> {
         let path = self.conversation_path(id)?;
-        let file: ConversationFile = match read_jsonc(&path) {
+        let file = match read_and_migrate(&path) {
             Ok(file) => file,
             Err(StorageError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
                 return Err(missing("conversation", id));

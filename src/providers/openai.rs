@@ -64,7 +64,6 @@ pub async fn stream(
                 events,
                 cancellation,
                 false,
-                |_| Ok(()),
             )
             .await
         }
@@ -75,7 +74,6 @@ pub async fn stream(
                 events,
                 cancellation,
                 false,
-                |_| Ok(()),
             )
             .await
         }
@@ -174,14 +172,13 @@ mod tests {
         model.capabilities.audio_input = audio_input;
         let messages = if with_audio {
             vec![Message::User {
-                content: rig_core::OneOrMany::many(vec![
+                content: vec![
                     rig_core::message::UserContent::text("Listen"),
                     rig_core::message::UserContent::audio(
                         "UklGRg==",
                         Some(rig_core::message::AudioMediaType::WAV),
                     ),
-                ])
-                .unwrap(),
+                ],
             }]
         } else {
             vec![Message::user("Hello")]

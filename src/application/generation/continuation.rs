@@ -175,16 +175,15 @@ fn assistant_text(message: &Message) -> (String, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rig_core::{OneOrMany, message::Reasoning};
+    use rig_core::message::Reasoning;
 
     fn prefill() -> Message {
         Message::Assistant {
             id: None,
-            content: OneOrMany::many(vec![
+            content: vec![
                 AssistantContent::Reasoning(Reasoning::new("old reasoning")),
                 AssistantContent::text("old answer"),
-            ])
-            .unwrap(),
+            ],
         }
     }
 

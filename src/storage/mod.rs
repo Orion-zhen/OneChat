@@ -1,6 +1,7 @@
 mod catalog;
 mod codec;
 mod conversation;
+mod migration;
 mod prompt;
 mod search;
 mod snapshot;

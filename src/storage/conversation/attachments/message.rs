@@ -2,7 +2,6 @@ use std::fs;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use rig_core::{
-    OneOrMany,
     completion::Message,
     message::{AudioMediaType, ImageMediaType, UserContent},
 };
@@ -123,9 +122,11 @@ impl Storage {
                 }
             }
         }
-        let content = OneOrMany::many(content).map_err(|_| {
-            StorageError::InvalidData("a user message must contain text or an attachment".into())
-        })?;
+        if content.is_empty() {
+            return Err(StorageError::InvalidData(
+                "a user message must contain text or an attachment".into(),
+            ));
+        }
         Ok(Message::User { content })
     }
 }

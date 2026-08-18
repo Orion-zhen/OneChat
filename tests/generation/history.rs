@@ -52,7 +52,7 @@ fn new_turn_history_follows_the_selected_branch() {
 
 #[test]
 fn edited_reasoning_is_replayed_as_native_reasoning() {
-    use rig_core::{OneOrMany, completion::AssistantContent, message::Reasoning};
+    use rig_core::{completion::AssistantContent, message::Reasoning};
 
     let provider = Provider::new("Local", ProviderKind::OpenAiCompatible);
     let model = Model::new(&provider.id, "qwen", "Qwen");
@@ -75,11 +75,10 @@ fn edited_reasoning_is_replayed_as_native_reasoning() {
     ];
     response.transcript = vec![Message::Assistant {
         id: None,
-        content: OneOrMany::many([
+        content: vec![
             AssistantContent::Reasoning(Reasoning::new("original")),
             AssistantContent::text("answer"),
-        ])
-        .unwrap(),
+        ],
     }];
     response.replace_editable_text(
         &[("reasoning".into(), "edited".into())],
@@ -90,7 +89,7 @@ fn edited_reasoning_is_replayed_as_native_reasoning() {
     let Message::Assistant { content, .. } = &history[1] else {
         panic!("expected assistant history");
     };
-    let AssistantContent::Reasoning(reasoning) = content.first_ref() else {
+    let Some(AssistantContent::Reasoning(reasoning)) = content.first() else {
         panic!("edited reasoning must remain native history");
     };
     assert_eq!(reasoning.display_text(), "edited");
