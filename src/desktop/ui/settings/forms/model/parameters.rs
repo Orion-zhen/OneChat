@@ -84,19 +84,14 @@ pub(super) fn reasoning_parameter_list(
                         .child(value_type.label())
                         .into_any_element()
                 } else {
-                    Select::new(&parameter.value_type)
+                    select_control(&parameter.value_type)
                         .w_full()
-                        .h_full()
-                        .px(px(8.0))
-                        .rounded(px(10.0))
                         .into_any_element()
                 };
                 let value = match value_type {
-                    ReasoningParameterType::Boolean => {
-                        field_control(Select::new(&parameter.boolean_value))
-                            .w_full()
-                            .into_any_element()
-                    }
+                    ReasoningParameterType::Boolean => select_control(&parameter.boolean_value)
+                        .w_full()
+                        .into_any_element(),
                     ReasoningParameterType::Null => div()
                         .w_full()
                         .h(px(40.0))

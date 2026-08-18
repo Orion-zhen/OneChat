@@ -1,11 +1,12 @@
 use gpui::{AnyElement, Context, FontWeight, div, prelude::*, px};
-use gpui_component::{ActiveTheme as _, Sizable as _, select::Select};
+use gpui_component::ActiveTheme as _;
 
 use super::components::{header_controls, language_select_slot, panel, panel_header};
 use crate::desktop::{
     app::OneChat,
     ui::{
         chat::render_readonly_assistant_content,
+        controls::select_control,
         copy_button::CopyButton,
         icons::{AppIcon, IconTone, render_icon},
         layout::LayoutClass,
@@ -47,12 +48,8 @@ pub(super) fn render(
                 header_controls(narrow)
                     .child(
                         language_select_slot(narrow).child(
-                            Select::new(&app.translation.controls.target_language)
-                                .large()
-                                .size_full()
-                                .px_2p5()
-                                .rounded(px(9.0))
-                                .menu_max_h(px(320.0))
+                            select_control(&app.translation.controls.target_language)
+                                .w_full()
                                 .disabled(app.translation.is_generating()),
                         ),
                     )

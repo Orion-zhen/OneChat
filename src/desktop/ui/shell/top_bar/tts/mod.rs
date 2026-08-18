@@ -1,6 +1,6 @@
 mod connection;
 
-use gpui_component::{Sizable as _, select::Select};
+use crate::desktop::ui::controls::select_control;
 
 use super::*;
 
@@ -22,25 +22,15 @@ pub(super) fn render_tts_top_bar(
             .items_center()
             .gap_2()
             .child(
-                Select::new(&app.tts.controls.model)
-                    .large()
-                    .h(px(36.0))
+                select_control(&app.tts.controls.model)
                     .w(px(if layout.is_wide() { 184.0 } else { 152.0 }))
-                    .px_3()
-                    .rounded(px(9.0))
                     .placeholder("TTS model")
-                    .menu_max_h(px(320.0))
                     .disabled(model_disabled),
             )
             .child(
-                Select::new(&app.tts.controls.voice)
-                    .large()
-                    .h(px(36.0))
+                select_control(&app.tts.controls.voice)
                     .w(px(if layout.is_wide() { 156.0 } else { 132.0 }))
-                    .px_3()
-                    .rounded(px(9.0))
                     .placeholder("Voice")
-                    .menu_max_h(px(320.0))
                     .disabled(voice_disabled),
             )
             .child(

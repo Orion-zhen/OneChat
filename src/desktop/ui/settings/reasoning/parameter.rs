@@ -68,78 +68,32 @@ impl SearchableListItem for ReasoningBooleanItem {
     }
 }
 
-const CHAT_TEMPLATE_PARAMETERS: [(&str, &str, ReasoningParameterType); 8] = [
-    (
-        "enable_thinking",
-        "Qwen, Gemma, and GLM thinking switch",
-        ReasoningParameterType::Boolean,
-    ),
-    (
-        "thinking",
-        "Granite thinking switch",
-        ReasoningParameterType::Boolean,
-    ),
-    (
-        "preserve_thinking",
-        "Preserve thinking across turns",
-        ReasoningParameterType::Boolean,
-    ),
-    (
-        "reasoning_effort",
-        "Reasoning effort exposed to the template",
-        ReasoningParameterType::String,
-    ),
-    (
-        "reasoning_strength",
-        "Reasoning strength exposed to the template",
-        ReasoningParameterType::String,
-    ),
-    (
-        "thinking_level",
-        "Thinking level exposed to the template",
-        ReasoningParameterType::String,
-    ),
-    (
-        "thinking_budget",
-        "Thinking budget exposed to the template",
-        ReasoningParameterType::Integer,
-    ),
-    (
-        "thinking_token_budget",
-        "Thinking token budget exposed to the template",
-        ReasoningParameterType::Integer,
-    ),
+const CHAT_TEMPLATE_PARAMETERS: [(&str, ReasoningParameterType); 8] = [
+    ("enable_thinking", ReasoningParameterType::Boolean),
+    ("thinking", ReasoningParameterType::Boolean),
+    ("preserve_thinking", ReasoningParameterType::Boolean),
+    ("reasoning_effort", ReasoningParameterType::String),
+    ("reasoning_strength", ReasoningParameterType::String),
+    ("thinking_level", ReasoningParameterType::String),
+    ("thinking_budget", ReasoningParameterType::Integer),
+    ("thinking_token_budget", ReasoningParameterType::Integer),
 ];
 
 fn chat_template_parameter_type(path: &str) -> Option<ReasoningParameterType> {
     CHAT_TEMPLATE_PARAMETERS
         .iter()
-        .find(|(candidate, _, _)| *candidate == path)
-        .map(|(_, _, value_type)| *value_type)
+        .find(|(candidate, _)| *candidate == path)
+        .map(|(_, value_type)| *value_type)
 }
 
 #[derive(Clone)]
 pub(crate) struct ChatTemplateParameterItem {
     path: String,
-    description: &'static str,
-    custom: bool,
 }
 
 impl ChatTemplateParameterItem {
-    fn known(path: &'static str, description: &'static str) -> Self {
-        Self {
-            path: path.into(),
-            description,
-            custom: false,
-        }
-    }
-
-    fn custom(path: impl Into<String>) -> Self {
-        Self {
-            path: path.into(),
-            description: "Custom chat template parameter",
-            custom: true,
-        }
+    fn new(path: impl Into<String>) -> Self {
+        Self { path: path.into() }
     }
 }
 
@@ -160,34 +114,8 @@ impl SearchableListItem for ChatTemplateParameterItem {
             .contains(&query.to_ascii_lowercase())
     }
 
-    fn render(&self, _: &mut Window, cx: &mut App) -> impl IntoElement {
-        div()
-            .w_full()
-            .min_w_0()
-            .flex()
-            .items_center()
-            .justify_between()
-            .gap_3()
-            .child(
-                div()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .child(div().truncate().child(self.path.clone()))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child(self.description),
-                    ),
-            )
-            .children(self.custom.then(|| {
-                div()
-                    .flex_none()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("Use custom")
-            }))
+    fn render(&self, _: &mut Window, _: &mut App) -> impl IntoElement {
+        self.title()
     }
 }
 
@@ -200,11 +128,11 @@ impl ChatTemplateParameterDelegate {
     fn new(current: &str) -> Self {
         let mut all = CHAT_TEMPLATE_PARAMETERS
             .into_iter()
-            .map(|(path, description, _)| ChatTemplateParameterItem::known(path, description))
+            .map(|(path, _)| ChatTemplateParameterItem::new(path))
             .collect::<Vec<_>>();
         let current = current.trim();
         if !current.is_empty() && !all.iter().any(|item| item.path == current) {
-            all.insert(0, ChatTemplateParameterItem::custom(current));
+            all.insert(0, ChatTemplateParameterItem::new(current));
         }
         let visible = all.clone();
         Self { all, visible }
@@ -235,7 +163,7 @@ impl ChatTemplateParameterDelegate {
             .any(|item| item.path.eq_ignore_ascii_case(query))
         {
             self.visible
-                .insert(0, ChatTemplateParameterItem::custom(query));
+                .insert(0, ChatTemplateParameterItem::new(query));
         }
     }
 }

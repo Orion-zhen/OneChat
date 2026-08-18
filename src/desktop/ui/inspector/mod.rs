@@ -25,7 +25,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     input::{Input, InputEvent, InputState, MaskPattern, Textarea, TextareaState},
     searchable_list::SearchableListItem,
-    select::{Select, SelectState},
+    select::SelectState,
     slider::Slider,
     switch::Switch,
 };
@@ -36,7 +36,7 @@ use crate::{
     desktop::ui::{
         SegmentedControl,
         badges::{StatusPillBackground, status_pill},
-        controls::{field_control, sync_slider},
+        controls::{select_control, sync_slider},
         icons::{AppIcon, IconActionSize::Regular, IconTone, render_icon},
         input::textarea as multiline_input,
         mcp::tool_row as mcp_tool_row,

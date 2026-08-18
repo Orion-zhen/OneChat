@@ -58,7 +58,7 @@ pub(super) fn render_model(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEleme
                         .font_weight(FontWeight::SEMIBOLD)
                         .child("Reasoning"),
                 )
-                .child(field_control(Select::new(&editor.reasoning_select)).w_full()),
+                .child(select_control(&editor.reasoning_select).w_full()),
         );
     }
 
@@ -85,7 +85,7 @@ pub(super) fn render_model(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEleme
     }
 
     parameters
-        .child(add_parameter_select(editor, capabilities, cx))
+        .child(add_parameter_select(editor, capabilities))
         .children(
             app.chat
                 .parameter_error
@@ -214,18 +214,11 @@ fn textarea_parameter_field(
 fn add_parameter_select(
     editor: &GenerationConfigEditor,
     capabilities: &crate::domain::ModelCapabilities,
-    cx: &App,
 ) -> AnyElement {
     let disabled = GenerationParameter::ALL
         .into_iter()
         .all(|parameter| !parameter.supported_by(capabilities) || editor.is_active(parameter));
-    Select::new(&editor.parameter_select)
-        .large()
-        .h(px(44.0))
-        .px(px(14.0))
-        .rounded(px(12.0))
-        .border_color(cx.theme().border)
-        .bg(cx.theme().muted)
+    select_control(&editor.parameter_select)
         .placeholder(if disabled {
             "All available parameters added"
         } else {

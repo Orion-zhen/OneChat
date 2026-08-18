@@ -1,10 +1,10 @@
 use gpui::{AnyElement, Context, div, prelude::*, px};
-use gpui_component::{ActiveTheme as _, Sizable as _, input::Textarea, select::Select};
+use gpui_component::{ActiveTheme as _, input::Textarea};
 
 use super::components::{header_controls, language_select_slot, panel, panel_header};
 use crate::desktop::{
     app::OneChat,
-    ui::{icons::AppIcon, layout::LayoutClass},
+    ui::{controls::select_control, icons::AppIcon, layout::LayoutClass},
 };
 
 pub(super) fn render(app: &OneChat, layout: LayoutClass, cx: &mut Context<OneChat>) -> AnyElement {
@@ -19,12 +19,8 @@ pub(super) fn render(app: &OneChat, layout: LayoutClass, cx: &mut Context<OneCha
             panel_header("Source", AppIcon::FileText, narrow, cx).child(
                 header_controls(narrow).child(
                     language_select_slot(narrow).child(
-                        Select::new(&app.translation.controls.source_language)
-                            .large()
-                            .size_full()
-                            .px_2p5()
-                            .rounded(px(9.0))
-                            .menu_max_h(px(320.0))
+                        select_control(&app.translation.controls.source_language)
+                            .w_full()
                             .disabled(app.translation.is_generating()),
                     ),
                 ),

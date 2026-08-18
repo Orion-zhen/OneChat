@@ -59,9 +59,8 @@ fn title_generation_controls(app: &OneChat) -> AnyElement {
         )
         .when(supports_reasoning, |controls| {
             controls.child(
-                field_control(Select::new(&app.settings_ui.title_reasoning_select))
+                select_control(&app.settings_ui.title_reasoning_select)
                     .placeholder("Reasoning Preset")
-                    .menu_max_h(px(320.0))
                     .w_auto()
                     .min_w(px(96.0))
                     .max_w(px(180.0))
@@ -76,12 +75,11 @@ fn default_model_select(app: &OneChat, role: DefaultModelRole) -> AnyElement {
         DefaultModelRole::Primary => &app.settings_ui.primary_model_select,
         DefaultModelRole::TitleGeneration => &app.settings_ui.title_model_select,
     };
-    field_control(Select::new(state))
+    select_control(state)
         .placeholder(match role {
             DefaultModelRole::Primary => "Choose a model",
             DefaultModelRole::TitleGeneration => "Use Primary Model",
         })
-        .menu_max_h(px(320.0))
         .w_full()
         .max_w(px(340.0))
         .empty(|_, cx| {

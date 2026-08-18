@@ -194,6 +194,7 @@ fn font_stack_editor(app: &OneChat, role: FontRole, cx: &mut Context<OneChat>) -
     let count = families.len();
     let list = div()
         .w_full()
+        .flex_none()
         .rounded(px(11.0))
         .border_1()
         .border_color(cx.theme().border)
@@ -239,8 +240,8 @@ fn font_stack_editor(app: &OneChat, role: FontRole, cx: &mut Context<OneChat>) -
                 );
 
             div()
-                .min_h(px(46.0))
                 .px_2()
+                .py_2()
                 .flex()
                 .items_center()
                 .gap_2()
@@ -301,11 +302,11 @@ fn font_stack_editor(app: &OneChat, role: FontRole, cx: &mut Context<OneChat>) -
         .gap_2()
         .child(list)
         .child(
-            field_control(Select::new(select))
+            select_control(select)
+                .flex_none()
                 .icon(Icon::new(IconName::Plus))
                 .placeholder("Add font…")
                 .search_placeholder("Search installed fonts…")
-                .menu_max_h(px(300.0))
                 .w_full(),
         )
         .into_any_element()

@@ -52,7 +52,7 @@ use gpui_component::{
     form::{Field, Form},
     input::{Escape as InputEscape, Input, InputContentType, InputState, Textarea, TextareaState},
     searchable_list::{SearchableListDelegate, SearchableListItem},
-    select::{Select, SelectEvent, SelectState},
+    select::{SelectEvent, SelectState},
     slider::{Slider, SliderState},
     spinner::Spinner,
     switch::Switch,
@@ -61,7 +61,7 @@ use gpui_component::{
 use super::{
     SegmentedControl,
     badges::{StatusPillBackground, status_pill},
-    controls::{field_control, sync_slider},
+    controls::{field_control, select_control, sync_slider},
     copy_button::CopyButton,
     icons::{AppIcon, IconActionSize::Compact, IconTone, render_icon},
     input::{

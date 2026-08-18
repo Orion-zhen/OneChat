@@ -86,7 +86,7 @@ pub(super) fn header_controls(narrow: bool) -> gpui::Div {
 pub(super) fn language_select_slot(narrow: bool) -> gpui::Div {
     div()
         .min_w_0()
-        .h(px(32.0))
+        .h(px(40.0))
         .w(px(220.0))
         .max_w_full()
         .when(!narrow, |slot| slot.flex_none())
