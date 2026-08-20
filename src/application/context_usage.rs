@@ -1,9 +1,8 @@
-use rig_core::{
-    completion::{AssistantContent, Message},
-    message::{Audio, DocumentSourceKind, UserContent},
-};
+use rig_core::completion::{AssistantContent, Message};
 
-const AUDIO_INPUT_TOKENS_PER_SECOND: u64 = 32;
+mod estimate;
+
+pub use estimate::estimate_input_tokens;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ContextUsageSource {
@@ -25,53 +24,6 @@ pub struct ContextUsage {
     pub remaining_ratio: Option<f32>,
     pub source: ContextUsageSource,
     pub replays_reasoning: bool,
-}
-
-pub fn estimate_input_tokens(
-    system_prompt: &str,
-    messages: &[Message],
-    audio_duration_ms: u64,
-) -> u64 {
-    let characters = system_prompt.chars().count()
-        + messages
-            .iter()
-            .map(message_characters_without_audio_data)
-            .sum::<usize>();
-    let text_tokens = characters.div_ceil(4) as u64;
-    let audio_tokens = audio_duration_ms
-        .saturating_mul(AUDIO_INPUT_TOKENS_PER_SECOND)
-        .div_ceil(1_000);
-    text_tokens.saturating_add(audio_tokens)
-}
-
-fn message_characters_without_audio_data(message: &Message) -> usize {
-    let Message::User { content } = message else {
-        return serialized_characters(message);
-    };
-    if !content
-        .iter()
-        .any(|content| matches!(content, UserContent::Audio(_)))
-    {
-        return serialized_characters(message);
-    }
-
-    let content = content
-        .iter()
-        .map(|content| match content {
-            UserContent::Audio(audio) => UserContent::Audio(Audio {
-                data: DocumentSourceKind::Unknown,
-                media_type: audio.media_type.clone(),
-                additional_params: audio.additional_params.clone(),
-            }),
-            content => content.clone(),
-        })
-        .collect::<Vec<_>>();
-    let message = Message::User { content };
-    serialized_characters(&message)
-}
-
-fn serialized_characters(value: &impl serde::Serialize) -> usize {
-    serde_json::to_string(value).map_or(0, |value| value.chars().count())
 }
 
 pub fn provider_usage_reference(

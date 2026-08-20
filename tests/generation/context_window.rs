@@ -193,7 +193,7 @@ fn trimming_audio_history_restores_duration_based_capacity() {
 }
 
 #[tokio::test]
-async fn resolved_system_prompt_is_used_for_context_window_preflight() {
+async fn resolved_system_prompt_updates_estimate_without_blocking_the_request() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
     let model = Model::new(&provider.id, "test-model", "Test Model");
     let conversation = Conversation::new("Chat", Some(&model), "{{large}}");
@@ -226,102 +226,41 @@ async fn resolved_system_prompt_is_used_for_context_window_preflight() {
         .await
         .unwrap();
     assert!(prepared.request_info.usage.input_tokens.unwrap() > unresolved_tokens);
-    let error = prepared.finalize_context().unwrap_err();
-    assert_eq!(error.kind, GenerationErrorKind::ContextLengthExceeded);
-    assert!(error.message.contains("current message"));
+    prepared.finalize_context().unwrap();
+    assert!(
+        prepared.request_info.usage.input_tokens.unwrap()
+            > u64::from(
+                prepared
+                    .provider_request
+                    .model
+                    .context_window_tokens
+                    .unwrap()
+            )
+    );
 }
 
-#[tokio::test]
-async fn pre_provider_context_failure_is_persisted_without_removing_attachments() {
-    let directory = tempdir().unwrap();
-    let storage = Arc::new(
-        Storage::open(
-            directory.path().join("config/settings.jsonc"),
-            directory.path().join("state"),
-        )
-        .unwrap(),
-    );
+#[test]
+fn oversized_current_message_is_left_for_the_provider_to_validate() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-    storage.insert_provider(&provider).unwrap();
     let mut model = Model::new(&provider.id, "tiny-model", "Tiny Model");
     model.context_window_tokens = Some(1);
-    storage.insert_model(&model).unwrap();
     let conversation = Conversation::new("Chat", Some(&model), "system");
-    storage.insert_conversation(&conversation).unwrap();
-    let mut settings = storage.load_snapshot().unwrap().settings;
-    settings.current_conversation_id = Some(conversation.id.clone());
-    storage.save_settings(&settings).unwrap();
-    let attachments = storage
-        .store_attachments(
-            &conversation.id,
-            &[AttachmentDraft {
-                id: "document".into(),
-                name: "notes.txt".into(),
-                kind: AttachmentKind::Document,
-                files: vec![AttachmentDraftFile {
-                    name: "content.md".into(),
-                    kind: AttachmentFileKind::Text,
-                    media_type: "text/markdown".into(),
-                    bytes: b"retained attachment".to_vec(),
-                }],
-                audio: None,
-            }],
-        )
-        .unwrap();
-    let user = UserMessage::new("current message", attachments.clone());
-    let prepared = PreparedGeneration::new(
+    let mut prepared = PreparedGeneration::new(
         &conversation,
         &provider,
         &model,
         &[],
         None,
-        user,
+        UserMessage::new("current message", Vec::new()),
         ContextPolicy::new(HistoryLimit::Unlimited, &|user| {
-            storage
-                .message_for_user(&conversation.id, user, false)
-                .map_err(|error| error.to_string())
+            Ok(Message::user(user.content.clone()))
         }),
     )
-    .unwrap()
-    .with_new_attachments(attachments.clone());
-    let GenerationStart::NewTurn(turn) = &prepared.start else {
-        panic!("expected a new turn");
-    };
-    storage.begin_turn(turn, &prepared.request_info).unwrap();
+    .unwrap();
 
-    let (sender, receiver) = async_channel::bounded(1);
-    run_generation(
-        prepared,
-        storage.clone(),
-        Arc::new(McpManager::new(directory.path().join("mcp.json"))),
-        CancellationToken::new(),
-        sender,
-    )
-    .await;
-    let GenerationUpdate::Snapshot(snapshot) = receiver.recv().await.unwrap() else {
-        panic!("expected a generation snapshot");
-    };
-    assert!(snapshot.terminal);
-    assert_eq!(snapshot.request.status, RequestStatus::Failed);
-    assert_eq!(
-        snapshot
-            .request
-            .error
-            .as_ref()
-            .map(|error| error.kind.as_str()),
-        Some("context_length_exceeded")
-    );
-
-    let snapshot = storage.load_snapshot().unwrap();
-    let turn = snapshot
-        .current_turns
-        .iter()
-        .find(|turn| turn.id == snapshot.current_requests[0].turn_id)
-        .unwrap();
-    assert_eq!(turn.user.attachments, attachments);
-    storage
-        .message_for_user(&conversation.id, &turn.user, false)
-        .unwrap();
+    assert!(prepared.request_info.usage.input_tokens.unwrap() > 1);
+    prepared.finalize_context().unwrap();
+    assert!(prepared.request_info.usage.input_tokens.unwrap() > 1);
 }
 
 #[tokio::test]
@@ -336,11 +275,27 @@ async fn failed_continuation_restores_the_completed_response() {
     );
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
     storage.insert_provider(&provider).unwrap();
-    let mut model = Model::new(&provider.id, "tiny-model", "Tiny Model");
-    model.context_window_tokens = Some(1);
+    let model = Model::new(&provider.id, "text-model", "Text Model");
     storage.insert_model(&model).unwrap();
     let conversation = Conversation::new("Chat", Some(&model), "system");
     storage.insert_conversation(&conversation).unwrap();
+    let attachments = storage
+        .store_attachments(
+            &conversation.id,
+            &[AttachmentDraft {
+                id: "image".into(),
+                name: "image.png".into(),
+                kind: AttachmentKind::Image,
+                files: vec![AttachmentDraftFile {
+                    name: "image.png".into(),
+                    kind: AttachmentFileKind::Image,
+                    media_type: "image/png".into(),
+                    bytes: b"\x89PNG\r\n\x1a\n".to_vec(),
+                }],
+                audio: None,
+            }],
+        )
+        .unwrap();
     let mut settings = storage.load_snapshot().unwrap().settings;
     settings.current_conversation_id = Some(conversation.id.clone());
     storage.save_settings(&settings).unwrap();
@@ -351,9 +306,11 @@ async fn failed_continuation_restores_the_completed_response() {
         &model,
         &[],
         None,
-        UserMessage::new("question", Vec::new()),
+        UserMessage::new("question", attachments),
         ContextPolicy::new(HistoryLimit::Unlimited, &|user| {
-            Ok(Message::user(user.content.clone()))
+            storage
+                .message_for_user(&conversation.id, user, false)
+                .map_err(|error| error.to_string())
         }),
     )
     .unwrap();
@@ -394,7 +351,9 @@ async fn failed_continuation_restores_the_completed_response() {
         &turn,
         &response,
         ContextPolicy::new(HistoryLimit::Unlimited, &|user| {
-            Ok(Message::user(user.content.clone()))
+            storage
+                .message_for_user(&conversation.id, user, false)
+                .map_err(|error| error.to_string())
         }),
     )
     .unwrap();
@@ -421,6 +380,14 @@ async fn failed_continuation_restores_the_completed_response() {
     };
     assert_eq!(snapshot.request.kind, RequestKind::Continue);
     assert_eq!(snapshot.request.status, RequestStatus::Failed);
+    assert_eq!(
+        snapshot
+            .request
+            .error
+            .as_ref()
+            .map(|error| error.kind.as_str()),
+        Some("unsupported_parameter")
+    );
     assert_eq!(snapshot.response.status, MessageStatus::Completed);
     assert_eq!(snapshot.response.content, "original answer");
 

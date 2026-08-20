@@ -239,18 +239,6 @@ impl PreparedGeneration {
                 }
                 update_input_token_estimate(&mut self.request_info, &self.provider_request);
             }
-
-            if self.estimated_input_tokens() > u64::from(context_window) {
-                return Err(GenerationError::new(
-                    GenerationErrorKind::ContextLengthExceeded,
-                    "Prompt setup and current message exceed the model context window",
-                )
-                .with_detail(format!(
-                    "Estimated {} input tokens for a configured {}-token context window",
-                    self.estimated_input_tokens(),
-                    context_window
-                )));
-            }
         }
 
         let capabilities = &self.provider_request.model.capabilities;
