@@ -1,4 +1,5 @@
 use super::*;
+use crate::desktop::app::register_composer_ime;
 
 mod attachments;
 mod controls;
@@ -137,6 +138,7 @@ pub(super) fn render_composer(
     };
 
     let input = div()
+        .relative()
         .min_w_0()
         .flex_1()
         .overflow_hidden()
@@ -169,7 +171,9 @@ pub(super) fn render_composer(
             }
         }))
         .children(attachments)
-        .child(editor_layout);
+        .child(editor_layout)
+        // On Linux this is painted last so it replaces Textarea's platform input handler.
+        .child(register_composer_ime(&app.chat.composer_ime));
 
     div()
         .flex_none()

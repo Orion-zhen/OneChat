@@ -15,10 +15,10 @@ use gpui_component::{
 use tokio::runtime::Runtime;
 
 use super::{
-    ChatState, DataState, DefaultModelRole, DrawerMotion, FontRole, McpState, MessageScrollMotion,
-    NavigationState, OneChat, OverlayState, Page, PlaybackState, Services, SettingsState,
-    SidebarState, SidebarWidthMotion, SystemPromptMode, TimelineState, TranslationState, TtsState,
-    VisibilityMotion,
+    ChatState, ComposerImeHandler, DataState, DefaultModelRole, DrawerMotion, FontRole, McpState,
+    MessageScrollMotion, NavigationState, OneChat, OverlayState, Page, PlaybackState, Services,
+    SettingsState, SidebarState, SidebarWidthMotion, SystemPromptMode, TimelineState,
+    TranslationState, TtsState, VisibilityMotion,
 };
 use crate::{
     application::generation::GenerationManager,
@@ -61,6 +61,7 @@ impl OneChat {
         let applied_component_theme = None;
         let InputControls {
             composer,
+            composer_ime,
             mcp_json_import,
         } = input_controls(window, cx);
         let PickerControls {
@@ -185,6 +186,7 @@ impl OneChat {
                 generation_config_save_revision: 0,
                 parameter_error: None,
                 composer,
+                composer_ime,
                 composer_committed_value: String::new(),
                 composer_multiline: Cell::new(false),
                 composer_expanded: Cell::new(false),

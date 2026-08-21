@@ -1,6 +1,7 @@
 mod attachments;
 mod bootstrap;
 mod chat;
+mod composer_ime;
 #[cfg(target_os = "macos")]
 mod conversation_peek;
 mod conversations;
@@ -19,6 +20,7 @@ mod tokio_bridge;
 mod translate;
 mod tts;
 
+pub(crate) use composer_ime::{ComposerImeHandler, register_composer_ime};
 use motion::*;
 pub use navigation::{ConversationGroup, Page};
 pub(crate) use playback::{attachment_source_id, tts_combined_source_id, tts_segment_source_id};

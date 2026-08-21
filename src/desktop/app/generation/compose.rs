@@ -59,6 +59,9 @@ impl OneChat {
             composer.set_value("", window, cx);
         });
         // set_value is intentionally silent, so reset the parent-owned composer state here.
+        self.chat
+            .composer_ime
+            .update(cx, |handler, _| handler.reset());
         self.chat.composer_committed_value.clear();
         self.chat.composer_multiline.set(false);
         self.chat.composer_expanded.set(false);

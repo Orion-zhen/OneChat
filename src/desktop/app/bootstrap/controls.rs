@@ -2,6 +2,7 @@ use super::*;
 
 pub(super) struct InputControls {
     pub(super) composer: Entity<TextareaState>,
+    pub(super) composer_ime: Entity<ComposerImeHandler>,
     pub(super) mcp_json_import: Entity<TextareaState>,
 }
 
@@ -12,6 +13,7 @@ pub(super) fn input_controls(window: &mut Window, cx: &mut Context<OneChat>) -> 
             .soft_wrap(true)
             .placeholder("Message")
     });
+    let composer_ime = cx.new(|_| ComposerImeHandler::new(composer.clone()));
     cx.subscribe_in(
         &composer,
         window,
@@ -31,6 +33,7 @@ pub(super) fn input_controls(window: &mut Window, cx: &mut Context<OneChat>) -> 
     });
     InputControls {
         composer,
+        composer_ime,
         mcp_json_import,
     }
 }

@@ -12,8 +12,8 @@ use gpui_component::{
 use tokio::runtime::Runtime;
 
 use super::{
-    CachedMarkdown, ConnectionTestStatus, DestructiveAction, MessageEditor, Page, PendingFocus,
-    PendingTitleTransition, RenameEditor, SystemPromptMode, TitleTransition,
+    CachedMarkdown, ComposerImeHandler, ConnectionTestStatus, DestructiveAction, MessageEditor,
+    Page, PendingFocus, PendingTitleTransition, RenameEditor, SystemPromptMode, TitleTransition,
     motion::{
         DrawerMotion, MessageScrollMotion, SidebarWidthMotion, ThinkingMotion, VisibilityMotion,
     },
@@ -226,6 +226,7 @@ pub(crate) struct ChatState {
     pub(crate) generation_config_save_revision: u64,
     pub(crate) parameter_error: Option<String>,
     pub(crate) composer: Entity<TextareaState>,
+    pub(crate) composer_ime: Entity<ComposerImeHandler>,
     pub(crate) composer_committed_value: String,
     pub(crate) composer_multiline: Cell<bool>,
     pub(crate) composer_expanded: Cell<bool>,
