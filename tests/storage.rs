@@ -7,8 +7,8 @@ use onechat::{
         AttachmentFile, AttachmentFileKind, AttachmentKind, AudioAttachmentMetadata,
         AudioAttachmentSource, AutoTitleState, Conversation, HistoryLimit, MessageStatus, Model,
         PromptPreset, PromptVariableSource, Provider, ProviderKind, RequestContextInfo,
-        RequestInfo, RequestStatus, ToolExecution, ToolExecutionStatus, Turn, UserMessage,
-        active_turns,
+        RequestInfo, RequestStatus, TitleModelSource, ToolExecution, ToolExecutionStatus, Turn,
+        UserMessage, active_turns,
     },
     storage::{Storage, WindowMode, WindowState},
 };

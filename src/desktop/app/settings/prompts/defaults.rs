@@ -1,78 +1,93 @@
 use super::*;
 
 impl OneChat {
-    pub(crate) fn select_default_model(
+    pub(crate) fn select_primary_model(
         &mut self,
-        role: DefaultModelRole,
         model_id: Option<String>,
         cx: &mut Context<Self>,
     ) {
-        if let Some(model_id) = model_id.as_deref() {
-            let Some(model) = self
-                .data
-                .snapshot
-                .models
-                .iter()
-                .find(|model| model.id == model_id)
-            else {
-                return;
-            };
-            if let Err(reason) = self.model_availability(model) {
-                self.data.error = Some(format!("Model is unavailable: {reason}."));
-                cx.notify();
-                return;
-            }
-        } else if role == DefaultModelRole::Primary {
+        let Some(model_id) = model_id else {
+            return;
+        };
+        if !self.model_is_available(&model_id, cx) {
             return;
         }
-
-        let updates_title_reasoning = role == DefaultModelRole::TitleGeneration
-            || (role == DefaultModelRole::Primary
-                && self
-                    .data
-                    .snapshot
-                    .settings
-                    .title_generation_model_id
-                    .is_none());
-        let stored_id = match role {
-            DefaultModelRole::Primary => &mut self.data.snapshot.settings.primary_model_id,
-            DefaultModelRole::TitleGeneration => {
-                &mut self.data.snapshot.settings.title_generation_model_id
-            }
-        };
-        if *stored_id == model_id {
+        if self.data.snapshot.settings.primary_model_id.as_deref() == Some(&model_id) {
             cx.notify();
             return;
         }
-        *stored_id = model_id;
-
-        if updates_title_reasoning {
-            let requested = self
-                .data
-                .snapshot
-                .settings
-                .title_generation_reasoning_preset
-                .clone();
-            self.data
-                .snapshot
-                .settings
-                .title_generation_reasoning_preset = self
-                .title_generation_model()
-                .and_then(|model| model.reasoning.as_ref())
-                .map(|reasoning| {
-                    requested
-                        .filter(|requested| {
-                            reasoning
-                                .preset_options()
-                                .iter()
-                                .any(|(id, _)| id == requested)
-                        })
-                        .unwrap_or_else(|| reasoning.default_preset().to_string())
-                });
+        self.data.snapshot.settings.primary_model_id = Some(model_id);
+        if self.data.snapshot.settings.title_generation_model == TitleModelSource::Primary {
+            self.sync_title_reasoning_preset();
         }
-
         self.save_settings(cx);
         cx.notify();
+    }
+
+    pub(crate) fn select_title_generation_model(
+        &mut self,
+        source: TitleModelSource,
+        cx: &mut Context<Self>,
+    ) {
+        if let TitleModelSource::Model(model_id) = &source
+            && !self.model_is_available(model_id, cx)
+        {
+            return;
+        }
+        if self.data.snapshot.settings.title_generation_model == source {
+            cx.notify();
+            return;
+        }
+        let uses_own_reasoning = source != TitleModelSource::Current;
+        self.data.snapshot.settings.title_generation_model = source;
+        if uses_own_reasoning {
+            self.sync_title_reasoning_preset();
+        }
+        self.save_settings(cx);
+        cx.notify();
+    }
+
+    fn model_is_available(&mut self, model_id: &str, cx: &mut Context<Self>) -> bool {
+        let Some(model) = self
+            .data
+            .snapshot
+            .models
+            .iter()
+            .find(|model| model.id == model_id)
+        else {
+            return false;
+        };
+        if let Err(reason) = self.model_availability(model) {
+            self.data.error = Some(format!("Model is unavailable: {reason}."));
+            cx.notify();
+            return false;
+        }
+        true
+    }
+
+    fn sync_title_reasoning_preset(&mut self) {
+        let requested = self
+            .data
+            .snapshot
+            .settings
+            .title_generation_reasoning_preset
+            .clone();
+        self.data
+            .snapshot
+            .settings
+            .title_generation_reasoning_preset = self
+            .title_generation_model()
+            .and_then(|model| model.reasoning.as_ref())
+            .map(|reasoning| {
+                requested
+                    .filter(|requested| {
+                        reasoning
+                            .preset_options()
+                            .iter()
+                            .any(|(id, _)| id == requested)
+                    })
+                    .unwrap_or_else(|| reasoning.default_preset().to_string())
+            });
     }
 
     pub(crate) fn select_title_generation_reasoning_preset(

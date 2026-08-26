@@ -5,7 +5,7 @@ use gpui::Window;
 use super::super::OneChat;
 use crate::domain::{
     AssistantResponse, Conversation, HistoryLimit, Message, Model, PromptPreset, Provider,
-    RequestInfo, Turn, active_turns, user_branches,
+    RequestInfo, TitleModelSource, Turn, active_turns, user_branches,
 };
 
 impl OneChat {
@@ -105,19 +105,16 @@ impl OneChat {
     }
 
     pub(crate) fn title_generation_model(&self) -> Option<&Model> {
-        self.data
-            .snapshot
-            .settings
-            .title_generation_model_id
-            .as_deref()
-            .and_then(|model_id| {
-                self.data
-                    .snapshot
-                    .models
-                    .iter()
-                    .find(|model| model.id == model_id)
-            })
-            .or_else(|| self.primary_model())
+        match &self.data.snapshot.settings.title_generation_model {
+            TitleModelSource::Current => None,
+            TitleModelSource::Primary => self.primary_model(),
+            TitleModelSource::Model(model_id) => self
+                .data
+                .snapshot
+                .models
+                .iter()
+                .find(|model| model.id == *model_id),
+        }
     }
 
     pub(crate) fn current_model(&self) -> Option<&Model> {

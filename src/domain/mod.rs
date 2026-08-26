@@ -29,7 +29,7 @@ pub use preferences::{
     HISTORY_LIMIT_SLIDER_MAX, HISTORY_LIMIT_SLIDER_MIN, HISTORY_LIMIT_SLIDER_STEP, HistoryLimit,
     MAX_BACKGROUND_OPACITY, MAX_LIMITED_HISTORY_TURNS, MAX_MESSAGE_FONT_SIZE,
     MAX_MESSAGE_WIDTH_RATIO, MIN_BACKGROUND_OPACITY, MIN_MESSAGE_FONT_SIZE,
-    MIN_MESSAGE_WIDTH_RATIO, SendMessageShortcut, Theme, normalize_font_families,
+    MIN_MESSAGE_WIDTH_RATIO, SendMessageShortcut, Theme, TitleModelSource, normalize_font_families,
 };
 pub use prompt::{
     BUILTIN_PROMPT_VARIABLES, DEFAULT_PROMPT_COMMAND_TIMEOUT_MS, PromptEvaluation, PromptPreset,

@@ -22,7 +22,7 @@ fn catalog_settings_and_prompt_presets_round_trip() {
     let mut settings = AppSettings {
         current_conversation_id: Some(conversation.id.clone()),
         primary_model_id: Some(model.id.clone()),
-        title_generation_model_id: Some(model.id.clone()),
+        title_generation_model: TitleModelSource::Model(model.id.clone()),
         title_generation_reasoning_preset: Some("low".into()),
         theme_color: "#AF52DE".into(),
         code_block_wrap: true,
@@ -119,7 +119,10 @@ fn catalog_settings_and_prompt_presets_round_trip() {
     assert!(snapshot.models.is_empty());
     assert_eq!(snapshot.conversations[0].model_id, None);
     assert_eq!(snapshot.settings.primary_model_id, None);
-    assert_eq!(snapshot.settings.title_generation_model_id, None);
+    assert_eq!(
+        snapshot.settings.title_generation_model,
+        TitleModelSource::Current
+    );
 
     storage.delete_prompt_preset("Direct").unwrap();
     settings.current_conversation_id = None;

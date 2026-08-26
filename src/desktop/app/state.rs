@@ -30,7 +30,7 @@ use crate::{
             settings::{
                 DefaultModelItem, FontFamilyItem, McpServerEditor, ModelEditor,
                 PromptPresetWorkspace, PromptSelectItem, PromptVariableEditor, ProviderEditor,
-                ReasoningPresetSelectItem, SearchableItems, SettingsSection,
+                ReasoningPresetSelectItem, SearchableItems, SettingsSection, TitleModelItem,
             },
             shell::{
                 CommandPaletteDelegate, ConversationSearchDelegate, ModelPickerDelegate,
@@ -265,11 +265,11 @@ pub(crate) struct SettingsState {
     pub(crate) history_limit_slider: Entity<SliderState>,
     pub(crate) history_limit_save_pending: bool,
     pub(crate) primary_model_select: Entity<SelectState<Vec<DefaultModelItem>>>,
-    pub(crate) title_model_select: Entity<SelectState<Vec<DefaultModelItem>>>,
+    pub(crate) title_model_select: Entity<SelectState<Vec<TitleModelItem>>>,
     pub(crate) title_reasoning_select: Entity<SelectState<Vec<ReasoningPresetSelectItem>>>,
     pub(crate) default_prompt_select: Entity<SelectState<Vec<PromptSelectItem>>>,
     pub(crate) synced_primary_models: Vec<DefaultModelItem>,
-    pub(crate) synced_title_models: Vec<DefaultModelItem>,
+    pub(crate) synced_title_models: Vec<TitleModelItem>,
     pub(crate) synced_title_reasoning_presets: Vec<ReasoningPresetSelectItem>,
     pub(crate) synced_prompts: Vec<PromptSelectItem>,
     pub(crate) prompt_preset_workspace: Option<PromptPresetWorkspace>,

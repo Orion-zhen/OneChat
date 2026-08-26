@@ -15,7 +15,7 @@ use gpui_component::{
 use tokio::runtime::Runtime;
 
 use super::{
-    ChatState, ComposerImeHandler, DataState, DefaultModelRole, DrawerMotion, FontRole, McpState,
+    ChatState, ComposerImeHandler, DataState, DrawerMotion, FontRole, McpState,
     MessageScrollMotion, NavigationState, OneChat, OverlayState, Page, PlaybackState, Services,
     SettingsState, SidebarState, SidebarWidthMotion, SystemPromptMode, TimelineState,
     TranslationState, TtsState, VisibilityMotion,
@@ -31,7 +31,7 @@ use crate::{
             selectable_text::TextSelection,
             settings::{
                 DefaultModelItem, FontFamilyItem, PromptSelectItem, ReasoningPresetSelectItem,
-                SearchableItems, SettingsSection, ThemeColorControl,
+                SearchableItems, SettingsSection, ThemeColorControl, TitleModelItem,
             },
             shell::{
                 CommandPaletteDelegate, ConversationSearchDelegate, ModelPickerDelegate,

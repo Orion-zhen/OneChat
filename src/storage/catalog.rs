@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::domain::{AppSettings, Model, Provider};
+use crate::domain::{AppSettings, Model, Provider, TitleModelSource};
 
 use super::codec::{read_jsonc, write_json};
 use super::{Result, Storage, StorageError, conflict, missing};
@@ -92,11 +92,11 @@ impl Storage {
         }
         if settings
             .app
-            .title_generation_model_id
-            .as_ref()
-            .is_some_and(|id| removed_models.contains(id))
+            .title_generation_model
+            .model_id()
+            .is_some_and(|id| removed_models.iter().any(|removed| removed == id))
         {
-            settings.app.title_generation_model_id = None;
+            settings.app.title_generation_model = TitleModelSource::Current;
         }
         self.clear_conversation_models(&removed_models)?;
         self.write_settings(&settings)
@@ -137,8 +137,8 @@ impl Storage {
         if settings.app.primary_model_id.as_deref() == Some(id) {
             settings.app.primary_model_id = None;
         }
-        if settings.app.title_generation_model_id.as_deref() == Some(id) {
-            settings.app.title_generation_model_id = None;
+        if settings.app.title_generation_model.model_id() == Some(id) {
+            settings.app.title_generation_model = TitleModelSource::Current;
         }
         self.clear_conversation_models(&[id.to_string()])?;
         self.write_settings(&settings)

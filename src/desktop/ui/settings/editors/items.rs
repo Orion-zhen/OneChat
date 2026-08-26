@@ -101,17 +101,20 @@ impl SearchableListItem for FontFamilyItem {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct DefaultModelItem {
-    value: Option<String>,
+pub(crate) struct ModelSelectItem<V> {
+    value: V,
     label: SharedString,
     provider: Option<SharedString>,
     detail: SharedString,
     disabled: bool,
 }
 
-impl DefaultModelItem {
+pub(crate) type DefaultModelItem = ModelSelectItem<Option<String>>;
+pub(crate) type TitleModelItem = ModelSelectItem<TitleModelSource>;
+
+impl<V> ModelSelectItem<V> {
     pub(crate) fn new(
-        value: Option<String>,
+        value: V,
         label: impl Into<SharedString>,
         provider: Option<SharedString>,
         detail: impl Into<SharedString>,
@@ -127,8 +130,8 @@ impl DefaultModelItem {
     }
 }
 
-impl SearchableListItem for DefaultModelItem {
-    type Value = Option<String>;
+impl<V: Clone + Eq + 'static> SearchableListItem for ModelSelectItem<V> {
+    type Value = V;
 
     fn title(&self) -> SharedString {
         self.label.clone()

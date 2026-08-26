@@ -69,6 +69,24 @@ pub enum SendMessageShortcut {
     SecondaryEnter,
 }
 
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "source", content = "model_id", rename_all = "snake_case")]
+pub enum TitleModelSource {
+    #[default]
+    Current,
+    Primary,
+    Model(String),
+}
+
+impl TitleModelSource {
+    pub fn model_id(&self) -> Option<&str> {
+        match self {
+            Self::Model(model_id) => Some(model_id),
+            Self::Current | Self::Primary => None,
+        }
+    }
+}
+
 pub const DEFAULT_MESSAGE_WIDTH_RATIO: f32 = 0.7;
 pub const MIN_MESSAGE_WIDTH_RATIO: f32 = 0.5;
 pub const MAX_MESSAGE_WIDTH_RATIO: f32 = 1.0;
@@ -123,7 +141,7 @@ pub fn normalize_font_families(families: Vec<String>, default: &str) -> Vec<Stri
 pub struct AppSettings {
     pub current_conversation_id: Option<String>,
     pub primary_model_id: Option<String>,
-    pub title_generation_model_id: Option<String>,
+    pub title_generation_model: TitleModelSource,
     pub title_generation_reasoning_preset: Option<String>,
     pub auto_title_enabled: bool,
     pub send_message_shortcut: SendMessageShortcut,
@@ -185,7 +203,7 @@ impl Default for AppSettings {
         Self {
             current_conversation_id: None,
             primary_model_id: None,
-            title_generation_model_id: None,
+            title_generation_model: TitleModelSource::default(),
             title_generation_reasoning_preset: None,
             auto_title_enabled: true,
             send_message_shortcut: SendMessageShortcut::default(),

@@ -31,7 +31,7 @@ pub(crate) fn sync_controls(app: &mut OneChat, window: &mut Window, cx: &mut Con
         cx,
     );
 
-    let primary_items = default_model_items(app, DefaultModelRole::Primary);
+    let primary_items = primary_model_items(app);
     let primary_changed = primary_items != app.settings_ui.synced_primary_models;
     if primary_changed {
         app.settings_ui
@@ -59,7 +59,7 @@ pub(crate) fn sync_controls(app: &mut OneChat, window: &mut Window, cx: &mut Con
             });
     }
 
-    let title_items = default_model_items(app, DefaultModelRole::TitleGeneration);
+    let title_items = title_model_items(app);
     let title_changed = title_items != app.settings_ui.synced_title_models;
     if title_changed {
         app.settings_ui.synced_title_models.clone_from(&title_items);
@@ -67,22 +67,12 @@ pub(crate) fn sync_controls(app: &mut OneChat, window: &mut Window, cx: &mut Con
             .title_model_select
             .update(cx, |select, cx| select.set_items(title_items, window, cx));
     }
-    let title_value = Some(app.settings().title_generation_model_id.clone());
+    let title_value = app.settings().title_generation_model.clone();
     if title_changed
-        || app
-            .settings_ui
-            .title_model_select
-            .read(cx)
-            .selected_value()
-            .cloned()
-            != title_value
+        || app.settings_ui.title_model_select.read(cx).selected_value() != Some(&title_value)
     {
         app.settings_ui.title_model_select.update(cx, |select, cx| {
-            select.set_selected_value(
-                &app.settings().title_generation_model_id.clone(),
-                window,
-                cx,
-            )
+            select.set_selected_value(&title_value, window, cx)
         });
     }
 
@@ -163,49 +153,61 @@ pub(crate) fn sync_controls(app: &mut OneChat, window: &mut Window, cx: &mut Con
     }
 }
 
-fn default_model_items(app: &OneChat, role: DefaultModelRole) -> Vec<DefaultModelItem> {
-    let selected_id = match role {
-        DefaultModelRole::Primary => app.settings().primary_model_id.as_deref(),
-        DefaultModelRole::TitleGeneration => app.settings().title_generation_model_id.as_deref(),
-    };
+fn primary_model_items(app: &OneChat) -> Vec<DefaultModelItem> {
+    let selected_id = app.settings().primary_model_id.as_deref();
     let mut items = Vec::new();
-    if role == DefaultModelRole::TitleGeneration {
+    for model in &app.data.snapshot.models {
+        let Some((provider, detail, disabled)) = model_item(app, model, selected_id) else {
+            continue;
+        };
         items.push(DefaultModelItem::new(
+            Some(model.id.clone()),
+            model.display_name.clone(),
+            provider,
+            detail,
+            disabled,
+        ));
+    }
+    items
+}
+
+fn title_model_items(app: &OneChat) -> Vec<TitleModelItem> {
+    let selected_id = app.settings().title_generation_model.model_id();
+    let mut items = vec![
+        TitleModelItem::new(
+            TitleModelSource::Current,
+            "Use Current Model",
             None,
+            "Follow the conversation settings",
+            false,
+        ),
+        TitleModelItem::new(
+            TitleModelSource::Primary,
             "Use Primary Model",
             None,
             "Follow the primary model setting",
             false,
-        ));
-    }
+        ),
+    ];
     for model in &app.data.snapshot.models {
-        let availability = app.model_availability(model);
-        if availability.is_err() && selected_id != Some(model.id.as_str()) {
+        let Some((provider, detail, disabled)) = model_item(app, model, selected_id) else {
             continue;
-        }
-        let provider = app
-            .provider_for_model(model)
-            .map(|provider| provider.name.as_str())
-            .unwrap_or("Missing provider");
-        let detail = availability.map_or_else(
-            |reason| format!("Unavailable · {reason}"),
-            |_| format!("{} · {provider}", model.remote_id),
-        );
-        items.push(DefaultModelItem::new(
-            Some(model.id.clone()),
+        };
+        items.push(TitleModelItem::new(
+            TitleModelSource::Model(model.id.clone()),
             model.display_name.clone(),
-            Some(provider.into()),
+            provider,
             detail,
-            availability.is_err(),
+            disabled,
         ));
     }
     if let Some(selected_id) = selected_id
         && !items
             .iter()
-            .any(|item| item.value() == &Some(selected_id.to_string()))
+            .any(|item| item.value() == &TitleModelSource::Model(selected_id.to_string()))
     {
-        items.push(DefaultModelItem::new(
-            Some(selected_id.to_string()),
+        items.push(TitleModelItem::new(
+            TitleModelSource::Model(selected_id.to_string()),
             format!("Missing · {selected_id}"),
             None,
             "The configured model no longer exists",
@@ -213,6 +215,26 @@ fn default_model_items(app: &OneChat, role: DefaultModelRole) -> Vec<DefaultMode
         ));
     }
     items
+}
+
+fn model_item(
+    app: &OneChat,
+    model: &Model,
+    selected_id: Option<&str>,
+) -> Option<(Option<SharedString>, String, bool)> {
+    let availability = app.model_availability(model);
+    if availability.is_err() && selected_id != Some(model.id.as_str()) {
+        return None;
+    }
+    let provider = app
+        .provider_for_model(model)
+        .map(|provider| provider.name.as_str())
+        .unwrap_or("Missing provider");
+    let detail = availability.as_ref().map_or_else(
+        |reason| format!("Unavailable · {reason}"),
+        |_| format!("{} · {provider}", model.remote_id),
+    );
+    Some((Some(provider.into()), detail, availability.is_err()))
 }
 
 fn default_prompt_items(app: &OneChat) -> Vec<PromptSelectItem> {

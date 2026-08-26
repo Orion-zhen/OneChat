@@ -15,7 +15,7 @@ pub(crate) use editors::{
     McpServerTransportEditor, ModelEditor, ModelFetchStatus, ModelIdDelegate, PromptPresetEditor,
     PromptPresetSection, PromptPresetWorkspace, PromptPresetWorkspaceMode, PromptSelectItem,
     PromptVariableEditor, PromptVariableKind, PromptVariableTestStatus, ProviderEditor,
-    ProviderKindItem, ReasoningPresetSelectItem, SearchableItems, SettingsSection,
+    ProviderKindItem, ReasoningPresetSelectItem, SearchableItems, SettingsSection, TitleModelItem,
     font_family_label,
 };
 use forms::{mcp_server_form, model_form, provider_form, provider_form_actions};
@@ -79,7 +79,7 @@ use crate::{
         DEFAULT_TRANSLATION_USER_PROMPT, KnownReasoningFormat, KnownReasoningPreset, Model,
         ModelCapabilities, ModelReasoningConfig, PROVIDER_DEFAULT_REASONING_PRESET, PromptPreset,
         PromptVariableSource, Provider, ProviderKind, ReasoningLevel, ReasoningParameter,
-        ReasoningParameterValue, SendMessageShortcut, Theme, now_timestamp,
+        ReasoningParameterValue, SendMessageShortcut, Theme, TitleModelSource, now_timestamp,
         prompt_variable_name_is_valid,
     },
     mcp::{

@@ -273,7 +273,7 @@ pub(super) fn slider_controls(window: &mut Window, cx: &mut Context<OneChat>) ->
 
 pub(super) struct SelectControls {
     pub(super) primary_model_select: Entity<SelectState<Vec<DefaultModelItem>>>,
-    pub(super) title_model_select: Entity<SelectState<Vec<DefaultModelItem>>>,
+    pub(super) title_model_select: Entity<SelectState<Vec<TitleModelItem>>>,
     pub(super) title_reasoning_select: Entity<SelectState<Vec<ReasoningPresetSelectItem>>>,
     pub(super) default_prompt_select: Entity<SelectState<Vec<PromptSelectItem>>>,
     pub(super) ui_font_select: Entity<SelectState<SearchableItems<FontFamilyItem>>>,
@@ -287,22 +287,20 @@ pub(super) fn select_controls(window: &mut Window, cx: &mut Context<OneChat>) ->
         &primary_model_select,
         |this, _, event: &SelectEvent<Vec<DefaultModelItem>>, cx| {
             let SelectEvent::Confirm(value) = event;
-            this.select_default_model(DefaultModelRole::Primary, value.clone().flatten(), cx);
+            this.select_primary_model(value.clone().flatten(), cx);
         },
     )
     .detach();
 
     let title_model_select =
-        cx.new(|cx| SelectState::new(Vec::<DefaultModelItem>::new(), None, window, cx));
+        cx.new(|cx| SelectState::new(Vec::<TitleModelItem>::new(), None, window, cx));
     cx.subscribe(
         &title_model_select,
-        |this, _, event: &SelectEvent<Vec<DefaultModelItem>>, cx| {
-            let SelectEvent::Confirm(value) = event;
-            this.select_default_model(
-                DefaultModelRole::TitleGeneration,
-                value.clone().flatten(),
-                cx,
-            );
+        |this, _, event: &SelectEvent<Vec<TitleModelItem>>, cx| {
+            let SelectEvent::Confirm(Some(source)) = event else {
+                return;
+            };
+            this.select_title_generation_model(source.clone(), cx);
         },
     )
     .detach();

@@ -3,7 +3,10 @@ use gpui::Context;
 use super::super::{OneChat, PendingTitleTransition};
 use crate::{
     application::title::generate_title,
-    domain::{AssistantResponse, AutoTitleState, UserMessage},
+    domain::{
+        AppSettings, AssistantResponse, AutoTitleState, Conversation, Model, TitleModelSource,
+        UserMessage,
+    },
 };
 
 enum AutoTitleRequest {
@@ -80,18 +83,23 @@ impl OneChat {
             .title_generation_system_prompt
             .trim()
             .to_string();
-        let reasoning_preset = self
+        let target = self
             .data
             .snapshot
-            .settings
-            .title_generation_reasoning_preset
-            .clone();
-        let target = self
-            .title_generation_model()
-            .filter(|model| self.model_availability(model).is_ok())
-            .and_then(|model| {
+            .conversations
+            .iter()
+            .find(|conversation| conversation.id == conversation_id)
+            .and_then(|conversation| {
+                resolve_title_target(
+                    &self.data.snapshot.settings,
+                    conversation,
+                    &self.data.snapshot.models,
+                )
+            })
+            .filter(|(model, _)| self.model_availability(model).is_ok())
+            .and_then(|(model, reasoning_preset)| {
                 self.provider_for_model(model)
-                    .map(|provider| (provider.clone(), model.clone()))
+                    .map(|provider| (provider.clone(), model.clone(), reasoning_preset))
             })
             .filter(|_| !system_prompt.is_empty());
         let storage = self.services.storage.clone();
@@ -133,7 +141,7 @@ impl OneChat {
             };
 
             let title = match target {
-                Some((provider, model)) => generate_title(
+                Some((provider, model, reasoning_preset)) => generate_title(
                     provider,
                     model,
                     system_prompt,
@@ -215,5 +223,85 @@ impl OneChat {
             }
         })
         .detach();
+    }
+}
+
+fn resolve_title_target<'a>(
+    settings: &AppSettings,
+    conversation: &Conversation,
+    models: &'a [Model],
+) -> Option<(&'a Model, Option<String>)> {
+    let model = match &settings.title_generation_model {
+        TitleModelSource::Current => conversation
+            .model_id
+            .as_deref()
+            .and_then(|model_id| models.iter().find(|model| model.id == model_id))
+            .or_else(|| {
+                settings
+                    .primary_model_id
+                    .as_deref()
+                    .and_then(|model_id| models.iter().find(|model| model.id == model_id))
+            }),
+        TitleModelSource::Primary => settings
+            .primary_model_id
+            .as_deref()
+            .and_then(|model_id| models.iter().find(|model| model.id == model_id)),
+        TitleModelSource::Model(model_id) => models.iter().find(|model| model.id == *model_id),
+    }?;
+    let reasoning_preset = match &settings.title_generation_model {
+        TitleModelSource::Current => conversation.generation_config.reasoning_preset.clone(),
+        TitleModelSource::Primary | TitleModelSource::Model(_) => {
+            settings.title_generation_reasoning_preset.clone()
+        }
+    };
+    Some((model, reasoning_preset))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{Provider, ProviderKind};
+
+    #[test]
+    fn current_source_uses_the_target_conversations_model_and_reasoning() {
+        let provider = Provider::new("Provider", ProviderKind::OpenAi);
+        let primary = Model::new(&provider.id, "primary", "Primary");
+        let current = Model::new(&provider.id, "current", "Current");
+        let mut conversation = Conversation::new("Chat", Some(&current), "");
+        conversation.generation_config.reasoning_preset = Some("high".into());
+        let settings = AppSettings {
+            primary_model_id: Some(primary.id.clone()),
+            title_generation_reasoning_preset: Some("low".into()),
+            ..AppSettings::default()
+        };
+
+        let models = [primary, current.clone()];
+        let (resolved, reasoning) =
+            resolve_title_target(&settings, &conversation, &models).unwrap();
+
+        assert_eq!(resolved.id, current.id);
+        assert_eq!(reasoning.as_deref(), Some("high"));
+    }
+
+    #[test]
+    fn fixed_source_uses_the_title_reasoning_setting() {
+        let provider = Provider::new("Provider", ProviderKind::OpenAi);
+        let primary = Model::new(&provider.id, "primary", "Primary");
+        let current = Model::new(&provider.id, "current", "Current");
+        let mut conversation = Conversation::new("Chat", Some(&current), "");
+        conversation.generation_config.reasoning_preset = Some("high".into());
+        let settings = AppSettings {
+            primary_model_id: Some(primary.id.clone()),
+            title_generation_model: TitleModelSource::Primary,
+            title_generation_reasoning_preset: Some("low".into()),
+            ..AppSettings::default()
+        };
+
+        let models = [primary.clone(), current];
+        let (resolved, reasoning) =
+            resolve_title_target(&settings, &conversation, &models).unwrap();
+
+        assert_eq!(resolved.id, primary.id);
+        assert_eq!(reasoning.as_deref(), Some("low"));
     }
 }

@@ -71,23 +71,27 @@ fn title_generation_controls(app: &OneChat) -> AnyElement {
 }
 
 fn default_model_select(app: &OneChat, role: DefaultModelRole) -> AnyElement {
-    let state = match role {
-        DefaultModelRole::Primary => &app.settings_ui.primary_model_select,
-        DefaultModelRole::TitleGeneration => &app.settings_ui.title_model_select,
-    };
-    select_control(state)
-        .placeholder(match role {
-            DefaultModelRole::Primary => "Choose a model",
-            DefaultModelRole::TitleGeneration => "Use Primary Model",
-        })
-        .w_full()
-        .max_w(px(340.0))
-        .empty(|_, cx| {
-            div()
-                .p_3()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child("No available models configured")
-        })
+    match role {
+        DefaultModelRole::Primary => select_control(&app.settings_ui.primary_model_select)
+            .placeholder("Choose a model")
+            .w_full()
+            .max_w(px(340.0))
+            .empty(empty_model_list)
+            .into_any_element(),
+        DefaultModelRole::TitleGeneration => select_control(&app.settings_ui.title_model_select)
+            .placeholder("Use Current Model")
+            .w_full()
+            .max_w(px(340.0))
+            .empty(empty_model_list)
+            .into_any_element(),
+    }
+}
+
+fn empty_model_list(_: &mut Window, cx: &App) -> AnyElement {
+    div()
+        .p_3()
+        .text_sm()
+        .text_color(cx.theme().muted_foreground)
+        .child("No available models configured")
         .into_any_element()
 }

@@ -1,7 +1,8 @@
 use std::collections::HashSet;
 
 use crate::domain::{
-    AutoTitleState, MessageStatus, RequestKind, RequestStatus, ToolExecutionStatus, now_timestamp,
+    AutoTitleState, MessageStatus, RequestKind, RequestStatus, TitleModelSource,
+    ToolExecutionStatus, now_timestamp,
 };
 
 use super::{ConversationSearchIndex, Result, Storage, StorageSnapshot};
@@ -32,11 +33,11 @@ impl Storage {
         }
         if settings
             .app
-            .title_generation_model_id
-            .as_ref()
-            .is_some_and(|id| !settings.models.iter().any(|model| &model.id == id))
+            .title_generation_model
+            .model_id()
+            .is_some_and(|id| !settings.models.iter().any(|model| model.id == id))
         {
-            settings.app.title_generation_model_id = None;
+            settings.app.title_generation_model = TitleModelSource::Current;
             settings_changed = true;
         }
         if settings_changed {

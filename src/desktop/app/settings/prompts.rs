@@ -6,14 +6,14 @@ use gpui_component::{WindowExt as _, input::TextareaState};
 use crate::{
     application::prompt::{PromptContext, render_prompt},
     desktop::{
-        app::{DefaultModelRole, DestructiveAction, OneChat, PendingFocus},
+        app::{DestructiveAction, OneChat, PendingFocus},
         ui::settings::{
             PromptPresetEditor, PromptVariableEditor, PromptVariableKind, PromptVariableTestStatus,
         },
     },
     domain::{
         DEFAULT_TITLE_GENERATION_SYSTEM_PROMPT, DEFAULT_TRANSLATION_SYSTEM_PROMPT,
-        DEFAULT_TRANSLATION_USER_PROMPT, PromptVariableSource,
+        DEFAULT_TRANSLATION_USER_PROMPT, PromptVariableSource, TitleModelSource,
     },
 };
 use tokio_util::sync::CancellationToken;
