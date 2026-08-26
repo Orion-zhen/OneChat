@@ -34,7 +34,10 @@ use super::{
     markdown,
     motion::translated_y,
     selectable_text::{SelectableText, selection_color},
-    stream::{always_horizontal_scrollbar, nested_horizontal_scroll_captures},
+    stream::{
+        always_horizontal_scrollbar, compact_horizontal_scrollbar,
+        nested_horizontal_scroll_captures,
+    },
     text::summary as text_summary,
     typography::MessageTypography,
 };

@@ -28,6 +28,7 @@ pub(super) fn render_message_header(
             .flex()
             .items_center()
             .gap_1()
+            .pb_2()
             .overflow_x_scroll()
             .restrict_scroll_to_axis();
         for response in &turn.responses {
@@ -105,7 +106,7 @@ pub(super) fn render_message_header(
             .min_w_0()
             .flex_1()
             .child(tabs)
-            .child(always_horizontal_scrollbar(
+            .child(compact_horizontal_scrollbar(
                 SharedString::from(format!("response-tabs-scrollbar-{}", turn.id)),
                 &tabs_scroll,
                 cx,
@@ -120,10 +121,13 @@ pub(super) fn render_message_header(
             .child(assistant_label)
             .into_any_element()
     };
-    div()
-        .mb_3()
-        .flex()
-        .items_center()
+    let header = div().mb_3().flex();
+    let header = if multiple_responses {
+        header.items_start()
+    } else {
+        header.items_center()
+    };
+    header
         .gap_2()
         .child(
             div()

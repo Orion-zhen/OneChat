@@ -1,6 +1,8 @@
 use std::{cell::RefCell, collections::HashMap};
 
-use gpui::{AnyElement, App, ElementId, ScrollDelta, ScrollHandle, ScrollWheelEvent, prelude::*};
+use gpui::{
+    AnyElement, App, ElementId, ScrollDelta, ScrollHandle, ScrollWheelEvent, prelude::*, px,
+};
 use gpui_component::scroll::{Scrollbar, ScrollbarMode};
 
 use crate::desktop::{
@@ -47,11 +49,7 @@ impl HorizontalScrollRegistry {
     }
 }
 
-pub(crate) fn always_horizontal_scrollbar(
-    id: impl Into<ElementId>,
-    scroll: &ScrollHandle,
-    cx: &App,
-) -> AnyElement {
+fn horizontal_scrollbar(id: impl Into<ElementId>, scroll: &ScrollHandle, cx: &App) -> Scrollbar {
     let palette = theme::palette(cx);
     Scrollbar::horizontal(scroll)
         .id(id)
@@ -68,6 +66,27 @@ pub(crate) fn always_horizontal_scrollbar(
                 .thumb(|style| style.bg(palette.scrollbar_thumb))
                 .thumb_hover(|style| style.bg(palette.scrollbar_thumb_hover))
                 .thumb_active(|style| style.bg(palette.scrollbar_thumb_active))
+        })
+}
+
+pub(crate) fn always_horizontal_scrollbar(
+    id: impl Into<ElementId>,
+    scroll: &ScrollHandle,
+    cx: &App,
+) -> AnyElement {
+    horizontal_scrollbar(id, scroll, cx).into_any_element()
+}
+
+pub(crate) fn compact_horizontal_scrollbar(
+    id: impl Into<ElementId>,
+    scroll: &ScrollHandle,
+    cx: &App,
+) -> AnyElement {
+    horizontal_scrollbar(id, scroll, cx)
+        .styles(|styles| {
+            styles
+                .track(|style| style.width(px(8.0)))
+                .thumb(|style| style.width(px(4.0)).inset(px(2.0)).radius(px(2.0)))
         })
         .into_any_element()
 }
