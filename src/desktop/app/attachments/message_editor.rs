@@ -22,17 +22,8 @@ impl OneChat {
         if editor.attachment_load_id.is_some() {
             return;
         }
-        let attachment_count = editor.attachments.len() + editor.attachment_drafts.len();
-        if attachment_count >= MAX_ATTACHMENTS {
-            self.data.error = Some(format!(
-                "A message can contain at most {MAX_ATTACHMENTS} attachments."
-            ));
-            cx.notify();
-            return;
-        }
 
         let options = LoadManyOptions {
-            remaining: MAX_ATTACHMENTS - attachment_count,
             vision: model.capabilities.vision,
             audio_input: model.capabilities.audio_input,
             parse_document_images: self.settings().parse_document_images,

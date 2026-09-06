@@ -7,7 +7,7 @@ use std::{
 
 use onechat::{
     application::attachments::{
-        LoadManyOptions, MAX_AUDIO_BYTES, load as load_attachment, load_many, validate_image,
+        LoadManyOptions, load as load_attachment, load_many, validate_image,
     },
     domain::{
         AttachmentDraft, AttachmentFileKind, AttachmentKind, AudioAttachmentSource, Conversation,

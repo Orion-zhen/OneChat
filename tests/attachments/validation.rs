@@ -128,18 +128,11 @@ fn office_archive_limits_are_checked_from_central_directory() {
             "{error}"
         );
         assert!(error.contains("256 MiB uncompressed ZIP limit"), "{error}");
-
-        let source = directory.path().join(format!("source.{extension}"));
-        fs::write(&source, vec![0; 20 * 1024 * 1024 + 1]).unwrap();
-        let error = load(&source, false).unwrap_err();
-        assert!(error.starts_with("Source file too large:"), "{error}");
-        assert!(error.contains(&format!("20 MiB {label} limit")), "{error}");
-        fs::remove_file(source).unwrap();
     }
 }
 
 #[test]
-fn empty_and_oversized_markdown_docx_are_rejected() {
+fn empty_docx_is_rejected_but_markdown_over_five_mib_is_loaded() {
     let directory = tempdir().unwrap();
     let empty = directory.path().join("empty.docx");
     fs::write(&empty, docx("", Vec::new(), Vec::new())).unwrap();
@@ -151,10 +144,7 @@ fn empty_and_oversized_markdown_docx_are_rejected() {
     let text = "x".repeat(5 * 1024 * 1024 + 1);
     let body = format!("<w:p><w:r><w:t>{text}</w:t></w:r></w:p>");
     fs::write(&oversized, docx(&body, Vec::new(), Vec::new())).unwrap();
-    let error = load(&oversized, false).unwrap_err();
-    assert!(
-        error.starts_with("Extracted Markdown too large:"),
-        "{error}"
-    );
-    assert!(error.contains("5 MiB extracted Markdown limit"), "{error}");
+    let attachment = load(&oversized, false).unwrap();
+    let markdown = std::str::from_utf8(&attachment.files[0].bytes).unwrap();
+    assert_eq!(markdown.trim(), text);
 }

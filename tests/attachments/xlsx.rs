@@ -129,7 +129,7 @@ fn xlsx_markdown_is_always_sent_and_images_follow_vision_support() {
 }
 
 #[test]
-fn xlsx_missing_workbook_and_oversized_markdown_are_rejected() {
+fn xlsx_missing_workbook_is_rejected_but_markdown_over_five_mib_is_loaded() {
     let directory = tempdir().unwrap();
     let missing = directory.path().join("missing-workbook.xlsx");
     fs::write(
@@ -158,10 +158,7 @@ fn xlsx_missing_workbook_and_oversized_markdown_are_rejected() {
         r#"<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>{text}</t></is></c></row></sheetData></worksheet>"#
     );
     fs::write(&oversized, xlsx(&[("Large", sheet)], "", Vec::new())).unwrap();
-    let error = load(&oversized, false).unwrap_err();
-    assert!(
-        error.starts_with("Extracted Markdown too large:"),
-        "{error}"
-    );
-    assert!(error.contains("5 MiB extracted Markdown limit"), "{error}");
+    let attachment = load(&oversized, false).unwrap();
+    let markdown = std::str::from_utf8(&attachment.files[0].bytes).unwrap();
+    assert!(markdown.contains(&text));
 }

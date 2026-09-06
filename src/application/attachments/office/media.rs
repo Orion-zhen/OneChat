@@ -5,17 +5,13 @@ use undoc::Document;
 
 use crate::domain::{AttachmentDraftFile, AttachmentFileKind};
 
-use super::super::{MAX_IMAGE_BYTES, validate_image};
-
-const MAX_IMAGES: usize = 20;
-const MAX_IMAGE_TOTAL_BYTES: u64 = 50 * 1024 * 1024;
+use super::super::validate_image;
 
 pub(super) fn extract(document: &mut Document) -> Vec<AttachmentDraftFile> {
     let mut resource_ids = document.resources.keys().cloned().collect::<Vec<_>>();
     resource_ids.sort();
 
     let mut files = Vec::new();
-    let mut total_bytes = 0_u64;
     for (index, resource_id) in resource_ids.into_iter().enumerate() {
         let resource = document
             .resources
@@ -25,22 +21,9 @@ pub(super) fn extract(document: &mut Document) -> Vec<AttachmentDraftFile> {
         let name = format!("image-{:03}.{}", index + 1, format.extension());
         resource.filename = Some(name.clone());
 
-        if files.len() >= MAX_IMAGES || resource.data.len() as u64 > MAX_IMAGE_BYTES {
-            continue;
-        }
         let Some((media_type, bytes)) = format.prepare(&resource.data) else {
             continue;
         };
-        let size = bytes.len() as u64;
-        if size > MAX_IMAGE_BYTES
-            || total_bytes
-                .checked_add(size)
-                .is_none_or(|total| total > MAX_IMAGE_TOTAL_BYTES)
-        {
-            continue;
-        }
-
-        total_bytes += size;
         files.push(AttachmentDraftFile {
             name,
             kind: AttachmentFileKind::Image,

@@ -58,18 +58,10 @@ impl OneChat {
             cx.notify();
             return None;
         };
-        if self.chat.attachments.len() >= MAX_ATTACHMENTS {
-            self.data.error = Some(format!(
-                "A message can contain at most {MAX_ATTACHMENTS} attachments."
-            ));
-            cx.notify();
-            return None;
-        }
 
         let load = ComposerAttachmentLoad {
             conversation_id,
             options: LoadManyOptions {
-                remaining: MAX_ATTACHMENTS - self.chat.attachments.len(),
                 vision: model.capabilities.vision,
                 audio_input: model.capabilities.audio_input,
                 parse_document_images: self.settings().parse_document_images,
@@ -176,13 +168,6 @@ impl OneChat {
         else {
             return;
         };
-        if self.chat.attachments.len() >= MAX_ATTACHMENTS {
-            self.data.error = Some(format!(
-                "A message can contain at most {MAX_ATTACHMENTS} attachments."
-            ));
-            cx.notify();
-            return;
-        }
 
         let number = self.chat.attachments.len() + 1;
         self.chat.attachments_loading = true;

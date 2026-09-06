@@ -93,15 +93,18 @@ fn damaged_empty_and_disguised_audio_is_rejected() {
 }
 
 #[test]
-fn audio_uploads_over_ten_mib_are_rejected_before_reading() {
+fn audio_uploads_over_ten_mib_are_loaded() {
     let directory = tempdir().unwrap();
     let path = directory.path().join("large.wav");
-    let file = fs::File::create(&path).unwrap();
-    file.set_len(MAX_AUDIO_BYTES + 1).unwrap();
+    let samples = 5 * 1024 * 1024;
+    let bytes = pcm16_wav(16_000, samples);
+    assert!(bytes.len() > 10 * 1024 * 1024);
+    fs::write(&path, &bytes).unwrap();
 
-    assert!(
-        load_audio(&path, true)
-            .unwrap_err()
-            .contains("10 MiB audio limit")
+    let attachment = load_audio(&path, true).unwrap();
+    assert_eq!(attachment.files[0].bytes, bytes);
+    assert_eq!(
+        attachment.audio.unwrap().duration_ms,
+        u64::from(samples) / 16
     );
 }

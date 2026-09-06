@@ -4,20 +4,14 @@ use crate::domain::{
     AttachmentDraft, AttachmentDraftFile, AttachmentFileKind, AttachmentKind, new_id,
 };
 
-use super::MAX_IMAGE_BYTES;
-
 pub(super) fn load(
     path: &Path,
     name: String,
     extension: &str,
-    size: u64,
     vision: bool,
 ) -> Result<AttachmentDraft, String> {
     if !vision {
         return Err(format!("{name} requires a model with vision support."));
-    }
-    if size > MAX_IMAGE_BYTES {
-        return Err(format!("{name} exceeds the 10 MiB image limit."));
     }
 
     let media_type = media_type(extension).expect("validated image extension");

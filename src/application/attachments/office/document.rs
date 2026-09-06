@@ -4,7 +4,6 @@ use crate::domain::{
     AttachmentDraft, AttachmentDraftFile, AttachmentFileKind, AttachmentKind, new_id,
 };
 
-use super::super::MAX_TEXT_BYTES;
 use super::media;
 
 pub(super) fn load(
@@ -37,11 +36,6 @@ pub(super) fn load(
         )
     })?;
 
-    if markdown.len() as u64 > MAX_TEXT_BYTES {
-        return Err(format!(
-            "Extracted Markdown too large: {name} exceeds the 5 MiB extracted Markdown limit."
-        ));
-    }
     if markdown.trim().is_empty() {
         return Err(format!(
             "{name} is an empty {} document (no readable content).",

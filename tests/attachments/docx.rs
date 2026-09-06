@@ -122,7 +122,12 @@ fn docx_images_convert_or_degrade_to_named_placeholders() {
             .iter()
             .map(|file| file.name.as_str())
             .collect::<Vec<_>>(),
-        ["image-001.png", "image-005.png", "image-006.png"]
+        [
+            "image-001.png",
+            "image-004.png",
+            "image-005.png",
+            "image-006.png"
+        ]
     );
     assert!(images.iter().all(|file| file.media_type == "image/png"));
     assert!(
@@ -133,7 +138,7 @@ fn docx_images_convert_or_degrade_to_named_placeholders() {
 }
 
 #[test]
-fn docx_image_count_and_total_size_quotas_only_drop_image_files() {
+fn docx_images_exceeding_old_count_and_total_size_limits_are_all_kept() {
     let directory = tempdir().unwrap();
     let tiny_media = (1..=21)
         .map(|index| (format!("image-{index}.png"), png_bytes()))
@@ -144,7 +149,7 @@ fn docx_image_count_and_total_size_quotas_only_drop_image_files() {
     let count_path = directory.path().join("many.docx");
     fs::write(&count_path, docx(&tiny_body, tiny_media, Vec::new())).unwrap();
     let count = load(&count_path, false).unwrap();
-    assert_eq!(count.files.len(), 21);
+    assert_eq!(count.files.len(), 22);
     let markdown = std::str::from_utf8(&count.files[0].bytes).unwrap();
     assert!(markdown.contains("image-021.png"));
 
@@ -158,7 +163,7 @@ fn docx_image_count_and_total_size_quotas_only_drop_image_files() {
     let total_path = directory.path().join("total.docx");
     fs::write(&total_path, docx(&large_body, large_media, Vec::new())).unwrap();
     let total = load(&total_path, false).unwrap();
-    assert_eq!(total.files.len(), 6, "content.md plus five images");
+    assert_eq!(total.files.len(), 7, "content.md plus all six images");
     assert!(
         std::str::from_utf8(&total.files[0].bytes)
             .unwrap()

@@ -6,21 +6,11 @@ use crate::domain::{
     AttachmentDraft, AttachmentDraftFile, AttachmentFileKind, AttachmentKind, new_id,
 };
 
-const MAX_PDF_BYTES: u64 = 20 * 1024 * 1024;
-const MAX_PDF_PAGES: usize = 20;
 const MAX_PDF_EDGE: f32 = 1600.0;
 
-pub(super) fn load(
-    path: &Path,
-    name: String,
-    size: u64,
-    vision: bool,
-) -> Result<AttachmentDraft, String> {
+pub(super) fn load(path: &Path, name: String, vision: bool) -> Result<AttachmentDraft, String> {
     if !vision {
         return Err(format!("{name} requires a model with vision support."));
-    }
-    if size > MAX_PDF_BYTES {
-        return Err(format!("{name} exceeds the 20 MiB PDF limit."));
     }
 
     let bytes = std::fs::read(path).map_err(|error| format!("Could not read {name}: {error}"))?;
@@ -31,11 +21,6 @@ pub(super) fn load(
     let pages = pdf.pages();
     if pages.is_empty() {
         return Err(format!("PDF contains no pages: {name}"));
-    }
-    if pages.len() > MAX_PDF_PAGES {
-        return Err(format!(
-            "{name} exceeds the {MAX_PDF_PAGES}-page PDF limit."
-        ));
     }
 
     let cache = RenderCache::new();

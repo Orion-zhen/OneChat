@@ -4,8 +4,7 @@ use gpui::{Context, Task};
 
 use super::OneChat;
 use crate::{
-    application::attachments::MAX_ATTACHMENTS,
-    desktop::audio_recording::{RecordingLimit, RecordingStatus},
+    desktop::audio_recording::RecordingStatus,
     domain::{
         AttachmentDraft, AttachmentDraftFile, AttachmentFileKind, AttachmentKind,
         AudioAttachmentMetadata, AudioAttachmentSource, new_id,
@@ -60,7 +59,6 @@ impl OneChat {
             && !self.is_current_generating()
             && self.chat.message_editor.is_none()
             && !self.chat.attachments_loading
-            && self.chat.attachments.len() < MAX_ATTACHMENTS
             && self.current_conversation().is_some()
             && self
                 .current_model()
@@ -124,13 +122,6 @@ impl OneChat {
             self.services.audio_recording.reset();
             return;
         };
-        if self.chat.attachments.len() >= MAX_ATTACHMENTS {
-            self.data.error = Some(format!(
-                "A message can contain at most {MAX_ATTACHMENTS} attachments. The recording was discarded."
-            ));
-            self.services.audio_recording.reset();
-            return;
-        }
         if !self
             .current_model()
             .is_some_and(|model| model.capabilities.audio_input)
@@ -144,17 +135,9 @@ impl OneChat {
 
         self.chat.attachments.push(voice_attachment(output));
         self.chat.attachments_revision = self.chat.attachments_revision.wrapping_add(1);
-        if let Some(limit) = output.limit {
+        if output.duration_limit_reached {
             self.data.error = Some(
-                match limit {
-                    RecordingLimit::Duration => {
-                        "The recording reached the 5-minute limit and was added as a voice draft."
-                    }
-                    RecordingLimit::Size => {
-                        "The recording reached the 10 MiB limit and was added as a voice draft."
-                    }
-                }
-                .into(),
+                "The recording reached the 5-minute limit and was added as a voice draft.".into(),
             );
         }
         self.services.audio_recording.reset();
@@ -191,7 +174,7 @@ mod tests {
         let draft = voice_attachment(&RecordingOutput {
             wav: b"RIFF voice".to_vec(),
             duration_ms: 1_250,
-            limit: None,
+            duration_limit_reached: false,
         });
 
         assert_eq!(draft.name, "Voice message.wav");

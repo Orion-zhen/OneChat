@@ -70,8 +70,7 @@ pub(super) fn render_chat_page(
     let drop_enabled = !app.is_current_generating()
         && !app.chat.attachments_loading
         && app.current_model().is_some()
-        && app.current_conversation().is_some()
-        && app.chat.attachments.len() < crate::application::attachments::MAX_ATTACHMENTS;
+        && app.current_conversation().is_some();
     let palette = *crate::desktop::ui::theme::palette(cx);
     let drop_overlay = div()
         .absolute()

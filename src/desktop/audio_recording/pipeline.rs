@@ -1,10 +1,7 @@
 use std::io::Cursor;
 
-use crate::application::attachments::MAX_AUDIO_BYTES;
+use super::{MAX_RECORDING_DURATION_MS, RECORDING_SAMPLE_RATE};
 
-use super::{MAX_RECORDING_DURATION_MS, RECORDING_SAMPLE_RATE, RecordingLimit};
-
-const WAV_HEADER_BYTES: u64 = 44;
 const MAX_RECORDING_SAMPLES: usize =
     (MAX_RECORDING_DURATION_MS as usize / 1_000) * RECORDING_SAMPLE_RATE as usize;
 
@@ -46,8 +43,6 @@ impl LinearResampler {
 pub(super) struct RecordingBuffer {
     resampler: LinearResampler,
     pcm: Vec<i16>,
-    max_samples: usize,
-    max_bytes: u64,
 }
 
 impl RecordingBuffer {
@@ -55,40 +50,17 @@ impl RecordingBuffer {
         Self {
             resampler: LinearResampler::new(source_rate),
             pcm: Vec::new(),
-            max_samples: MAX_RECORDING_SAMPLES,
-            max_bytes: MAX_AUDIO_BYTES,
         }
     }
 
-    #[cfg(test)]
-    fn with_limits(source_rate: u32, max_samples: usize, max_bytes: u64) -> Self {
-        Self {
-            resampler: LinearResampler::new(source_rate),
-            pcm: Vec::new(),
-            max_samples,
-            max_bytes,
-        }
-    }
-
-    pub(super) fn push(&mut self, input: &[f32]) -> Option<RecordingLimit> {
-        let max_samples = self
-            .max_samples
-            .min(((self.max_bytes.saturating_sub(WAV_HEADER_BYTES)) / 2) as usize);
+    pub(super) fn push(&mut self, input: &[f32]) -> bool {
         let pcm = &mut self.pcm;
         self.resampler.push(input, |sample| {
-            if pcm.len() < max_samples {
+            if pcm.len() < MAX_RECORDING_SAMPLES {
                 pcm.push(float_to_pcm16(sample));
             }
         });
-        if self.pcm.len() < max_samples {
-            None
-        } else if self.max_samples
-            <= ((self.max_bytes.saturating_sub(WAV_HEADER_BYTES)) / 2) as usize
-        {
-            Some(RecordingLimit::Duration)
-        } else {
-            Some(RecordingLimit::Size)
-        }
+        self.pcm.len() >= MAX_RECORDING_SAMPLES
     }
 
     pub(super) fn elapsed_ms(&self) -> u64 {
@@ -168,14 +140,11 @@ mod tests {
     }
 
     #[test]
-    fn recording_buffer_reports_duration_and_size_limits() {
-        let mut duration = RecordingBuffer::with_limits(RECORDING_SAMPLE_RATE, 3, 1_000);
-        assert_eq!(
-            duration.push(&[0.0, 0.0, 0.0]),
-            Some(RecordingLimit::Duration)
-        );
-
-        let mut size = RecordingBuffer::with_limits(RECORDING_SAMPLE_RATE, 100, 48);
-        assert_eq!(size.push(&[0.0, 0.0]), Some(RecordingLimit::Size));
+    fn recording_buffer_stops_at_five_minutes() {
+        let mut buffer = RecordingBuffer::new(RECORDING_SAMPLE_RATE);
+        assert!(!buffer.push(&[0.0]));
+        assert!(buffer.push(&vec![0.0; MAX_RECORDING_SAMPLES]));
+        assert_eq!(buffer.elapsed_ms(), MAX_RECORDING_DURATION_MS);
+        assert_eq!(buffer.pcm.len(), MAX_RECORDING_SAMPLES);
     }
 }

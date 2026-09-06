@@ -7,8 +7,6 @@ use crate::domain::{
     AudioAttachmentMetadata, AudioAttachmentSource, new_id,
 };
 
-use super::MAX_AUDIO_BYTES;
-
 pub(super) fn is_supported_extension(extension: &str) -> bool {
     matches!(extension, "wav" | "mp3")
 }
@@ -17,20 +15,15 @@ pub(super) fn load(
     path: &Path,
     name: String,
     extension: &str,
-    size: u64,
     audio_input: bool,
 ) -> Result<AttachmentDraft, String> {
     if !audio_input {
         return Err(format!("{name} requires a model with audio support."));
     }
-    if size == 0 {
+    let bytes = std::fs::read(path).map_err(|error| format!("Could not read {name}: {error}"))?;
+    if bytes.is_empty() {
         return Err(format!("Audio file {name} is empty."));
     }
-    if size > MAX_AUDIO_BYTES {
-        return Err(format!("{name} exceeds the 10 MiB audio limit."));
-    }
-
-    let bytes = std::fs::read(path).map_err(|error| format!("Could not read {name}: {error}"))?;
     let (actual_extension, media_type) = detect_format(&bytes)
         .ok_or_else(|| format!("Invalid audio {name}: file is not a valid WAV or MP3."))?;
     if extension != actual_extension {

@@ -12,7 +12,6 @@ pub(super) fn load(
     path: &Path,
     name: &str,
     extension: &str,
-    size: u64,
     parse_images: bool,
 ) -> Option<Result<AttachmentDraft, String>> {
     let format = match extension {
@@ -26,7 +25,7 @@ pub(super) fn load(
     };
 
     Some(
-        archive::read(path, name, size, format)
+        archive::read(path, name, format)
             .and_then(|bytes| document::load(bytes, name.to_string(), format, parse_images)),
     )
 }

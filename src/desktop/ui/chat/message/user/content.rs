@@ -143,11 +143,7 @@ pub(super) fn render_message_content(
                         .tooltip("Add attachment")
                         .size(px(34.0))
                         .p_0()
-                        .disabled(
-                            attachments_loading
-                                || attachment_count
-                                    >= crate::application::attachments::MAX_ATTACHMENTS,
-                        )
+                        .disabled(attachments_loading)
                         .child(render_icon(AppIcon::Plus, IconTone::Muted, 18.0, cx))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.add_message_edit_attachments(add_id.clone(), cx)

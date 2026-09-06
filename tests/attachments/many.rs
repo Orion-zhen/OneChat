@@ -1,13 +1,7 @@
 use super::*;
 
-fn options(
-    remaining: usize,
-    vision: bool,
-    audio_input: bool,
-    parse_document_images: bool,
-) -> LoadManyOptions {
+fn options(vision: bool, audio_input: bool, parse_document_images: bool) -> LoadManyOptions {
     LoadManyOptions {
-        remaining,
         vision,
         audio_input,
         parse_document_images,
@@ -15,35 +9,17 @@ fn options(
 }
 
 #[test]
-fn batch_loading_enforces_count_boundaries_with_singular_and_plural_errors() {
+fn batch_loading_accepts_more_than_ten_attachments() {
     let directory = tempdir().unwrap();
     let path = directory.path().join("notes.txt");
     fs::write(&path, "notes").unwrap();
 
-    assert_eq!(
-        load_many(
-            vec![path.clone(), path.clone()],
-            options(2, false, false, true)
-        )
-        .unwrap()
-        .len(),
-        2
-    );
-    assert_eq!(
-        load_many(
-            vec![path.clone(), path.clone()],
-            options(1, false, false, true)
-        )
-        .unwrap_err(),
-        "Select at most 1 more attachment."
-    );
-    assert_eq!(
-        load_many(
-            vec![path.clone(), path.clone(), path],
-            options(2, false, false, true),
-        )
-        .unwrap_err(),
-        "Select at most 2 more attachments."
+    let attachments = load_many(vec![path; 25], options(false, false, true)).unwrap();
+    assert_eq!(attachments.len(), 25);
+    assert!(
+        attachments
+            .iter()
+            .all(|draft| draft.files[0].bytes == b"notes")
     );
 }
 
@@ -55,7 +31,7 @@ fn batch_loading_rejects_directories_and_returns_the_first_path_error() {
 
     let error = load_many(
         vec![directory.path().to_path_buf()],
-        options(1, false, false, true),
+        options(false, false, true),
     )
     .unwrap_err();
     assert_eq!(
@@ -67,7 +43,7 @@ fn batch_loading_rejects_directories_and_returns_the_first_path_error() {
     );
 
     let missing = directory.path().join("missing.txt");
-    let error = load_many(vec![text, missing], options(2, false, false, true)).unwrap_err();
+    let error = load_many(vec![text, missing], options(false, false, true)).unwrap_err();
     assert!(error.contains("Could not read missing.txt"), "{error}");
 }
 
@@ -80,21 +56,21 @@ fn batch_loading_applies_vision_and_audio_capabilities() {
     fs::write(&audio, include_bytes!("../fixtures/audio/minimal.mp3")).unwrap();
 
     assert!(
-        load_many(vec![image.clone()], options(1, false, false, true))
+        load_many(vec![image.clone()], options(false, false, true))
             .unwrap_err()
             .contains("vision support")
     );
     assert_eq!(
-        load_many(vec![image], options(1, true, false, true)).unwrap()[0].kind,
+        load_many(vec![image], options(true, false, true)).unwrap()[0].kind,
         AttachmentKind::Image
     );
     assert!(
-        load_many(vec![audio.clone()], options(1, false, false, true))
+        load_many(vec![audio.clone()], options(false, false, true))
             .unwrap_err()
             .contains("audio support")
     );
     assert_eq!(
-        load_many(vec![audio], options(1, false, true, true)).unwrap()[0].kind,
+        load_many(vec![audio], options(false, true, true)).unwrap()[0].kind,
         AttachmentKind::Audio
     );
 }
@@ -113,9 +89,9 @@ fn batch_loading_respects_the_office_image_option() {
     )
     .unwrap();
 
-    let without_images = load_many(vec![path.clone()], options(1, false, false, false)).unwrap();
+    let without_images = load_many(vec![path.clone()], options(false, false, false)).unwrap();
     assert_eq!(without_images[0].files.len(), 1);
-    let with_images = load_many(vec![path], options(1, false, false, true)).unwrap();
+    let with_images = load_many(vec![path], options(false, false, true)).unwrap();
     assert_eq!(with_images[0].files.len(), 2);
     assert_eq!(with_images[0].files[1].kind, AttachmentFileKind::Image);
 }

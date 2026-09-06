@@ -9,10 +9,8 @@ use std::{
     time::Duration,
 };
 
-use crate::application::attachments::MAX_AUDIO_BYTES;
-
 use super::{
-    RecordingLimit, RecordingOutput, RecordingStatus, SharedSnapshot,
+    RecordingOutput, RecordingStatus, SharedSnapshot,
     capture::{InputSession, RecordingBackend},
     pipeline::RecordingBuffer,
     reset_snapshot, update_snapshot,
@@ -85,7 +83,7 @@ fn run(
                 }
             }
             Ok(Command::Stop(command_epoch)) => {
-                finalize(&mut active, &snapshot, &epoch, command_epoch, None)
+                finalize(&mut active, &snapshot, &epoch, command_epoch, false)
             }
             Ok(Command::Cancel) | Ok(Command::Reset) => {
                 active = None;
@@ -109,7 +107,7 @@ fn run(
             continue;
         }
 
-        let mut limit = None;
+        let mut duration_limit_reached = false;
         while let Ok(samples) = recording.input.samples.try_recv() {
             let peak = samples
                 .iter()
@@ -119,14 +117,14 @@ fn run(
                 .clamp(0.0, 1.0);
             let target = (peak * 1_000.0).round() as u16;
             recording.level_milli = recording.level_milli.saturating_mul(3) / 4 + target / 4;
-            if let Some(reached) = recording.buffer.push(&samples) {
-                limit = Some(reached);
+            if recording.buffer.push(&samples) {
+                duration_limit_reached = true;
                 break;
             }
         }
-        if let Some(limit) = limit {
+        if duration_limit_reached {
             let recording_epoch = recording.epoch;
-            finalize(&mut active, &snapshot, &epoch, recording_epoch, Some(limit));
+            finalize(&mut active, &snapshot, &epoch, recording_epoch, true);
         } else {
             let elapsed_ms = recording.buffer.elapsed_ms();
             let level_milli = recording.level_milli;
@@ -145,7 +143,7 @@ fn finalize(
     snapshot: &SharedSnapshot,
     epoch: &Arc<AtomicU64>,
     expected_epoch: u64,
-    limit: Option<RecordingLimit>,
+    duration_limit_reached: bool,
 ) {
     let Some(recording) = active.take() else {
         return;
@@ -164,11 +162,11 @@ fn finalize(
     let duration_ms = recording.buffer.elapsed_ms();
     match recording.buffer.encode_wav() {
         _ if epoch.load(Ordering::SeqCst) != expected_epoch => {}
-        Ok(wav) if wav.len() as u64 <= MAX_AUDIO_BYTES => {
+        Ok(wav) => {
             let output = Arc::new(RecordingOutput {
                 wav,
                 duration_ms,
-                limit,
+                duration_limit_reached,
             });
             update_snapshot(snapshot, |snapshot| {
                 snapshot.status = RecordingStatus::Completed;
@@ -177,11 +175,6 @@ fn finalize(
                 snapshot.error = None;
             });
         }
-        Ok(_) => fail(
-            active,
-            snapshot,
-            "The recording exceeded the 10 MiB audio limit.".into(),
-        ),
         Err(error) => fail(active, snapshot, error),
     }
 }

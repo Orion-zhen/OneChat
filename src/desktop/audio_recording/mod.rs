@@ -38,17 +38,11 @@ impl RecordingStatus {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum RecordingLimit {
-    Duration,
-    Size,
-}
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct RecordingOutput {
     pub(crate) wav: Vec<u8>,
     pub(crate) duration_ms: u64,
-    pub(crate) limit: Option<RecordingLimit>,
+    pub(crate) duration_limit_reached: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

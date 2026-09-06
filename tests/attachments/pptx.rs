@@ -112,7 +112,7 @@ fn pptx_markdown_is_always_sent_and_images_follow_vision_support() {
 }
 
 #[test]
-fn pptx_missing_presentation_and_oversized_markdown_are_rejected() {
+fn pptx_missing_presentation_is_rejected_but_markdown_over_five_mib_is_loaded() {
     let directory = tempdir().unwrap();
     let missing = directory.path().join("missing-presentation.pptx");
     fs::write(
@@ -141,10 +141,7 @@ fn pptx_missing_presentation_and_oversized_markdown_are_rejected() {
         r#"<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>{text}</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>"#
     );
     fs::write(&oversized, pptx(&[slide], vec![String::new()], Vec::new())).unwrap();
-    let error = load(&oversized, false).unwrap_err();
-    assert!(
-        error.starts_with("Extracted Markdown too large:"),
-        "{error}"
-    );
-    assert!(error.contains("5 MiB extracted Markdown limit"), "{error}");
+    let attachment = load(&oversized, false).unwrap();
+    let markdown = std::str::from_utf8(&attachment.files[0].bytes).unwrap();
+    assert!(markdown.contains(&text));
 }
