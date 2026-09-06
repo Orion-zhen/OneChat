@@ -113,7 +113,6 @@ fn serialized_characters(value: &impl serde::Serialize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use base64::{Engine as _, engine::general_purpose::STANDARD};
     use rig_core::message::{ImageMediaType, UserContent};
 
     use super::*;

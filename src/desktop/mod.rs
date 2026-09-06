@@ -16,7 +16,7 @@ use gpui::{
 #[cfg(target_os = "macos")]
 use gpui::{KeyBinding, Menu, MenuItem, OsAction, SystemMenuType, actions};
 use gpui_component::Root;
-use gpui_component_assets::Assets;
+use gpui_kit_assets::Assets;
 use tokio::runtime::Builder;
 
 use crate::{
