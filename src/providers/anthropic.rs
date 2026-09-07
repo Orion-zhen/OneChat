@@ -32,8 +32,13 @@ pub async fn stream(
     }
 
     let client = build_client(&request.provider)?;
-    let model = client.completion_model(request.model.remote_id.clone());
     let mut sdk_request = sdk_request(&request, additional_parameters(&request)?)?;
+    let model = client.completion_model(
+        sdk_request
+            .model
+            .clone()
+            .expect("sdk_request sets the model ID"),
+    );
     if sdk_request.max_tokens.is_none() {
         sdk_request.max_tokens = Some(4096);
     }

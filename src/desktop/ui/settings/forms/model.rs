@@ -1,10 +1,12 @@
 use super::*;
 
 mod custom_presets;
+mod model_id;
 mod parameters;
 mod reasoning;
 
 use custom_presets::*;
+use model_id::model_id_reasoning_presets;
 use parameters::*;
 use reasoning::*;
 

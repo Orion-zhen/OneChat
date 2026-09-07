@@ -6,6 +6,8 @@ mod generation;
 mod markdown;
 #[path = "mcp.rs"]
 mod mcp;
+#[path = "providers.rs"]
+mod providers;
 #[path = "speech.rs"]
 mod speech;
 #[path = "storage.rs"]

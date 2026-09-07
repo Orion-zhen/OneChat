@@ -5,6 +5,11 @@ pub(super) fn model_reasoning_form(
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
     let enabled = editor.enabled;
+    let suffix_required = editor.mode == ReasoningEditorMode::ModelIdSuffix
+        && editor
+            .suffix
+            .as_ref()
+            .is_some_and(|config| config.presets.iter().all(|preset| preset.level.is_some()));
     let header = div()
         .w_full()
         .flex()
@@ -31,6 +36,7 @@ pub(super) fn model_reasoning_form(
             Switch::new("model-reasoning-enabled")
                 .small()
                 .checked(enabled)
+                .disabled(suffix_required)
                 .color(cx.theme().primary)
                 .on_click(cx.listener(|this, value: &bool, _, cx| {
                     this.set_model_reasoning_enabled(*value, cx)
@@ -54,6 +60,7 @@ pub(super) fn model_reasoning_form(
             [
                 (ReasoningEditorMode::KnownApi, "Known API Format"),
                 (ReasoningEditorMode::Custom, "Custom Parameters"),
+                (ReasoningEditorMode::ModelIdSuffix, "Model ID Suffix"),
             ]
             .into_iter()
             .map(|(candidate, label)| {
@@ -67,6 +74,11 @@ pub(super) fn model_reasoning_form(
                 .h(px(32.0))
                 .rounded(px(7.0))
                 .label(label)
+                .disabled(if candidate == ReasoningEditorMode::ModelIdSuffix {
+                    editor.suffix.is_none()
+                } else {
+                    suffix_required
+                })
                 .selected(selected)
                 .toggled(selected)
                 .when(selected, |button| button.bg(cx.theme().popover))
@@ -86,6 +98,7 @@ pub(super) fn model_reasoning_form(
             )
             .child(known_reasoning_presets(editor, cx)),
         ReasoningEditorMode::Custom => content.child(custom_reasoning_presets(editor, cx)),
+        ReasoningEditorMode::ModelIdSuffix => content.child(model_id_reasoning_presets(editor, cx)),
     }
     .into_any_element()
 }

@@ -26,6 +26,7 @@ pub(super) fn available_model(metadata: &Value, kind: ProviderKind) -> Option<Av
     let id = id.strip_prefix("models/").unwrap_or(id).trim();
     (!id.is_empty()).then(|| AvailableModel {
         id: id.to_string(),
+        reasoning: None,
         tools: tools_from_metadata(metadata),
         vision: vision_from_metadata(metadata),
         audio_input: audio_input_from_metadata(metadata),

@@ -3,6 +3,7 @@ use super::*;
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ModelReasoningConfig {
+    ModelIdSuffix(ModelIdReasoningConfig),
     KnownApi {
         format: KnownReasoningFormat,
         default_preset: String,
@@ -37,6 +38,7 @@ impl ModelReasoningConfig {
 
     pub fn default_preset(&self) -> &str {
         match self {
+            Self::ModelIdSuffix(config) => &config.default_preset,
             Self::KnownApi { default_preset, .. } | Self::Custom { default_preset, .. } => {
                 default_preset
             }
@@ -46,6 +48,13 @@ impl ModelReasoningConfig {
     pub fn preset_options(&self) -> Vec<(String, String)> {
         let mut options = vec![(PROVIDER_DEFAULT_REASONING_PRESET.into(), "Default".into())];
         match self {
+            Self::ModelIdSuffix(config) => {
+                return config
+                    .presets
+                    .iter()
+                    .map(|preset| (preset.id().into(), preset.label().into()))
+                    .collect();
+            }
             Self::KnownApi { presets, .. } => options.extend(
                 presets
                     .iter()
@@ -64,6 +73,9 @@ impl ModelReasoningConfig {
         &self,
         selected: Option<&str>,
     ) -> Result<(String, Map<String, Value>), String> {
+        if let Self::ModelIdSuffix(config) = self {
+            return Ok((config.resolve_preset(selected)?.id().into(), Map::new()));
+        }
         let requested = selected.unwrap_or_else(|| self.default_preset());
         let effective = if self.has_preset(requested) {
             requested
@@ -77,6 +89,7 @@ impl ModelReasoningConfig {
         }
 
         let patch = match self {
+            Self::ModelIdSuffix(_) => unreachable!("model ID presets were resolved above"),
             Self::KnownApi {
                 format, presets, ..
             } => {
@@ -95,8 +108,20 @@ impl ModelReasoningConfig {
         Ok((effective.into(), patch))
     }
 
+    pub fn resolve_model_id<'a>(
+        &'a self,
+        base: &'a str,
+        selected: Option<&str>,
+    ) -> Result<&'a str, String> {
+        match self {
+            Self::ModelIdSuffix(config) => Ok(&config.resolve_preset(selected)?.model_id),
+            _ => Ok(base),
+        }
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         match self {
+            Self::ModelIdSuffix(config) => config.validate(),
             Self::KnownApi {
                 format,
                 default_preset,
@@ -138,6 +163,7 @@ impl ModelReasoningConfig {
             return true;
         }
         match self {
+            Self::ModelIdSuffix(config) => config.presets.iter().any(|preset| preset.id() == id),
             Self::KnownApi { presets, .. } => presets.iter().any(|preset| preset.id() == id),
             Self::Custom { presets, .. } => presets.iter().any(|preset| preset.id == id),
         }

@@ -36,7 +36,8 @@ pub use prompt::{
     PromptSnapshot, PromptVariableSource, prompt_variable_name_is_valid,
 };
 pub use reasoning::{
-    CustomReasoningPreset, KnownReasoningFormat, KnownReasoningPreset, ModelReasoningConfig,
-    PROVIDER_DEFAULT_REASONING_PRESET, ReasoningLevel, ReasoningParameter, ReasoningParameterValue,
-    merge_json_patch,
+    CustomReasoningPreset, KnownReasoningFormat, KnownReasoningPreset, ModelIdReasoningConfig,
+    ModelIdReasoningPreset, ModelReasoningConfig, PROVIDER_DEFAULT_REASONING_PRESET,
+    ReasoningLevel, ReasoningParameter, ReasoningParameterValue, merge_json_patch,
+    split_reasoning_model_id,
 };

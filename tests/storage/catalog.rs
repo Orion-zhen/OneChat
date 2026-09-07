@@ -1,6 +1,40 @@
 use super::*;
 
 #[test]
+fn model_id_reasoning_presets_and_default_survive_storage_round_trip() {
+    use onechat::domain::{
+        ModelIdReasoningConfig, ModelIdReasoningPreset, ModelReasoningConfig, ReasoningLevel,
+    };
+
+    let (_directory, storage) = open_storage();
+    let (_, mut model) = catalog(&storage);
+    model.reasoning = Some(ModelReasoningConfig::ModelIdSuffix(
+        ModelIdReasoningConfig {
+            default_preset: "high".into(),
+            presets: vec![
+                ModelIdReasoningPreset {
+                    level: None,
+                    model_id: model.remote_id.clone(),
+                },
+                ModelIdReasoningPreset {
+                    level: Some(ReasoningLevel::High),
+                    model_id: format!("{}:HIGH", model.remote_id),
+                },
+            ],
+        },
+    ));
+    storage.update_model(&model).unwrap();
+    let saved = storage.load_snapshot().unwrap().models.remove(0);
+    assert_eq!(saved.reasoning, model.reasoning);
+    let config = saved.reasoning.unwrap();
+    assert_eq!(config.default_preset(), "high");
+    assert_eq!(
+        config.resolve_model_id(&saved.remote_id, None).unwrap(),
+        format!("{}:HIGH", model.remote_id)
+    );
+}
+
+#[test]
 fn catalog_settings_and_prompt_presets_round_trip() {
     let (_directory, storage) = open_storage();
     fs::write(

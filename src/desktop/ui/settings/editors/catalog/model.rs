@@ -11,6 +11,7 @@ pub struct ModelEditor {
     original: Option<Model>,
     provider_kind: ProviderKind,
     last_remote_id: String,
+    reasoning_discovery_pending: bool,
     pub provider_id: String,
     pub remote_id: Entity<ComboboxState<ModelIdDelegate>>,
     pub display_name: Entity<InputState>,
@@ -47,6 +48,7 @@ impl ModelEditor {
             cx,
         );
         Self {
+            reasoning_discovery_pending: model.is_none(),
             original: model,
             provider_kind,
             last_remote_id: remote_id.clone(),
@@ -114,6 +116,7 @@ impl ModelEditor {
         self.fetch_status = ModelFetchStatus::Loaded;
         let remote_id = self.remote_id(cx);
         self.update_capabilities_for_remote_id(&remote_id);
+        self.sync_discovered_reasoning(&remote_id);
     }
 
     pub fn fail_fetch(&mut self, message: String) {
@@ -167,6 +170,8 @@ impl ModelEditor {
         self.capabilities.audio_input = synchronized.metadata.audio_input;
         self.capabilities.tools = synchronized.metadata.tools;
         if remote_id_changed {
+            self.reasoning_discovery_pending = true;
+            self.sync_discovered_reasoning(&remote_id);
             let context_window = synchronized
                 .metadata
                 .context_window_tokens
@@ -174,6 +179,21 @@ impl ModelEditor {
                 .unwrap_or_default();
             self.context_window
                 .update(cx, |input, cx| input.set_value(context_window, window, cx));
+        }
+    }
+
+    fn sync_discovered_reasoning(&mut self, remote_id: &str) {
+        let config = self
+            .available_models
+            .iter()
+            .find(|model| model.id == remote_id.trim())
+            .and_then(|model| model.reasoning.clone());
+        if self.reasoning_discovery_pending {
+            self.reasoning.set_discovered_suffix(config);
+            self.reasoning_discovery_pending =
+                !matches!(self.fetch_status, ModelFetchStatus::Loaded);
+        } else if self.reasoning.suffix.is_none() {
+            self.reasoning.suffix = config;
         }
     }
 
@@ -297,6 +317,7 @@ mod model_tests {
     fn available_model(id: &str, context_window_tokens: Option<u32>) -> AvailableModel {
         AvailableModel {
             id: id.into(),
+            reasoning: None,
             tools: true,
             vision: true,
             audio_input: false,

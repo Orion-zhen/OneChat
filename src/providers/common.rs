@@ -136,8 +136,23 @@ pub(crate) fn sdk_request(
     }
     chat_history.extend(request.messages.clone());
 
+    let model_id = match &request.model.reasoning {
+        Some(reasoning) => reasoning
+            .resolve_model_id(
+                &request.model.remote_id,
+                request.config.reasoning_preset.as_deref(),
+            )
+            .map_err(|detail| {
+                GenerationError::new(
+                    GenerationErrorKind::UnsupportedParameter,
+                    "Invalid model reasoning configuration",
+                )
+                .with_detail(detail)
+            })?,
+        None => &request.model.remote_id,
+    };
     let sdk_request = CompletionRequest {
-        model: Some(request.model.remote_id.clone()),
+        model: Some(model_id.to_string()),
         preamble: None,
         chat_history,
         documents: Vec::new(),

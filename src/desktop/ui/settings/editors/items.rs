@@ -275,6 +275,7 @@ pub(crate) struct ModelIdItem {
     tools: bool,
     vision: bool,
     audio_input: bool,
+    reasoning_levels: String,
     custom: bool,
 }
 
@@ -285,6 +286,19 @@ impl ModelIdItem {
             tools: model.tools,
             vision: model.vision,
             audio_input: model.audio_input,
+            reasoning_levels: model
+                .reasoning
+                .as_ref()
+                .map(|config| {
+                    config
+                        .presets
+                        .iter()
+                        .filter(|preset| preset.level.is_some())
+                        .map(|preset| preset.label())
+                        .collect::<Vec<_>>()
+                        .join(" · ")
+                })
+                .unwrap_or_default(),
             custom: false,
         }
     }
@@ -295,6 +309,7 @@ impl ModelIdItem {
             tools: false,
             vision: false,
             audio_input: false,
+            reasoning_levels: String::new(),
             custom: true,
         }
     }
@@ -335,6 +350,14 @@ impl SearchableListItem for ModelIdItem {
             .justify_between()
             .gap_3()
             .child(div().min_w_0().truncate().child(self.id.clone()))
+            .children((!self.reasoning_levels.is_empty()).then(|| {
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_xs()
+                    .text_color(cx.theme().muted_foreground)
+                    .child(self.reasoning_levels.clone())
+            }))
             .children((!capabilities.is_empty()).then(|| {
                 div()
                     .flex_none()

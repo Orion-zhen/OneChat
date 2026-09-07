@@ -32,8 +32,13 @@ pub async fn stream(
     }
 
     let client = build_client(&request.provider)?;
-    let model = client.completion_model(request.model.remote_id.clone());
     let sdk_request = sdk_request(&request, additional_parameters(&request)?)?;
+    let model = client.completion_model(
+        sdk_request
+            .model
+            .clone()
+            .expect("sdk_request sets the model ID"),
+    );
     stream_model(model, sdk_request, events, cancellation, true).await
 }
 

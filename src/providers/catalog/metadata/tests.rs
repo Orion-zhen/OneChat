@@ -102,6 +102,7 @@ fn merges_metadata_from_duplicate_models() {
     let models = sorted_unique(vec![
         AvailableModel {
             id: "model".into(),
+            reasoning: None,
             tools: true,
             vision: false,
             audio_input: false,
@@ -109,6 +110,7 @@ fn merges_metadata_from_duplicate_models() {
         },
         AvailableModel {
             id: "model".into(),
+            reasoning: None,
             tools: false,
             vision: true,
             audio_input: true,
@@ -120,6 +122,7 @@ fn merges_metadata_from_duplicate_models() {
         models,
         vec![AvailableModel {
             id: "model".into(),
+            reasoning: None,
             tools: true,
             vision: true,
             audio_input: true,

@@ -5,6 +5,7 @@ pub enum ReasoningEditorMode {
     #[default]
     KnownApi,
     Custom,
+    ModelIdSuffix,
 }
 
 impl ReasoningEditorMode {
@@ -12,6 +13,7 @@ impl ReasoningEditorMode {
         match self {
             Self::KnownApi => 0,
             Self::Custom => 1,
+            Self::ModelIdSuffix => 2,
         }
     }
 }
@@ -122,6 +124,7 @@ pub struct ModelReasoningEditor {
     pub known_presets: Vec<KnownReasoningPresetEditor>,
     pub custom_default: Option<usize>,
     pub custom_presets: Vec<CustomReasoningPresetEditor>,
+    pub suffix: Option<ModelIdReasoningConfig>,
 }
 
 impl ModelReasoningEditor {
@@ -140,8 +143,21 @@ impl ModelReasoningEditor {
             .recommended_default(&fallback_presets)
             .map(|preset| preset.id().to_string())
             .unwrap_or_else(|| PROVIDER_DEFAULT_REASONING_PRESET.into());
+        let mut suffix = None;
         let (enabled, mode, format, known_default, known, custom_default_id, custom) =
             match reasoning {
+                Some(ModelReasoningConfig::ModelIdSuffix(config)) => {
+                    suffix = Some(config);
+                    (
+                        true,
+                        ReasoningEditorMode::ModelIdSuffix,
+                        fallback_format,
+                        fallback_default,
+                        fallback_presets,
+                        None,
+                        Vec::new(),
+                    )
+                }
                 Some(ModelReasoningConfig::KnownApi {
                     format,
                     default_preset,
@@ -204,6 +220,24 @@ impl ModelReasoningEditor {
             known_presets,
             custom_default,
             custom_presets,
+            suffix,
+        }
+    }
+
+    pub fn set_discovered_suffix(&mut self, config: Option<ModelIdReasoningConfig>) {
+        self.suffix = config;
+        if self.suffix.is_some() {
+            self.enabled = true;
+            self.mode = ReasoningEditorMode::ModelIdSuffix;
+        } else if self.mode == ReasoningEditorMode::ModelIdSuffix {
+            self.enabled = false;
+            self.mode = ReasoningEditorMode::KnownApi;
+        }
+    }
+
+    pub fn set_suffix_default(&mut self, id: String) {
+        if let Some(config) = &mut self.suffix {
+            config.default_preset = id;
         }
     }
 
@@ -343,6 +377,11 @@ impl ModelReasoningEditor {
             return Ok(None);
         }
         let reasoning = match self.mode {
+            ReasoningEditorMode::ModelIdSuffix => ModelReasoningConfig::ModelIdSuffix(
+                self.suffix
+                    .clone()
+                    .expect("suffix mode requires discovered presets"),
+            ),
             ReasoningEditorMode::KnownApi => {
                 let presets = self
                     .known_presets

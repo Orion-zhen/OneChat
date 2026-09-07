@@ -54,8 +54,11 @@ pub async fn stream(
     }
 
     let client = build_client(&request.provider)?;
-    let model_id = request.model.remote_id.clone();
     let sdk_request = sdk_request(&request, additional_parameters(&request)?)?;
+    let model_id = sdk_request
+        .model
+        .clone()
+        .expect("sdk_request sets the model ID");
     match request_api(&request) {
         OpenAiApi::Responses => {
             stream_model(

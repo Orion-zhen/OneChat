@@ -242,6 +242,13 @@ impl OneChat {
         }
     }
 
+    pub(crate) fn set_suffix_reasoning_default(&mut self, id: String, cx: &mut Context<Self>) {
+        if let Some(editor) = &mut self.settings_ui.model_editor {
+            editor.reasoning.set_suffix_default(id);
+            cx.notify();
+        }
+    }
+
     pub(crate) fn add_custom_reasoning_preset(
         &mut self,
         window: &mut Window,
