@@ -151,7 +151,7 @@ mod tests {
     #[test]
     fn strips_audio_output_modalities() {
         let provider = Provider::new("Gemini", crate::domain::ProviderKind::Gemini);
-        let model = crate::domain::Model::new(&provider.id, "model", "Model");
+        let model = crate::domain::Model::new(&provider.id, "model", "Model", provider.kind);
         let mut config = crate::domain::GenerationConfig::default();
         config.extra.insert(
             "generationConfig".into(),

@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn model_context_window_trims_only_complete_oldest_turns_and_updates_request_info() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let model = Model::new(&provider.id, "test-model", "Test Model", provider.kind);
     let mut conversation = Conversation::new("Chat", Some(&model), "system");
     conversation.assistant_opening = "opening context".into();
     let mut root = completed_turn(
@@ -56,12 +56,18 @@ fn model_context_window_trims_only_complete_oldest_turns_and_updates_request_inf
 
     let mut unknown_window = full.clone();
     unknown_window.finalize_context().unwrap();
-    assert_eq!(unknown_window.provider_request.messages.len(), 7);
+    assert_eq!(
+        unknown_window.request.clone().into_request().messages.len(),
+        7
+    );
 
     let mut exact_window = full.clone();
-    exact_window.provider_request.model.context_window_tokens = Some(full_tokens as u32);
+    exact_window.request.model.context_window_tokens = Some(full_tokens as u32);
     exact_window.finalize_context().unwrap();
-    assert_eq!(exact_window.provider_request.messages.len(), 7);
+    assert_eq!(
+        exact_window.request.clone().into_request().messages.len(),
+        7
+    );
     assert!(
         !exact_window
             .request_info
@@ -71,9 +77,10 @@ fn model_context_window_trims_only_complete_oldest_turns_and_updates_request_inf
     );
 
     let mut one_removed = full.clone();
-    one_removed.provider_request.model.context_window_tokens = Some(one_turn_tokens as u32);
+    one_removed.request.model.context_window_tokens = Some(one_turn_tokens as u32);
     one_removed.finalize_context().unwrap();
-    let messages = serialized_messages(&one_removed.provider_request.messages).join("\n");
+    let messages =
+        serialized_messages(&one_removed.request.clone().into_request().messages).join("\n");
     assert!(!messages.contains("old tool question"));
     assert!(!messages.contains("old tool call"));
     assert!(!messages.contains("old tool result"));
@@ -89,10 +96,11 @@ fn model_context_window_trims_only_complete_oldest_turns_and_updates_request_inf
     );
 
     let mut all_removed = full;
-    all_removed.provider_request.model.context_window_tokens = Some(current_tokens as u32);
+    all_removed.request.model.context_window_tokens = Some(current_tokens as u32);
     all_removed.finalize_context().unwrap();
-    let messages = serialized_messages(&all_removed.provider_request.messages).join("\n");
-    assert_eq!(all_removed.provider_request.messages.len(), 2);
+    let messages =
+        serialized_messages(&all_removed.request.clone().into_request().messages).join("\n");
+    assert_eq!(all_removed.request.clone().into_request().messages.len(), 2);
     assert!(messages.contains("opening context"));
     assert!(messages.contains("current question"));
     assert!(!messages.contains("recent question"));
@@ -113,7 +121,7 @@ fn model_context_window_trims_only_complete_oldest_turns_and_updates_request_inf
 #[test]
 fn trimming_audio_history_restores_duration_based_capacity() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-    let mut model = Model::new(&provider.id, "audio-model", "Audio Model");
+    let mut model = Model::new(&provider.id, "audio-model", "Audio Model", provider.kind);
     model.capabilities.audio_input = true;
     let conversation = Conversation::new("Chat", Some(&model), "");
     let mut root = completed_turn(
@@ -176,15 +184,18 @@ fn trimming_audio_history_restores_duration_based_capacity() {
         .usage
         .input_tokens
         .unwrap();
-    assert_eq!(full.provider_request.audio_duration_ms, 60_000);
+    assert_eq!(
+        full.request.clone().into_request().audio_duration_ms,
+        60_000
+    );
     assert!(
         full.request_info.usage.input_tokens.unwrap() >= recent_only_tokens + 60 * 32,
         "audio duration should contribute to the full estimate"
     );
 
-    full.provider_request.model.context_window_tokens = Some(recent_only_tokens as u32);
+    full.request.model.context_window_tokens = Some(recent_only_tokens as u32);
     full.finalize_context().unwrap();
-    assert_eq!(full.provider_request.audio_duration_ms, 0);
+    assert_eq!(full.request.clone().into_request().audio_duration_ms, 0);
     assert_eq!(
         full.request_info.usage.input_tokens,
         Some(recent_only_tokens)
@@ -195,7 +206,7 @@ fn trimming_audio_history_restores_duration_based_capacity() {
 #[tokio::test]
 async fn resolved_system_prompt_updates_estimate_without_blocking_the_request() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let model = Model::new(&provider.id, "test-model", "Test Model", provider.kind);
     let conversation = Conversation::new("Chat", Some(&model), "{{large}}");
     let mut prepared = PreparedGeneration::new(
         &conversation,
@@ -210,7 +221,7 @@ async fn resolved_system_prompt_updates_estimate_without_blocking_the_request() 
     )
     .unwrap();
     let unresolved_tokens = prepared.request_info.usage.input_tokens.unwrap();
-    prepared.provider_request.model.context_window_tokens = Some(unresolved_tokens as u32);
+    prepared.request.model.context_window_tokens = Some(unresolved_tokens as u32);
     prepared.configure_prompt(
         BTreeMap::from([(
             "large".into(),
@@ -229,20 +240,14 @@ async fn resolved_system_prompt_updates_estimate_without_blocking_the_request() 
     prepared.finalize_context().unwrap();
     assert!(
         prepared.request_info.usage.input_tokens.unwrap()
-            > u64::from(
-                prepared
-                    .provider_request
-                    .model
-                    .context_window_tokens
-                    .unwrap()
-            )
+            > u64::from(prepared.request.model.context_window_tokens.unwrap())
     );
 }
 
 #[test]
 fn oversized_current_message_is_left_for_the_provider_to_validate() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-    let mut model = Model::new(&provider.id, "tiny-model", "Tiny Model");
+    let mut model = Model::new(&provider.id, "tiny-model", "Tiny Model", provider.kind);
     model.context_window_tokens = Some(1);
     let conversation = Conversation::new("Chat", Some(&model), "system");
     let mut prepared = PreparedGeneration::new(
@@ -275,7 +280,7 @@ async fn failed_continuation_restores_the_completed_response() {
     );
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
     storage.insert_provider(&provider).unwrap();
-    let model = Model::new(&provider.id, "text-model", "Text Model");
+    let model = Model::new(&provider.id, "text-model", "Text Model", provider.kind);
     storage.insert_model(&model).unwrap();
     let conversation = Conversation::new("Chat", Some(&model), "system");
     storage.insert_conversation(&conversation).unwrap();
@@ -296,10 +301,6 @@ async fn failed_continuation_restores_the_completed_response() {
             }],
         )
         .unwrap();
-    let mut settings = storage.load_snapshot().unwrap().settings;
-    settings.current_conversation_id = Some(conversation.id.clone());
-    storage.save_settings(&settings).unwrap();
-
     let initial = PreparedGeneration::new(
         &conversation,
         &provider,
@@ -314,10 +315,11 @@ async fn failed_continuation_restores_the_completed_response() {
         }),
     )
     .unwrap();
-    let GenerationStart::NewTurn(turn) = &initial.start else {
-        panic!("expected a new turn");
-    };
-    storage.begin_turn(turn, &initial.request_info).unwrap();
+    storage
+        .update_session(&conversation.id, |session| {
+            session.begin_generation(&initial.start, &initial.response, &initial.request_info)
+        })
+        .unwrap();
     let mut response = initial.response.clone();
     let mut request = initial.request_info.clone();
     apply_event(
@@ -340,14 +342,14 @@ async fn failed_continuation_restores_the_completed_response() {
     );
     storage.persist_generation(&response, &request).unwrap();
 
-    let stored = storage.load_snapshot().unwrap();
-    let turn = stored.current_turns[0].clone();
+    let stored = storage.load_conversation(&conversation.id).unwrap();
+    let turn = stored.turns[0].clone();
     let response = turn.responses[0].clone();
     let continued = PreparedGeneration::continuation(
         &conversation,
         &provider,
         &model,
-        &stored.current_turns,
+        &stored.turns,
         &turn,
         &response,
         ContextPolicy::new(HistoryLimit::Unlimited, &|user| {
@@ -358,12 +360,13 @@ async fn failed_continuation_restores_the_completed_response() {
     )
     .unwrap();
     storage
-        .begin_regeneration(
-            &conversation.id,
-            &turn.id,
-            &continued.response,
-            &continued.request_info,
-        )
+        .update_session(&conversation.id, |session| {
+            session.begin_generation(
+                &continued.start,
+                &continued.response,
+                &continued.request_info,
+            )
+        })
         .unwrap();
 
     let (sender, receiver) = async_channel::bounded(1);
@@ -389,11 +392,11 @@ async fn failed_continuation_restores_the_completed_response() {
         Some("unsupported_parameter")
     );
     assert_eq!(snapshot.response.status, MessageStatus::Completed);
-    assert_eq!(snapshot.response.content, "original answer");
+    assert_eq!(snapshot.response.output_text(), "original answer");
 
-    let stored = storage.load_snapshot().unwrap();
-    let response = &stored.current_turns[0].responses[0];
+    let stored = storage.load_conversation(&conversation.id).unwrap();
+    let response = &stored.turns[0].responses[0];
     assert_eq!(response.status, MessageStatus::Completed);
-    assert_eq!(response.content, "original answer");
-    assert!(stored.current_turns[0].continuation_response().is_some());
+    assert_eq!(response.output_text(), "original answer");
+    assert!(stored.turns[0].continuation_response().is_some());
 }

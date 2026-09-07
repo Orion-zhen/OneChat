@@ -24,7 +24,7 @@ fn model_id_reasoning_presets_and_default_survive_storage_round_trip() {
         },
     ));
     storage.update_model(&model).unwrap();
-    let saved = storage.load_snapshot().unwrap().models.remove(0);
+    let saved = storage.load_startup_snapshot().unwrap().models.remove(0);
     assert_eq!(saved.reasoning, model.reasoning);
     let config = saved.reasoning.unwrap();
     assert_eq!(config.default_preset(), "high");
@@ -44,7 +44,7 @@ fn catalog_settings_and_prompt_presets_round_trip() {
     .unwrap();
     assert!(
         storage
-            .load_snapshot()
+            .load_startup_snapshot()
             .unwrap()
             .settings
             .parse_document_images
@@ -103,7 +103,7 @@ fn catalog_settings_and_prompt_presets_round_trip() {
         "How can I help?\n"
     );
 
-    let snapshot = storage.load_snapshot().unwrap();
+    let snapshot = storage.load_startup_snapshot().unwrap();
     assert_eq!(snapshot.providers, vec![provider.clone()]);
     assert_eq!(snapshot.models, vec![model.clone()]);
     assert_eq!(snapshot.conversations, vec![conversation]);
@@ -139,16 +139,12 @@ fn catalog_settings_and_prompt_presets_round_trip() {
         .unwrap();
     assert!(!prompts.join("Direct/Direct.opening.md").exists());
     assert_eq!(
-        storage
-            .load_prompt_preset("Direct")
-            .unwrap()
-            .unwrap()
-            .assistant_opening,
+        storage.load_prompt_presets().unwrap()[0].assistant_opening,
         ""
     );
 
     storage.delete_provider(&provider.id).unwrap();
-    let snapshot = storage.load_snapshot().unwrap();
+    let snapshot = storage.load_startup_snapshot().unwrap();
     assert!(snapshot.providers.is_empty());
     assert!(snapshot.models.is_empty());
     assert_eq!(snapshot.conversations[0].model_id, None);
@@ -161,5 +157,11 @@ fn catalog_settings_and_prompt_presets_round_trip() {
     storage.delete_prompt_preset("Direct").unwrap();
     settings.current_conversation_id = None;
     storage.save_settings(&settings).unwrap();
-    assert!(storage.load_snapshot().unwrap().prompt_presets.is_empty());
+    assert!(
+        storage
+            .load_startup_snapshot()
+            .unwrap()
+            .prompt_presets
+            .is_empty()
+    );
 }

@@ -1,9 +1,27 @@
 use serde::{Deserialize, Serialize};
 
-use crate::domain::{AppSettings, Model, Provider, TitleModelSource};
+use crate::domain::{AppSettings, Model, Provider};
 
 use super::codec::{read_jsonc, write_json};
 use super::{Result, Storage, StorageError, conflict, missing};
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModelCatalog {
+    pub providers: Vec<Provider>,
+    pub models: Vec<Model>,
+}
+
+impl ModelCatalog {
+    pub(super) fn new(providers: Vec<Provider>, mut models: Vec<Model>) -> Self {
+        models.sort_by(|a, b| {
+            a.display_name
+                .to_lowercase()
+                .cmp(&b.display_name.to_lowercase())
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        Self { providers, models }
+    }
+}
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
@@ -16,13 +34,15 @@ pub(super) struct SettingsFile {
 
 impl Storage {
     pub fn save_settings(&self, app: &AppSettings) -> Result<()> {
-        self.edit_settings(|settings| {
-            settings.app = app.clone();
-            Ok(())
-        })
+        let _guard = self.lock()?;
+        let mut settings = self.read_settings()?;
+        settings.app = app.clone();
+        settings.app.normalize();
+        settings.app.retain_models(&settings.models);
+        self.write_settings(&settings)
     }
 
-    pub fn insert_provider(&self, provider: &Provider) -> Result<()> {
+    pub fn insert_provider(&self, provider: &Provider) -> Result<ModelCatalog> {
         self.edit_settings(|settings| {
             if settings.providers.iter().any(|item| item.id == provider.id) {
                 return Err(conflict("provider", &provider.id));
@@ -32,7 +52,7 @@ impl Storage {
         })
     }
 
-    pub fn update_provider(&self, provider: &Provider) -> Result<()> {
+    pub fn update_provider(&self, provider: &Provider) -> Result<ModelCatalog> {
         self.edit_settings(|settings| {
             let stored = settings
                 .providers
@@ -44,7 +64,7 @@ impl Storage {
         })
     }
 
-    pub fn reorder_providers(&self, ordered_ids: &[String]) -> Result<()> {
+    pub fn reorder_providers(&self, ordered_ids: &[String]) -> Result<ModelCatalog> {
         self.edit_settings(|settings| {
             if ordered_ids.len() != settings.providers.len() {
                 return Err(StorageError::InvalidData(
@@ -66,8 +86,9 @@ impl Storage {
         })
     }
 
-    pub fn delete_provider(&self, id: &str) -> Result<()> {
-        let _guard = self.lock()?;
+    pub fn delete_provider(&self, id: &str) -> Result<ModelCatalog> {
+        let mut state = self.lock()?;
+        let sessions = self.sessions(&mut state)?;
         let mut settings = self.read_settings()?;
         let previous_len = settings.providers.len();
         settings.providers.retain(|provider| provider.id != id);
@@ -82,27 +103,13 @@ impl Storage {
             .map(|model| model.id.clone())
             .collect::<Vec<_>>();
         settings.models.retain(|model| model.provider_id != id);
-        if settings
-            .app
-            .primary_model_id
-            .as_ref()
-            .is_some_and(|id| removed_models.contains(id))
-        {
-            settings.app.primary_model_id = None;
-        }
-        if settings
-            .app
-            .title_generation_model
-            .model_id()
-            .is_some_and(|id| removed_models.iter().any(|removed| removed == id))
-        {
-            settings.app.title_generation_model = TitleModelSource::Current;
-        }
-        self.clear_conversation_models(&removed_models)?;
-        self.write_settings(&settings)
+        settings.app.retain_models(&settings.models);
+        self.clear_conversation_models(sessions, &removed_models)?;
+        self.write_settings(&settings)?;
+        Ok(ModelCatalog::new(settings.providers, settings.models))
     }
 
-    pub fn insert_model(&self, model: &Model) -> Result<()> {
+    pub fn insert_model(&self, model: &Model) -> Result<ModelCatalog> {
         self.edit_settings(|settings| {
             validate_model(settings, model, None)?;
             settings.models.push(model.clone());
@@ -110,7 +117,7 @@ impl Storage {
         })
     }
 
-    pub fn update_model(&self, model: &Model) -> Result<()> {
+    pub fn update_model(&self, model: &Model) -> Result<ModelCatalog> {
         self.edit_settings(|settings| {
             if !settings.models.iter().any(|item| item.id == model.id) {
                 return Err(missing("model", &model.id));
@@ -126,29 +133,30 @@ impl Storage {
         })
     }
 
-    pub fn delete_model(&self, id: &str) -> Result<()> {
-        let _guard = self.lock()?;
+    pub fn delete_model(&self, id: &str) -> Result<ModelCatalog> {
+        let mut state = self.lock()?;
+        let sessions = self.sessions(&mut state)?;
         let mut settings = self.read_settings()?;
         let previous_len = settings.models.len();
         settings.models.retain(|model| model.id != id);
         if settings.models.len() == previous_len {
             return Err(missing("model", id));
         }
-        if settings.app.primary_model_id.as_deref() == Some(id) {
-            settings.app.primary_model_id = None;
-        }
-        if settings.app.title_generation_model.model_id() == Some(id) {
-            settings.app.title_generation_model = TitleModelSource::Current;
-        }
-        self.clear_conversation_models(&[id.to_string()])?;
-        self.write_settings(&settings)
+        settings.app.retain_models(&settings.models);
+        self.clear_conversation_models(sessions, &[id.to_string()])?;
+        self.write_settings(&settings)?;
+        Ok(ModelCatalog::new(settings.providers, settings.models))
     }
 
-    fn edit_settings(&self, edit: impl FnOnce(&mut SettingsFile) -> Result<()>) -> Result<()> {
+    fn edit_settings(
+        &self,
+        edit: impl FnOnce(&mut SettingsFile) -> Result<()>,
+    ) -> Result<ModelCatalog> {
         let _guard = self.lock()?;
         let mut settings = self.read_settings()?;
         edit(&mut settings)?;
-        self.write_settings(&settings)
+        self.write_settings(&settings)?;
+        Ok(ModelCatalog::new(settings.providers, settings.models))
     }
 
     pub(super) fn read_settings(&self) -> Result<SettingsFile> {

@@ -82,7 +82,7 @@ fn conversations_branch_fork_and_keep_attachment_content() {
     );
     let (_, root_response_id) = begin_and_complete(&storage, prepared, "root answer");
 
-    let turns = storage.load_snapshot().unwrap().current_turns;
+    let turns = storage.load_conversation_turns(&conversation.id).unwrap();
     let old = prepare_turn(
         &storage,
         &conversation,
@@ -94,7 +94,7 @@ fn conversations_branch_fork_and_keep_attachment_content() {
     );
     let (old_turn, old_response_id) = begin_and_complete(&storage, old, "old answer");
 
-    let turns = storage.load_snapshot().unwrap().current_turns;
+    let turns = storage.load_conversation_turns(&conversation.id).unwrap();
     let selected = prepare_turn(
         &storage,
         &conversation,
@@ -106,40 +106,38 @@ fn conversations_branch_fork_and_keep_attachment_content() {
     );
     let (selected_turn, _) = begin_and_complete(&storage, selected, "selected answer");
 
-    let snapshot = storage.load_snapshot().unwrap();
-    let active = active_turns(&snapshot.current_turns);
+    let session = storage.load_conversation(&conversation.id).unwrap();
+    let active = active_turns(&session.turns);
     assert_eq!(active.len(), 2);
     assert_eq!(active[1].id, selected_turn.id);
-    storage
-        .select_user_branch(&conversation.id, &old_turn.id)
+    let session = storage
+        .update_session(&conversation.id, |session| {
+            session.select_user_branch(&old_turn.id)
+        })
         .unwrap();
-    let snapshot = storage.load_snapshot().unwrap();
-    assert_eq!(active_turns(&snapshot.current_turns)[1].id, old_turn.id);
+    assert_eq!(active_turns(&session.turns)[1].id, old_turn.id);
 
     let mut fork = conversation.clone();
     fork.id = "fork".into();
     fork.title = "Fork".into();
-    storage
+    let fork_session = storage
         .fork_conversation(&conversation.id, &old_response_id, &fork)
         .unwrap();
     settings.current_conversation_id = Some(fork.id.clone());
     storage.save_settings(&settings).unwrap();
-    let snapshot = storage.load_snapshot().unwrap();
     assert_eq!(
-        snapshot
-            .conversations
-            .iter()
-            .find(|conversation| conversation.id == fork.id)
-            .unwrap()
-            .history_limit_override,
+        fork_session.conversation.history_limit_override,
         Some(HistoryLimit::Last(7))
     );
-    assert_eq!(snapshot.current_turns.len(), 2);
-    assert_ne!(snapshot.current_turns[1].id, old_turn.id);
-    assert_eq!(snapshot.current_turns[1].responses[0].content, "old answer");
+    assert_eq!(fork_session.turns.len(), 2);
+    assert_ne!(fork_session.turns[1].id, old_turn.id);
+    assert_eq!(
+        fork_session.turns[1].responses[0].output_text(),
+        "old answer"
+    );
 
     let message = storage
-        .message_for_user(&fork.id, &snapshot.current_turns[0].user, false)
+        .message_for_user(&fork.id, &fork_session.turns[0].user, false)
         .unwrap();
     let message = serde_json::to_string(&message).unwrap();
     assert!(message.contains("important context"));
@@ -147,14 +145,14 @@ fn conversations_branch_fork_and_keep_attachment_content() {
     assert!(!message.contains("Embedded image from"));
 
     let message = storage
-        .message_for_user(&fork.id, &snapshot.current_turns[0].user, true)
+        .message_for_user(&fork.id, &fork_session.turns[0].user, true)
         .unwrap();
     assert!(
         serde_json::to_string(&message)
             .unwrap()
             .contains("Embedded image from report.docx: image-001.png")
     );
-    for file in &snapshot.current_turns[0].user.attachments[1].files {
+    for file in &fork_session.turns[0].user.attachments[1].files {
         assert!(
             storage
                 .attachment_path(&fork.id, &file.path)
@@ -163,7 +161,7 @@ fn conversations_branch_fork_and_keep_attachment_content() {
         );
     }
 
-    let fork_attachments = snapshot.current_turns[0].user.attachments.clone();
+    let fork_attachments = fork_session.turns[0].user.attachments.clone();
     let fork_paths = fork_attachments
         .iter()
         .flat_map(|attachment| &attachment.files)
@@ -205,7 +203,7 @@ fn conversation_search_indexes_messages_and_can_restore_a_branch_path() {
     );
     let (_, root_response_id) = begin_and_complete(&storage, root, "assistant needle");
 
-    let turns = storage.load_snapshot().unwrap().current_turns;
+    let turns = storage.load_conversation_turns(&conversation.id).unwrap();
     let first_branch = prepare_turn(
         &storage,
         &conversation,
@@ -217,7 +215,7 @@ fn conversation_search_indexes_messages_and_can_restore_a_branch_path() {
     );
     let (first_branch, _) = begin_and_complete(&storage, first_branch, "first branch answer");
 
-    let turns = storage.load_snapshot().unwrap().current_turns;
+    let turns = storage.load_conversation_turns(&conversation.id).unwrap();
     let second_branch = prepare_turn(
         &storage,
         &conversation,
@@ -229,7 +227,8 @@ fn conversation_search_indexes_messages_and_can_restore_a_branch_path() {
     );
     let (second_branch, _) = begin_and_complete(&storage, second_branch, "second branch answer");
 
-    let snapshot = storage.load_snapshot().unwrap();
+    let reopened = Storage::open(storage.settings_path(), _directory.path().join("state")).unwrap();
+    let snapshot = reopened.load_startup_snapshot().unwrap();
     let entries = snapshot.conversation_search.entries(&conversation.id);
     assert!(
         entries
@@ -252,13 +251,11 @@ fn conversation_search_indexes_messages_and_can_restore_a_branch_path() {
             .any(|entry| entry.matches_normalized("secret system prompt"))
     );
 
-    storage
-        .select_turn_path(&conversation.id, &first_branch.id)
+    let session = storage
+        .update_session(&conversation.id, |session| {
+            session.select_turn_path(&first_branch.id)
+        })
         .unwrap();
-    let snapshot = storage.load_snapshot().unwrap();
-    assert_eq!(active_turns(&snapshot.current_turns)[1].id, first_branch.id);
-    assert_ne!(
-        active_turns(&snapshot.current_turns)[1].id,
-        second_branch.id
-    );
+    assert_eq!(active_turns(&session.turns)[1].id, first_branch.id);
+    assert_ne!(active_turns(&session.turns)[1].id, second_branch.id);
 }

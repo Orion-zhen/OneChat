@@ -76,13 +76,18 @@ impl OneChat {
                 .sidebar_width_motion
                 .set_target(sidebar_width, true);
             self.navigation.page = page;
+            match page {
+                Page::Settings => self.settings_ui.controls_dirty = true,
+                Page::Chat => self.chat.controls_dirty = true,
+                Page::Translate | Page::Tts => {}
+            }
         }
         self.overlays.response_model_turn_id = None;
         cx.notify();
     }
 
     pub(crate) fn open_command_palette(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.chat.text_selection.clear(window, cx);
+        self.chat.presentation.text_selection.clear(window, cx);
         self.overlays.response_model_turn_id = None;
         self.overlays.command_picker.update(cx, |picker, cx| {
             *picker.delegate_mut() = CommandPaletteDelegate::new();
@@ -209,7 +214,7 @@ impl OneChat {
     }
 
     pub(crate) fn open_conversation_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.chat.text_selection.clear(window, cx);
+        self.chat.presentation.text_selection.clear(window, cx);
         let delegate = ConversationSearchDelegate::from_app(self);
         let selected = (delegate.row_count() > 0).then(gpui_component::IndexPath::default);
         self.overlays.conversation_search.update(cx, |search, cx| {
@@ -240,13 +245,9 @@ impl OneChat {
         if conversation_changed {
             if let Some(transient_id) = self.chat.transient_conversation_id.take() {
                 self.chat.generations.stop(&transient_id);
-                self.data
-                    .snapshot
-                    .conversations
-                    .retain(|conversation| conversation.id != transient_id);
+                self.data.snapshot.remove_conversation(&transient_id);
             }
-            self.data.snapshot.current_turns.clear();
-            self.data.snapshot.current_requests.clear();
+            self.data.snapshot.current = None;
             self.reset_conversation_ui(cx);
         } else {
             self.chat.visible_response_ids.clear();
@@ -259,11 +260,15 @@ impl OneChat {
         self.set_page(Page::Chat, cx);
         let conversation_id = result.conversation_id;
         let turn_id = target.turn_id;
-        self.mutate_and_reload(
+        self.spawn_storage(
             move |storage| {
-                storage.select_turn_path(&conversation_id, &turn_id)?;
-                storage.save_settings(&settings)
+                let session = storage.update_session(&conversation_id, |session| {
+                    session.select_turn_path(&turn_id)
+                })?;
+                storage.save_settings(&settings)?;
+                Ok(session)
             },
+            Self::apply_conversation_session,
             cx,
         );
     }
@@ -299,7 +304,7 @@ impl OneChat {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.chat.text_selection.clear(window, cx);
+        self.chat.presentation.text_selection.clear(window, cx);
         self.overlays.response_model_turn_id = turn_id;
         let delegate = ModelPickerDelegate::from_app(self);
         let selected = delegate.initial_selection();
@@ -328,7 +333,7 @@ impl OneChat {
         if unavailable || model.is_none_or(|model| model.reasoning.is_none()) {
             return;
         }
-        self.chat.text_selection.clear(window, cx);
+        self.chat.presentation.text_selection.clear(window, cx);
         self.overlays.response_model_turn_id = None;
         let delegate = ReasoningPickerDelegate::from_app(self);
         let selected = delegate.initial_selection();
@@ -349,7 +354,7 @@ impl OneChat {
         if self.current_conversation().is_none() || self.is_current_generating() {
             return;
         }
-        self.chat.text_selection.clear(window, cx);
+        self.chat.presentation.text_selection.clear(window, cx);
         self.overlays.response_model_turn_id = None;
         let delegate = PromptPickerDelegate::from_app(self);
         let selected = delegate.initial_selection();
@@ -364,7 +369,7 @@ impl OneChat {
         self.overlays
             .prompt_picker
             .update(cx, |picker, cx| picker.focus(window, cx));
-        self.reload_snapshot(cx);
+        self.load_prompt_presets(cx);
     }
 
     pub(super) fn open_shell_overlay(
@@ -444,7 +449,7 @@ impl OneChat {
     pub(crate) fn open_prompt_settings(&mut self, cx: &mut Context<Self>) {
         self.set_page(Page::Settings, cx);
         self.settings_ui.section = SettingsSection::SystemPrompts;
-        self.reload_snapshot(cx);
+        self.load_prompt_presets(cx);
         cx.notify();
     }
 

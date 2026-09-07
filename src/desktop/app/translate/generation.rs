@@ -1,29 +1,25 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
-use gpui::{Context, ScrollHandle};
-use tokio_util::sync::CancellationToken;
+use gpui::Context;
 
 use super::{
-    content::{output_sources, prompts_include_text, render_prompt},
+    content::{prompts_include_text, render_prompt},
     languages::{resolved_source_language, same_language},
-    state::ActiveTranslation,
 };
 use crate::{
     application::{
         context_usage::estimate_input_tokens,
-        generation::{apply_event, interrupted_event},
+        generation::{GenerationStream, UI_FLUSH_INTERVAL},
     },
-    desktop::app::{CachedMarkdown, OneChat, Page},
+    desktop::app::{OneChat, Page},
     domain::{
-        AssistantBlock, AssistantResponse, GenerationConfig, GenerationRequest, Message,
-        MessageStatus, Model, RequestInfo, new_id,
+        AssistantResponse, GenerationConfig, GenerationRequest, Message, MessageStatus, Model,
+        RequestInfo, new_id,
     },
-    markdown::MarkdownDocument,
     providers,
 };
 
 const TRANSLATION_CONVERSATION_ID: &str = "translation-playground";
-const EVENT_FLUSH_INTERVAL: Duration = Duration::from_millis(40);
 
 impl OneChat {
     pub(crate) fn translation_model(&self) -> Option<&Model> {
@@ -121,23 +117,11 @@ impl OneChat {
         request.usage.estimated = true;
         response.request_id = Some(request.id.clone());
 
-        self.translation.next_operation_id =
-            self.translation.next_operation_id.wrapping_add(1).max(1);
-        let operation_id = self.translation.next_operation_id;
-        let cancellation = CancellationToken::new();
-        self.translation.active = Some(ActiveTranslation {
-            id: operation_id,
-            cancellation: cancellation.clone(),
-        });
-        self.translation.response = Some(response.clone());
-        self.translation.request = Some(request.clone());
+        let (operation_id, cancellation) = self
+            .translation
+            .output
+            .begin(response.clone(), request.clone());
         self.translation.error = None;
-        self.chat
-            .thinking_started_at
-            .insert(request.id.clone(), Instant::now());
-        self.chat
-            .thinking_scrolls
-            .insert(response.id.clone(), ScrollHandle::new());
         cx.notify();
 
         let (sender, receiver) = async_channel::bounded(256);
@@ -145,102 +129,28 @@ impl OneChat {
             .runtime
             .spawn(providers::generate(provider_request, sender, cancellation));
 
-        let request_id = request.id.clone();
         cx.spawn(async move |this, cx| {
             let started = Instant::now();
-            let mut terminal = false;
-            loop {
-                cx.background_executor().timer(EVENT_FLUSH_INTERVAL).await;
-                let mut events = Vec::new();
-                while let Ok(event) = receiver.try_recv() {
-                    events.push(event);
-                }
-                if events.is_empty() && receiver.is_closed() && !terminal {
-                    events.push(interrupted_event());
-                }
-                if events.is_empty() {
-                    if terminal {
-                        break;
-                    }
+            let mut stream = GenerationStream::new(receiver, response, request);
+            while !stream.snapshot.terminal {
+                cx.background_executor().timer(UI_FLUSH_INTERVAL).await;
+                if !stream.drain(started.elapsed()) {
                     continue;
                 }
-
-                let mut finished_reasoning = Vec::new();
-                for event in events {
-                    let outcome =
-                        apply_event(event, &mut response, &mut request, started.elapsed());
-                    terminal |= outcome.terminal;
-                    finished_reasoning.extend(outcome.finished_reasoning_id);
-                }
-                let parsed = terminal.then(|| {
-                    output_sources(&response)
-                        .into_iter()
-                        .map(|(id, source)| {
-                            let document = MarkdownDocument::parse(&source);
-                            (id, source, document)
-                        })
-                        .collect::<Vec<_>>()
-                });
-                let response_snapshot = response.clone();
-                let request_snapshot = request.clone();
+                let snapshot = stream.snapshot.clone();
                 let _ = this.update(cx, |this, cx| {
-                    let current = this
-                        .translation
-                        .active
-                        .as_ref()
-                        .is_some_and(|active| active.id == operation_id);
-                    if !current {
-                        return;
+                    if this.translation.output.apply(operation_id, snapshot) {
+                        cx.notify();
                     }
-                    for block in &response_snapshot.blocks {
-                        if let AssistantBlock::Reasoning { id, .. } = block {
-                            this.chat.thinking_scrolls.entry(id.clone()).or_default();
-                        }
-                    }
-                    for id in finished_reasoning.drain(..) {
-                        this.finish_thinking(id);
-                    }
-                    if let Some(parsed) = parsed {
-                        for (id, source, document) in parsed {
-                            this.chat
-                                .markdown_documents
-                                .insert(id, CachedMarkdown { source, document });
-                        }
-                    }
-                    this.translation.response = Some(response_snapshot.clone());
-                    this.translation.request = Some(request_snapshot.clone());
-                    this.translation.result_scroll.scroll_to_bottom();
-                    if terminal {
-                        this.chat.thinking_started_at.remove(&request_id);
-                        this.translation.active = None;
-                    }
-                    cx.notify();
                 });
-                if terminal {
-                    break;
-                }
             }
-            let _ = this.update(cx, |this, cx| {
-                this.chat.thinking_started_at.remove(&request_id);
-                if this
-                    .translation
-                    .active
-                    .as_ref()
-                    .is_some_and(|active| active.id == operation_id)
-                {
-                    this.translation.active = None;
-                    cx.notify();
-                }
-            });
         })
         .detach();
     }
 
     pub(crate) fn stop_translation(&mut self, cx: &mut Context<Self>) {
-        if let Some(active) = &self.translation.active {
-            active.cancellation.cancel();
-            cx.notify();
-        }
+        self.translation.output.stop();
+        cx.notify();
     }
 
     pub(crate) fn run_translation_action(&mut self, cx: &mut Context<Self>) {

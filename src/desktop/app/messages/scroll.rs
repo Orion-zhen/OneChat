@@ -22,7 +22,7 @@ impl OneChat {
             && self
                 .data
                 .snapshot
-                .current_turns
+                .current_turns()
                 .iter()
                 .find(|turn| turn.id == target.turn_id)
                 .is_some_and(|turn| turn.response(response_id).is_some())

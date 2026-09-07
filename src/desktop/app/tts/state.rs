@@ -7,8 +7,7 @@ use super::controls::TtsControls;
 use crate::{
     desktop::app::{DrawerMotion, OneChat},
     speech::{
-        HealthInfo, ModelCatalog, RunSnapshot, RunStatus, SegmentResult, SegmentStatus,
-        SpeechConfig, SpeechError, SpeechEvent, SpeechRun,
+        HealthInfo, ModelCatalog, SegmentResult, SpeechConfig, SpeechError, SpeechEvent, SpeechRun,
     },
 };
 
@@ -94,6 +93,7 @@ pub(crate) struct TtsController {
     pub(crate) audio_revision: u64,
     source_revision: u64,
     config_revision: u64,
+    pub(super) controls_dirty: bool,
     run_source_revision: Option<u64>,
     run_config_revision: Option<u64>,
 }
@@ -111,6 +111,7 @@ impl TtsController {
         update(&mut self.config);
         if self.config != before {
             self.config_revision = self.config_revision.wrapping_add(1);
+            self.controls_dirty = true;
         }
     }
 
@@ -136,6 +137,7 @@ impl TtsController {
         catalog: ModelCatalog,
         voices: Vec<String>,
     ) {
+        self.controls_dirty = true;
         self.discovery = TtsDiscovery {
             loading: false,
             health: Some(health),
@@ -160,7 +162,7 @@ impl TtsController {
                 if starts_new_run {
                     self.run_source_revision = Some(self.source_revision);
                     self.run_config_revision = Some(self.config_revision);
-                    self.run = Some(started_run(*snapshot));
+                    self.run = Some(SpeechRun::started(*snapshot));
                 }
                 self.error = None;
             }
@@ -181,7 +183,6 @@ impl TtsController {
             SpeechEvent::SegmentFinished { result } => {
                 replace_result(&mut self.run, *result);
             }
-            SpeechEvent::RunFinished { run } => self.run = Some(*run),
         }
     }
 
@@ -190,32 +191,6 @@ impl TtsController {
             Ok(run) => self.run = Some(run),
             Err(error) => self.error = Some(error),
         }
-    }
-}
-
-fn started_run(snapshot: RunSnapshot) -> SpeechRun {
-    let segments = snapshot
-        .segments
-        .iter()
-        .cloned()
-        .map(|segment| SegmentResult {
-            segment,
-            status: SegmentStatus::Waiting,
-            attempt: 0,
-            seed: None,
-            clip: None,
-            error: None,
-            audio_validation: None,
-            transcript_validation: None,
-        })
-        .collect();
-    SpeechRun {
-        snapshot,
-        status: RunStatus::Running,
-        segments,
-        combined_clip: None,
-        final_validation: None,
-        error: None,
     }
 }
 

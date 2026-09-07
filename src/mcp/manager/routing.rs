@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn tool_routes(servers: &[McpServerSnapshot]) -> BTreeMap<String, ToolRoute> {
+pub(super) fn tool_routes(servers: &[McpServerSnapshot]) -> BTreeMap<String, McpToolDefinition> {
     servers
         .iter()
         .filter(|server| server.status == McpServerStatus::Ready)
@@ -13,17 +13,13 @@ pub(super) fn tool_routes(servers: &[McpServerSnapshot]) -> BTreeMap<String, Too
                     .unwrap_or_else(|| format!("MCP tool {} from server {}", tool.name, server.id));
                 (
                     name.clone(),
-                    ToolRoute {
+                    McpToolDefinition {
+                        name,
                         server_id: server.id.clone(),
+                        enabled: tool.enabled,
                         tool_name: tool.name.clone(),
-                        definition: McpToolDefinition {
-                            name,
-                            server_id: server.id.clone(),
-                            enabled: tool.enabled,
-                            tool_name: tool.name.clone(),
-                            description,
-                            input_schema: tool.input_schema.clone(),
-                        },
+                        description,
+                        input_schema: tool.input_schema.clone(),
                     },
                 )
             })
@@ -75,5 +71,47 @@ fn model_tool_name(server_id: &str, tool_name: &str) -> String {
 pub(super) async fn close_sessions(sessions: BTreeMap<String, ServerSession>) {
     for (_, mut session) in sessions {
         let _ = session.service.close_with_timeout(SHUTDOWN_TIMEOUT).await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn routes_include_overridable_tools_only_from_ready_servers() {
+        let ready = McpServerSnapshot {
+            id: "server".into(),
+            enabled: true,
+            interactive_oauth: false,
+            transport: McpServerTransportSnapshot::Http {
+                url: "http://localhost/mcp".into(),
+            },
+            status: McpServerStatus::Ready,
+            implementation: None,
+            tools: vec![McpToolSnapshot {
+                name: "search".into(),
+                enabled: false,
+                title: None,
+                description: Some("Search documents".into()),
+                input_schema: serde_json::json!({"type": "object"}),
+            }],
+        };
+        let mut disabled = ready.clone();
+        disabled.id = "disabled".into();
+        disabled.enabled = false;
+        disabled.status = McpServerStatus::Disabled;
+        let mut failed = ready.clone();
+        failed.id = "failed".into();
+        failed.status = McpServerStatus::Failed("connection failed".into());
+
+        let routes = tool_routes(&[ready, disabled, failed]);
+        assert_eq!(routes.len(), 1);
+        let tool = &routes["server__search"];
+        assert_eq!(tool.server_id, "server");
+        assert_eq!(tool.tool_name, "search");
+        assert!(!tool.enabled);
+        assert_eq!(tool.description, "Search documents");
+        assert_eq!(tool.input_schema, serde_json::json!({"type": "object"}));
     }
 }

@@ -2,6 +2,7 @@ use rig_core::completion::{AssistantContent, Message};
 
 mod estimate;
 
+pub(crate) use estimate::InputEstimate;
 pub use estimate::estimate_input_tokens;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -24,19 +25,6 @@ pub struct ContextUsage {
     pub remaining_ratio: Option<f32>,
     pub source: ContextUsageSource,
     pub replays_reasoning: bool,
-}
-
-pub fn provider_usage_reference(
-    input_tokens: u64,
-    system_prompt: &str,
-    messages: &[Message],
-    audio_duration_ms: u64,
-) -> Option<ContextUsageReference> {
-    let estimated_input_tokens = estimate_input_tokens(system_prompt, messages, audio_duration_ms);
-    (input_tokens > 0 && estimated_input_tokens > 0).then_some(ContextUsageReference {
-        input_tokens,
-        estimated_input_tokens,
-    })
 }
 
 pub fn context_usage_from_input_tokens(

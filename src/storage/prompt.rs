@@ -9,26 +9,27 @@ use super::codec::write_text;
 use super::{Result, Storage, StorageError, conflict, missing};
 
 impl Storage {
-    pub fn load_prompt_preset(&self, name: &str) -> Result<Option<PromptPreset>> {
+    pub fn load_prompt_presets(&self) -> Result<Vec<PromptPreset>> {
         let _guard = self.lock()?;
-        let directory = self.prompt_directory(name)?;
-        if !directory.is_dir() {
-            return Ok(None);
-        }
-        Ok(Some(read_prompt(&directory, name)?))
+        self.read_prompt_presets()
     }
 
-    pub fn insert_prompt_preset(&self, preset: &PromptPreset) -> Result<()> {
+    pub fn insert_prompt_preset(&self, preset: &PromptPreset) -> Result<PromptPreset> {
         let _guard = self.lock()?;
         let preset = validated_preset(preset)?;
         let directory = self.prompt_directory(&preset.name)?;
         if directory.exists() {
             return Err(conflict("prompt preset", &preset.name));
         }
-        write_prompt(&directory, &preset)
+        write_prompt(&directory, &preset)?;
+        Ok(preset)
     }
 
-    pub fn update_prompt_preset(&self, original_name: &str, preset: &PromptPreset) -> Result<()> {
+    pub fn update_prompt_preset(
+        &self,
+        original_name: &str,
+        preset: &PromptPreset,
+    ) -> Result<PromptPreset> {
         let _guard = self.lock()?;
         let preset = validated_preset(preset)?;
         let original_directory = self.prompt_directory(original_name)?;
@@ -43,7 +44,7 @@ impl Storage {
         if directory != original_directory {
             fs::remove_dir_all(original_directory)?;
         }
-        Ok(())
+        Ok(preset)
     }
 
     pub fn delete_prompt_preset(&self, name: &str) -> Result<()> {

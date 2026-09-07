@@ -1,15 +1,13 @@
 use std::collections::BTreeSet;
 
-use rig_core::{
-    completion::AssistantContent,
-    message::{Reasoning, ReasoningContent},
-};
 use serde::{Deserialize, Serialize};
 
 use super::{
     GenerationConfig, HistoryLimit, Message, Model, Provider, Timestamp, ToolExecution, new_id,
     now_timestamp,
 };
+
+mod response_edit;
 
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -39,7 +37,6 @@ impl ToolRef {
 #[serde(tag = "mode", content = "tools", rename_all = "snake_case")]
 pub enum ToolSelection {
     #[default]
-    #[serde(alias = "all")]
     Default,
     Only(BTreeSet<ToolRef>),
 }
@@ -348,9 +345,6 @@ pub struct AssistantResponse {
     pub provider_name: String,
     pub request_id: Option<String>,
     pub status: MessageStatus,
-    pub content: String,
-    pub thinking: String,
-    #[serde(default)]
     pub blocks: Vec<AssistantBlock>,
     #[serde(default)]
     pub transcript: Vec<Message>,
@@ -371,8 +365,6 @@ impl AssistantResponse {
             provider_name: provider.name.clone(),
             request_id: None,
             status: MessageStatus::Completed,
-            content: String::new(),
-            thinking: String::new(),
             blocks: Vec::new(),
             transcript: Vec::new(),
             tool_executions: Vec::new(),
@@ -381,37 +373,45 @@ impl AssistantResponse {
         }
     }
 
+    pub fn output_blocks(&self) -> impl DoubleEndedIterator<Item = (&str, &str)> {
+        self.blocks.iter().filter_map(|block| match block {
+            AssistantBlock::Output { id, content } => Some((id.as_str(), content.as_str())),
+            _ => None,
+        })
+    }
+
+    pub fn reasoning_blocks(&self) -> impl DoubleEndedIterator<Item = (&str, &str)> {
+        self.blocks.iter().filter_map(|block| match block {
+            AssistantBlock::Reasoning { id, content, .. } => Some((id.as_str(), content.as_str())),
+            _ => None,
+        })
+    }
+
+    pub fn output_text(&self) -> String {
+        self.output_blocks().map(|(_, content)| content).collect()
+    }
+
+    pub fn has_output(&self) -> bool {
+        self.output_blocks().any(|(_, content)| !content.is_empty())
+    }
+
+    pub fn has_reasoning(&self) -> bool {
+        self.reasoning_blocks()
+            .any(|(_, content)| !content.is_empty())
+    }
+
     pub fn is_usable_as_context(&self) -> bool {
-        self.status == MessageStatus::Completed && !self.content.is_empty()
+        self.status == MessageStatus::Completed && self.has_output()
     }
 
     pub fn prepare_continuation(&mut self) {
-        if self.blocks.is_empty() {
-            if !self.thinking.is_empty() {
-                self.blocks.push(AssistantBlock::Reasoning {
-                    id: new_id("reasoning"),
-                    provider_id: None,
-                    content: self.thinking.clone(),
-                    started_after_ms: 0,
-                    duration_ms: Some(0),
-                });
-            }
-            if !self.content.is_empty() {
-                self.blocks.push(AssistantBlock::Output {
-                    id: new_id("output"),
-                    content: self.content.clone(),
-                });
-            }
-        }
-        if self.transcript.is_empty() && !self.content.is_empty() {
-            self.transcript
-                .push(Message::assistant(self.content.clone()));
+        if self.transcript.is_empty() && self.has_output() {
+            self.transcript.push(Message::assistant(self.output_text()));
         }
     }
 
     pub fn append_output(&mut self, delta: &str, elapsed_ms: u64) -> Option<String> {
         let finished = self.finish_reasoning(elapsed_ms);
-        self.content.push_str(delta);
         if let Some(AssistantBlock::Output { content, .. }) = self.blocks.last_mut() {
             content.push_str(delta);
         } else {
@@ -429,7 +429,6 @@ impl AssistantResponse {
         delta: &str,
         elapsed_ms: u64,
     ) -> Option<String> {
-        self.thinking.push_str(delta);
         let continues_current = matches!(
             self.blocks.last(),
             Some(AssistantBlock::Reasoning {
@@ -531,222 +530,6 @@ impl AssistantResponse {
         }
         *duration_ms = Some(elapsed_ms.saturating_sub(*started_after_ms));
         Some(id.clone())
-    }
-
-    pub fn recover_interrupted_continuation(&mut self) {
-        self.status = MessageStatus::Completed;
-        self.sync_transcript_outputs();
-    }
-
-    pub fn replace_outputs(&mut self, outputs: &[(String, String)]) {
-        self.replace_editable_text(&[], outputs);
-    }
-
-    pub fn replace_editable_text(
-        &mut self,
-        reasoning: &[(String, String)],
-        outputs: &[(String, String)],
-    ) {
-        if self.blocks.is_empty() {
-            if let Some((_, content)) = reasoning.first() {
-                self.thinking = normalized_edit(content);
-                self.sync_transcript_reasoning(vec![(None, self.thinking.clone())]);
-            }
-            if let Some((_, content)) = outputs.first() {
-                self.content = normalized_edit(content);
-                self.sync_transcript_outputs();
-            }
-            return;
-        }
-
-        for block in &mut self.blocks {
-            match block {
-                AssistantBlock::Reasoning { id, content, .. } => {
-                    if let Some((_, edited)) =
-                        reasoning.iter().find(|(edited_id, _)| edited_id == id)
-                    {
-                        *content = normalized_edit(edited);
-                    }
-                }
-                AssistantBlock::Output { id, content } => {
-                    if let Some((_, edited)) = outputs.iter().find(|(edited_id, _)| edited_id == id)
-                    {
-                        *content = normalized_edit(edited);
-                    }
-                }
-                AssistantBlock::ToolCall { .. } => {}
-            }
-        }
-
-        if !reasoning.is_empty() {
-            let transcript_reasoning = self
-                .blocks
-                .iter()
-                .filter_map(|block| match block {
-                    AssistantBlock::Reasoning {
-                        provider_id,
-                        content,
-                        ..
-                    } => Some((provider_id.clone(), content.clone())),
-                    _ => None,
-                })
-                .collect();
-            self.sync_transcript_reasoning(transcript_reasoning);
-        }
-        if !outputs.is_empty() {
-            self.sync_transcript_outputs();
-        }
-
-        self.blocks.retain(|block| match block {
-            AssistantBlock::Reasoning { content, .. } | AssistantBlock::Output { content, .. } => {
-                !content.is_empty()
-            }
-            AssistantBlock::ToolCall { .. } => true,
-        });
-        self.thinking = self
-            .blocks
-            .iter()
-            .filter_map(|block| match block {
-                AssistantBlock::Reasoning { content, .. } => Some(content.as_str()),
-                _ => None,
-            })
-            .collect();
-        self.content = self
-            .blocks
-            .iter()
-            .filter_map(|block| match block {
-                AssistantBlock::Output { content, .. } => Some(content.as_str()),
-                _ => None,
-            })
-            .collect();
-    }
-
-    fn sync_transcript_reasoning(&mut self, reasoning: Vec<(Option<String>, String)>) {
-        let mut replacements = reasoning
-            .into_iter()
-            .map(|(provider_id, content)| (provider_id, content, false))
-            .collect::<Vec<_>>();
-        let mut transcript = Vec::with_capacity(self.transcript.len());
-
-        for message in std::mem::take(&mut self.transcript) {
-            let Message::Assistant { id, content } = message else {
-                transcript.push(message);
-                continue;
-            };
-            let mut items = Vec::with_capacity(content.len());
-            for item in content {
-                let AssistantContent::Reasoning(mut native) = item else {
-                    items.push(item);
-                    continue;
-                };
-                let replacement = native
-                    .id
-                    .as_ref()
-                    .and_then(|id| {
-                        replacements.iter().position(|(provider_id, _, used)| {
-                            !*used && provider_id.as_ref() == Some(id)
-                        })
-                    })
-                    .or_else(|| replacements.iter().position(|(_, _, used)| !*used));
-                let Some(replacement) = replacement else {
-                    continue;
-                };
-                replacements[replacement].2 = true;
-                let edited = &replacements[replacement].1;
-                if edited.is_empty() {
-                    continue;
-                }
-                native.content = vec![ReasoningContent::Text {
-                    text: edited.clone(),
-                    signature: None,
-                }];
-                items.push(AssistantContent::Reasoning(native));
-            }
-            if !items.is_empty() {
-                transcript.push(Message::Assistant { id, content: items });
-            }
-        }
-
-        let remaining = replacements
-            .into_iter()
-            .filter_map(|(provider_id, content, used)| {
-                (!used && !content.is_empty()).then(|| {
-                    let mut reasoning = Reasoning::new(&content);
-                    reasoning.id = provider_id;
-                    AssistantContent::Reasoning(reasoning)
-                })
-            })
-            .collect::<Vec<_>>();
-        if !remaining.is_empty() {
-            if let Some(Message::Assistant { content, .. }) = transcript
-                .iter_mut()
-                .find(|message| matches!(message, Message::Assistant { .. }))
-            {
-                for (index, reasoning) in remaining.into_iter().enumerate() {
-                    content.insert(index, reasoning);
-                }
-            } else {
-                let mut content = remaining;
-                if !self.content.is_empty() {
-                    content.push(AssistantContent::text(self.content.clone()));
-                }
-                transcript.push(Message::Assistant { id: None, content });
-            }
-        }
-        self.transcript = transcript;
-    }
-
-    fn sync_transcript_outputs(&mut self) {
-        let outputs = if self.blocks.is_empty() {
-            vec![self.content.clone()]
-        } else {
-            self.blocks
-                .iter()
-                .filter_map(|block| match block {
-                    AssistantBlock::Output { content, .. } => Some(content.clone()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>()
-        };
-        let mut output_index = 0;
-        let mut last_assistant = None;
-        for (message_index, message) in self.transcript.iter_mut().enumerate() {
-            let Message::Assistant {
-                content: assistant_content,
-                ..
-            } = message
-            else {
-                continue;
-            };
-            last_assistant = Some(message_index);
-            for item in assistant_content.iter_mut() {
-                if let AssistantContent::Text(text) = item {
-                    text.text = outputs.get(output_index).cloned().unwrap_or_default();
-                    output_index += 1;
-                }
-            }
-        }
-        let Some(message_index) = last_assistant else {
-            return;
-        };
-        let Message::Assistant {
-            content: assistant_content,
-            ..
-        } = &mut self.transcript[message_index]
-        else {
-            unreachable!();
-        };
-        for output in outputs.into_iter().skip(output_index) {
-            assistant_content.push(AssistantContent::text(output));
-        }
-    }
-}
-
-fn normalized_edit(content: &str) -> String {
-    if content.trim().is_empty() {
-        String::new()
-    } else {
-        content.to_string()
     }
 }
 

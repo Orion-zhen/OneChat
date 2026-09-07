@@ -25,20 +25,12 @@ use crate::{
 };
 
 use super::{
-    PreparedGeneration, apply_event, continuation::ContinuationNormalizer, interrupted_event,
+    GenerationSnapshot, GenerationStream, PreparedGeneration, UI_FLUSH_INTERVAL, apply_event,
 };
 use crate::application::{context_usage::estimate_input_tokens, prompt::PromptRenderError};
 
-pub const UI_FLUSH_INTERVAL: Duration = Duration::from_millis(40);
 pub const STORAGE_FLUSH_INTERVAL: Duration = Duration::from_millis(320);
 const MAX_TOOL_RESULT_BYTES: usize = 256 * 1024;
-
-pub struct GenerationSnapshot {
-    pub response: AssistantResponse,
-    pub request: RequestInfo,
-    pub terminal: bool,
-    pub finished_reasoning_ids: Vec<String>,
-}
 
 pub enum GenerationUpdate {
     Snapshot(Box<GenerationSnapshot>),
@@ -284,7 +276,7 @@ fn tool_result_text(result: CallToolResult) -> Result<String, String> {
         })
         .collect::<Vec<_>>();
     if let Some(structured) = result.structured_content {
-        parts.push(serde_json::to_string(&structured).unwrap_or_else(|_| structured.to_string()));
+        parts.push(structured.to_string());
     }
     if parts.is_empty() {
         parts.push("MCP tool completed without output.".into());
@@ -353,35 +345,35 @@ async fn fail_before_provider(
         Duration::ZERO,
     );
     restore_failed_continuation(&mut response, &request, baseline.as_ref());
-    if let Some(storage) = storage {
-        let saved_response = response.clone();
-        let saved_request = request.clone();
-        let persistence = tokio::task::spawn_blocking(move || {
-            storage.persist_generation(&saved_response, &saved_request)
-        })
-        .await;
-        if let Ok(Err(error)) = persistence {
-            let _ = updates
-                .send(GenerationUpdate::PersistenceFailed(error))
-                .await;
-        } else if let Err(error) = persistence {
-            let _ = updates
-                .send(GenerationUpdate::PersistenceFailed(
-                    StorageError::InvalidData(format!(
-                        "generation persistence task failed: {error}"
-                    )),
-                ))
-                .await;
-        }
+    let snapshot = GenerationSnapshot {
+        response,
+        request,
+        terminal: outcome.terminal,
+        finished_reasoning_ids: outcome.finished_reasoning_id.into_iter().collect(),
+    };
+    if let Some(storage) = storage
+        && let Err(error) = persist_snapshot(storage, &snapshot).await
+    {
+        let _ = updates
+            .send(GenerationUpdate::PersistenceFailed(error))
+            .await;
     }
     let _ = updates
-        .send(GenerationUpdate::Snapshot(Box::new(GenerationSnapshot {
-            response,
-            request,
-            terminal: outcome.terminal,
-            finished_reasoning_ids: outcome.finished_reasoning_id.into_iter().collect(),
-        })))
+        .send(GenerationUpdate::Snapshot(Box::new(snapshot)))
         .await;
+}
+
+async fn persist_snapshot(
+    storage: Arc<Storage>,
+    snapshot: &GenerationSnapshot,
+) -> Result<(), StorageError> {
+    let response = snapshot.response.clone();
+    let request = snapshot.request.clone();
+    tokio::task::spawn_blocking(move || storage.persist_generation(&response, &request))
+        .await
+        .map_err(|error| {
+            StorageError::InvalidData(format!("generation persistence task failed: {error}"))
+        })?
 }
 
 pub async fn run_generation(
@@ -423,12 +415,16 @@ async fn run_generation_inner(
         prepared.start,
         super::GenerationStart::ContinueResponse { .. }
     );
-    let continuation_baseline = prepared.continuation_baseline.clone();
-    let mut continuation_normalizer = continue_prefill
-        .then(|| ContinuationNormalizer::new(prepared.provider_request.messages.last()));
+    let continuation_baseline = prepared.continuation_baseline;
+    let provider_request = prepared.request.into_request();
     let (event_sender, event_receiver) = async_channel::bounded(256);
+    let mut stream =
+        GenerationStream::new(event_receiver, prepared.response, prepared.request_info);
+    if continue_prefill {
+        stream = stream.with_continuation(provider_request.messages.last());
+    }
     tokio::spawn(run_agent(
-        prepared.provider_request,
+        provider_request,
         prepared.tool_selection,
         mcp,
         event_sender,
@@ -436,70 +432,36 @@ async fn run_generation_inner(
         continue_prefill,
     ));
 
-    let mut response = prepared.response;
-    let mut request = prepared.request_info;
     let started = Instant::now();
     let mut last_storage_flush = Instant::now();
     let mut dirty = false;
-    let mut terminal = false;
 
     loop {
         tokio::time::sleep(UI_FLUSH_INTERVAL).await;
-        let mut events = Vec::new();
-        while let Ok(event) = event_receiver.try_recv() {
-            events.push(event);
-        }
-        if events.is_empty() && event_receiver.is_closed() && !terminal {
-            events.push(interrupted_event());
-        }
-        let has_events = !events.is_empty();
+        let has_events = stream.drain(started.elapsed());
         if !has_events && (!dirty || last_storage_flush.elapsed() < STORAGE_FLUSH_INTERVAL) {
             continue;
         }
 
-        let mut finished_reasoning_ids = Vec::new();
-        for event in events {
-            let events = match &mut continuation_normalizer {
-                Some(normalizer) => normalizer.normalize(event),
-                None => vec![event],
-            };
-            for event in events {
-                let outcome = apply_event(event, &mut response, &mut request, started.elapsed());
-                terminal |= outcome.terminal;
-                finished_reasoning_ids.extend(outcome.finished_reasoning_id);
-            }
-        }
+        let snapshot = &mut stream.snapshot;
         dirty |= has_events;
-        if terminal {
-            restore_failed_continuation(&mut response, &request, continuation_baseline.as_ref());
+        if snapshot.terminal {
+            restore_failed_continuation(
+                &mut snapshot.response,
+                &snapshot.request,
+                continuation_baseline.as_ref(),
+            );
         }
 
-        if dirty && (terminal || last_storage_flush.elapsed() >= STORAGE_FLUSH_INTERVAL) {
+        if dirty && (snapshot.terminal || last_storage_flush.elapsed() >= STORAGE_FLUSH_INTERVAL) {
             if let Some(storage) = storage.clone() {
-                let saved_assistant = response.clone();
-                let saved_request = request.clone();
-                let result = tokio::task::spawn_blocking(move || {
-                    storage.persist_generation(&saved_assistant, &saved_request)
-                })
-                .await;
+                let result = persist_snapshot(storage, snapshot).await;
                 last_storage_flush = Instant::now();
                 match result {
-                    Ok(Ok(())) => dirty = false,
-                    Ok(Err(error)) => {
+                    Ok(()) => dirty = false,
+                    Err(error) => {
                         if updates
                             .send(GenerationUpdate::PersistenceFailed(error))
-                            .await
-                            .is_err()
-                        {
-                            return;
-                        }
-                    }
-                    Err(error) => {
-                        let storage_error = StorageError::InvalidData(format!(
-                            "generation persistence task failed: {error}"
-                        ));
-                        if updates
-                            .send(GenerationUpdate::PersistenceFailed(storage_error))
                             .await
                             .is_err()
                         {
@@ -516,18 +478,13 @@ async fn run_generation_inner(
             continue;
         }
         if updates
-            .send(GenerationUpdate::Snapshot(Box::new(GenerationSnapshot {
-                response: response.clone(),
-                request: request.clone(),
-                terminal,
-                finished_reasoning_ids,
-            })))
+            .send(GenerationUpdate::Snapshot(Box::new(snapshot.clone())))
             .await
             .is_err()
         {
             return;
         }
-        if terminal {
+        if snapshot.terminal {
             return;
         }
     }

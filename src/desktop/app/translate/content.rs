@@ -1,5 +1,3 @@
-use crate::domain::{AssistantBlock, AssistantResponse};
-
 pub(super) fn render_prompt(
     template: &str,
     text: &str,
@@ -14,20 +12,6 @@ pub(super) fn render_prompt(
 
 pub(crate) fn prompts_include_text(system_prompt: &str, user_prompt: &str) -> bool {
     system_prompt.contains("{{text}}") || user_prompt.contains("{{text}}")
-}
-
-pub(super) fn output_sources(response: &AssistantResponse) -> Vec<(String, String)> {
-    if response.blocks.is_empty() {
-        return vec![(response.id.clone(), response.content.clone())];
-    }
-    response
-        .blocks
-        .iter()
-        .filter_map(|block| match block {
-            AssistantBlock::Output { id, content } => Some((id.clone(), content.clone())),
-            _ => None,
-        })
-        .collect()
 }
 
 #[cfg(test)]

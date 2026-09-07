@@ -208,8 +208,50 @@ async fn failures_do_not_interrupt_later_segments_and_events_are_ordered() {
     ));
     assert!(matches!(
         events.last(),
-        Some(SpeechEvent::RunFinished { .. })
+        Some(SpeechEvent::SegmentFinished { result }) if result.segment.index == 1
     ));
+}
+
+#[tokio::test]
+async fn bounded_progress_channel_closes_before_the_single_returned_result() {
+    let backend = MockBackend::with_speech([Reply::Ready(Ok(wav(16_000, false)))]);
+    let pipeline = make_pipeline(backend, Arc::new(AtomicUsize::new(0)));
+    let (sender, receiver) = async_channel::bounded(1);
+    let task = tokio::spawn(async move {
+        pipeline
+            .run("first".into(), config(), &sender, CancellationToken::new())
+            .await
+    });
+    let mut progress = Vec::new();
+    while let Ok(event) = receiver.recv().await {
+        progress.push(event);
+    }
+    let run = task.await.unwrap().unwrap();
+    assert_eq!(run.status, RunStatus::Completed);
+    assert!(matches!(
+        progress.first(),
+        Some(SpeechEvent::RunStarted { .. })
+    ));
+    assert!(
+        matches!(progress.last(), Some(SpeechEvent::SegmentFinished { result })
+        if **result == run.segments[0])
+    );
+}
+
+#[tokio::test]
+async fn preparation_failure_closes_progress_and_returns_the_error() {
+    let pipeline = make_pipeline(MockBackend::default(), Arc::new(AtomicUsize::new(0)));
+    let (sender, receiver) = async_channel::bounded(1);
+    let task = tokio::spawn(async move {
+        pipeline
+            .run(String::new(), config(), &sender, CancellationToken::new())
+            .await
+    });
+    assert!(receiver.recv().await.is_err());
+    assert_eq!(
+        task.await.unwrap().unwrap_err().kind,
+        SpeechErrorKind::Configuration
+    );
 }
 
 #[tokio::test]

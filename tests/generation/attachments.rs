@@ -10,7 +10,7 @@ fn document_images_follow_each_generation_target_model() {
     .unwrap();
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
     storage.insert_provider(&provider).unwrap();
-    let text_model = Model::new(&provider.id, "text-model", "Text Model");
+    let text_model = Model::new(&provider.id, "text-model", "Text Model", provider.kind);
     storage.insert_model(&text_model).unwrap();
     let mut vision_model = text_model.clone();
     vision_model.id = "vision-model".into();
@@ -58,7 +58,8 @@ fn document_images_follow_each_generation_target_model() {
             .map_err(|error| error.to_string())
     };
     let assert_document_images = |prepared: &PreparedGeneration, included: bool| {
-        let messages = serialized_messages(&prepared.provider_request.messages).join("\n");
+        let messages =
+            serialized_messages(&prepared.request.clone().into_request().messages).join("\n");
         assert!(messages.contains("![Chart](image-001.png)"));
         assert_eq!(
             messages.contains("Embedded image from report.docx"),

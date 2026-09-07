@@ -82,7 +82,7 @@ fn request() -> CompletionRequest {
 
 fn generation_request(system_prompt: &str, messages: Vec<Message>) -> GenerationRequest {
     let provider = Provider::new("Provider", ProviderKind::OpenAi);
-    let model = Model::new(&provider.id, "model", "Model");
+    let model = Model::new(&provider.id, "model", "Model", provider.kind);
     GenerationRequest {
         provider,
         model,

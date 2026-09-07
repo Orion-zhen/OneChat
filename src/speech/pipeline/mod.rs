@@ -86,7 +86,7 @@ where
             emit_result(events, &results[position]).await;
         }
 
-        Ok(self.finish(snapshot, results, cancelled, events).await)
+        Ok(result::finish(snapshot, results, cancelled))
     }
 
     pub async fn regenerate_segment(
@@ -129,9 +129,7 @@ where
             results[position] = replacement;
             emit_result(events, &results[position]).await;
         }
-        Ok(self
-            .finish(run.snapshot.clone(), results, cancelled, events)
-            .await)
+        Ok(result::finish(run.snapshot.clone(), results, cancelled))
     }
 
     pub async fn retry_failed_once(
@@ -180,8 +178,6 @@ where
             results[position] = replacement;
             emit_result(events, &results[position]).await;
         }
-        Ok(self
-            .finish(run.snapshot.clone(), results, cancelled, events)
-            .await)
+        Ok(result::finish(run.snapshot.clone(), results, cancelled))
     }
 }

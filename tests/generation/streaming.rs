@@ -4,7 +4,7 @@ use rig_core::{completion::AssistantContent, message::Reasoning};
 #[test]
 fn streaming_events_produce_completed_and_cancelled_states() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let model = Model::new(&provider.id, "test-model", "Test Model", provider.kind);
     let mut response = AssistantResponse::new(&model, &provider);
     response.status = MessageStatus::Streaming;
     let mut request = RequestInfo::new("conversation", "turn", &response.id);
@@ -39,8 +39,8 @@ fn streaming_events_produce_completed_and_cancelled_states() {
 
     assert!(text.finished_reasoning_id.is_some());
     assert!(completed.terminal);
-    assert_eq!(response.thinking, "working");
-    assert_eq!(response.content, "answer");
+    assert_eq!(response.reasoning_blocks().next().unwrap().1, "working");
+    assert_eq!(response.output_text(), "answer");
     assert_eq!(response.status, MessageStatus::Completed);
     assert_eq!(request.status, RequestStatus::Completed);
     assert_eq!(request.ttft_ms, Some(10));
@@ -63,9 +63,9 @@ fn streaming_events_produce_completed_and_cancelled_states() {
 #[test]
 fn continued_transcript_merges_into_the_existing_assistant_message() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let model = Model::new(&provider.id, "test-model", "Test Model", provider.kind);
     let mut response = AssistantResponse::new(&model, &provider);
-    response.content = "existing".into();
+    response.append_output("existing", 0);
     response.transcript = vec![Message::assistant("existing")];
     response.prepare_continuation();
     let mut request = RequestInfo::new("conversation", "turn", &response.id);
@@ -84,7 +84,7 @@ fn continued_transcript_merges_into_the_existing_assistant_message() {
         Duration::from_millis(20),
     );
 
-    assert_eq!(response.content, "existing continuation");
+    assert_eq!(response.output_text(), "existing continuation");
     assert_eq!(response.transcript.len(), 1);
     assert!(serialized_messages(&response.transcript)[0].contains("existing continuation"));
 }
@@ -141,7 +141,7 @@ fn continued_transcript_preserves_a_suffix_only_response() {
 #[test]
 fn provider_usage_keeps_the_last_step_separate_from_cumulative_usage() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let model = Model::new(&provider.id, "test-model", "Test Model", provider.kind);
     let mut response = AssistantResponse::new(&model, &provider);
     let mut request = RequestInfo::new("conversation", "turn", &response.id);
     request.usage.input_tokens = Some(90);
@@ -193,7 +193,7 @@ fn provider_usage_keeps_the_last_step_separate_from_cumulative_usage() {
 #[test]
 fn interleaved_reasoning_output_and_tools_keep_stream_order() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let model = Model::new(&provider.id, "test-model", "Test Model", provider.kind);
     let mut response = AssistantResponse::new(&model, &provider);
     response.status = MessageStatus::Streaming;
     let mut request = RequestInfo::new("conversation", "turn", &response.id);
@@ -288,8 +288,7 @@ fn interleaved_reasoning_output_and_tools_keep_stream_order() {
         &mut request,
     );
 
-    assert_eq!(response.thinking, "ABC");
-    assert_eq!(response.content, "intermediatefinal");
+    assert_eq!(response.output_text(), "intermediatefinal");
     assert_eq!(response.tool_executions.len(), 2);
     assert_eq!(response.blocks.len(), 7);
     assert!(matches!(
@@ -335,10 +334,8 @@ fn editing_reasoning_updates_native_transcript_content() {
     };
 
     let provider = Provider::new("Local", ProviderKind::OpenAiCompatible);
-    let model = Model::new(&provider.id, "qwen", "Qwen");
+    let model = Model::new(&provider.id, "qwen", "Qwen", provider.kind);
     let mut response = AssistantResponse::new(&model, &provider);
-    response.thinking = "original reasoning".into();
-    response.content = "answer".into();
     response.blocks = vec![
         AssistantBlock::Reasoning {
             id: "reasoning-block".into(),
@@ -367,8 +364,11 @@ fn editing_reasoning_updates_native_transcript_content() {
         &[("output".into(), "answer".into())],
     );
 
-    assert_eq!(response.thinking, "edited reasoning");
-    assert_eq!(response.content, "answer");
+    assert_eq!(
+        response.reasoning_blocks().next().unwrap().1,
+        "edited reasoning"
+    );
+    assert_eq!(response.output_text(), "answer");
     assert!(matches!(
         &response.blocks[0],
         AssistantBlock::Reasoning { content, .. } if content == "edited reasoning"
@@ -385,7 +385,7 @@ fn editing_reasoning_updates_native_transcript_content() {
         [ReasoningContent::Text { text, signature: None }] if text == "edited reasoning"
     ));
     assert!(matches!(
-        content.iter().nth(1),
+        content.get(1),
         Some(AssistantContent::Text(text)) if text.text == "answer"
     ));
 
@@ -401,10 +401,8 @@ fn clearing_reasoning_removes_it_from_blocks_and_native_transcript() {
     use rig_core::{completion::AssistantContent, message::Reasoning};
 
     let provider = Provider::new("Local", ProviderKind::OpenAiCompatible);
-    let model = Model::new(&provider.id, "qwen", "Qwen");
+    let model = Model::new(&provider.id, "qwen", "Qwen", provider.kind);
     let mut response = AssistantResponse::new(&model, &provider);
-    response.thinking = "reasoning".into();
-    response.content = "answer".into();
     response.blocks = vec![
         AssistantBlock::Reasoning {
             id: "reasoning".into(),
@@ -431,7 +429,7 @@ fn clearing_reasoning_removes_it_from_blocks_and_native_transcript() {
         &[("output".into(), "answer".into())],
     );
 
-    assert!(response.thinking.is_empty());
+    assert!(!response.has_reasoning());
     assert!(
         response
             .blocks
@@ -449,22 +447,25 @@ fn clearing_reasoning_removes_it_from_blocks_and_native_transcript() {
 }
 
 #[test]
-fn editing_legacy_reasoning_creates_native_transcript() {
+fn editing_stopped_reasoning_without_a_final_transcript_creates_native_content() {
     use rig_core::completion::AssistantContent;
 
     let provider = Provider::new("Local", ProviderKind::OpenAiCompatible);
-    let model = Model::new(&provider.id, "qwen", "Qwen");
+    let model = Model::new(&provider.id, "qwen", "Qwen", provider.kind);
     let mut response = AssistantResponse::new(&model, &provider);
-    response.thinking = "original".into();
-    response.content = "answer".into();
+    response.append_reasoning(None, "original", 0);
+    response.append_output("answer", 10);
+    response.status = MessageStatus::Stopped;
+    let reasoning_id = response.reasoning_blocks().next().unwrap().0.to_string();
+    let output_id = response.output_blocks().next().unwrap().0.to_string();
 
     response.replace_editable_text(
-        &[(response.id.clone(), "edited".into())],
-        &[(response.id.clone(), "answer".into())],
+        &[(reasoning_id, "edited".into())],
+        &[(output_id, "answer".into())],
     );
 
-    assert!(response.blocks.is_empty());
-    assert_eq!(response.thinking, "edited");
+    assert_eq!(response.blocks.len(), 2);
+    assert_eq!(response.reasoning_blocks().next().unwrap().1, "edited");
     let Message::Assistant { content, .. } = &response.transcript[0] else {
         panic!("expected assistant transcript");
     };
@@ -473,7 +474,7 @@ fn editing_legacy_reasoning_creates_native_transcript() {
         Some(AssistantContent::Reasoning(reasoning)) if reasoning.display_text() == "edited"
     ));
     assert!(matches!(
-        content.iter().nth(1),
+        content.get(1),
         Some(AssistantContent::Text(text)) if text.text == "answer"
     ));
 }
@@ -481,9 +482,8 @@ fn editing_legacy_reasoning_creates_native_transcript() {
 #[test]
 fn editing_outputs_preserves_positions_and_serialization() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let model = Model::new(&provider.id, "test-model", "Test Model", provider.kind);
     let mut response = AssistantResponse::new(&model, &provider);
-    response.content = "firstsecond".into();
     response.blocks = vec![
         AssistantBlock::Output {
             id: "output-1".into(),
@@ -496,12 +496,15 @@ fn editing_outputs_preserves_positions_and_serialization() {
     ];
     response.transcript = vec![Message::assistant("first"), Message::assistant("second")];
 
-    response.replace_outputs(&[
-        ("output-1".into(), String::new()),
-        ("output-2".into(), "revised".into()),
-    ]);
+    response.replace_editable_text(
+        &[],
+        &[
+            ("output-1".into(), String::new()),
+            ("output-2".into(), "revised".into()),
+        ],
+    );
 
-    assert_eq!(response.content, "revised");
+    assert_eq!(response.output_text(), "revised");
     assert_eq!(response.blocks.len(), 1);
     assert!(matches!(
         &response.blocks[0],
@@ -526,5 +529,5 @@ fn editing_outputs_preserves_positions_and_serialization() {
     let restored: AssistantResponse =
         serde_json::from_str(&serde_json::to_string(&response).unwrap()).unwrap();
     assert_eq!(restored.blocks, response.blocks);
-    assert_eq!(restored.content, response.content);
+    assert_eq!(restored.output_text(), response.output_text());
 }

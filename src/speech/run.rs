@@ -43,7 +43,6 @@ pub enum SegmentStatus {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunStatus {
-    Planning,
     Running,
     Completed,
     Partial,
@@ -63,6 +62,21 @@ pub struct SegmentResult {
     pub transcript_validation: Option<TranscriptValidationResult>,
 }
 
+impl SegmentResult {
+    pub fn waiting(segment: TextSegment) -> Self {
+        Self {
+            segment,
+            status: SegmentStatus::Waiting,
+            attempt: 0,
+            seed: None,
+            clip: None,
+            error: None,
+            audio_validation: None,
+            transcript_validation: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct SpeechRun {
     pub snapshot: RunSnapshot,
@@ -73,6 +87,26 @@ pub struct SpeechRun {
     pub error: Option<SpeechError>,
 }
 
+impl SpeechRun {
+    pub fn started(snapshot: RunSnapshot) -> Self {
+        let segments = snapshot
+            .segments
+            .iter()
+            .cloned()
+            .map(SegmentResult::waiting)
+            .collect();
+        Self {
+            snapshot,
+            status: RunStatus::Running,
+            segments,
+            combined_clip: None,
+            final_validation: None,
+            error: None,
+        }
+    }
+}
+
+/// Progress updates. The pipeline future returns the final run or error.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SpeechEvent {
     RunStarted {
@@ -85,9 +119,6 @@ pub enum SpeechEvent {
     },
     SegmentFinished {
         result: Box<SegmentResult>,
-    },
-    RunFinished {
-        run: Box<SpeechRun>,
     },
 }
 

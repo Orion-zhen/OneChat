@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn new_turn_history_follows_the_selected_branch() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let model = Model::new(&provider.id, "test-model", "Test Model", provider.kind);
     let conversation = Conversation::new("Chat", Some(&model), "");
 
     let root = completed_turn(
@@ -55,11 +55,10 @@ fn edited_reasoning_is_replayed_as_native_reasoning() {
     use rig_core::{completion::AssistantContent, message::Reasoning};
 
     let provider = Provider::new("Local", ProviderKind::OpenAiCompatible);
-    let model = Model::new(&provider.id, "qwen", "Qwen");
+    let model = Model::new(&provider.id, "qwen", "Qwen", provider.kind);
     let conversation = Conversation::new("Chat", Some(&model), "");
     let mut turn = completed_turn(&conversation, None, "question", "answer", &model, &provider);
     let response = &mut turn.responses[0];
-    response.thinking = "original".into();
     response.blocks = vec![
         AssistantBlock::Reasoning {
             id: "reasoning".into(),
@@ -98,7 +97,7 @@ fn edited_reasoning_is_replayed_as_native_reasoning() {
 #[test]
 fn history_limits_keep_recent_complete_turns_and_do_not_count_current_message() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let model = Model::new(&provider.id, "test-model", "Test Model", provider.kind);
     let conversation = Conversation::new("Chat", Some(&model), "");
     let root = completed_turn(
         &conversation,
@@ -135,7 +134,7 @@ fn history_limits_keep_recent_complete_turns_and_do_not_count_current_message() 
         ContextPolicy::new(HistoryLimit::Last(1), &loader),
     )
     .unwrap();
-    let messages = serialized_messages(&prepared.provider_request.messages);
+    let messages = serialized_messages(&prepared.request.clone().into_request().messages);
     assert_eq!(messages.len(), 3);
     assert!(messages[0].contains("middle question"));
     assert!(messages[1].contains("middle answer"));
@@ -158,7 +157,7 @@ fn history_limits_keep_recent_complete_turns_and_do_not_count_current_message() 
         }),
     )
     .unwrap();
-    let messages = serialized_messages(&stateless.provider_request.messages);
+    let messages = serialized_messages(&stateless.request.clone().into_request().messages);
     assert_eq!(messages.len(), 1);
     assert!(messages[0].contains("current question"));
 
@@ -172,7 +171,7 @@ fn history_limits_keep_recent_complete_turns_and_do_not_count_current_message() 
 #[test]
 fn history_turns_keep_complete_transcripts_as_the_truncation_unit() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let model = Model::new(&provider.id, "test-model", "Test Model", provider.kind);
     let conversation = Conversation::new("Chat", Some(&model), "");
     let mut root = completed_turn(
         &conversation,
@@ -199,7 +198,8 @@ fn history_turns_keep_complete_transcripts_as_the_truncation_unit() {
         }),
     )
     .unwrap();
-    let included = serialized_messages(&included.provider_request.messages).join("\n");
+    let included =
+        serialized_messages(&included.request.clone().into_request().messages).join("\n");
     assert!(included.contains("tool question"));
     assert!(included.contains("tool call marker"));
     assert!(included.contains("tool result marker"));
@@ -217,7 +217,8 @@ fn history_turns_keep_complete_transcripts_as_the_truncation_unit() {
         }),
     )
     .unwrap();
-    let excluded = serialized_messages(&excluded.provider_request.messages).join("\n");
+    let excluded =
+        serialized_messages(&excluded.request.clone().into_request().messages).join("\n");
     assert!(!excluded.contains("tool question"));
     assert!(!excluded.contains("tool call marker"));
     assert!(!excluded.contains("tool result marker"));

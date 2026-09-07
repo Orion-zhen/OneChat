@@ -1,3 +1,4 @@
+use super::context::{InputRequirements, MessageGroup, PreparedContext};
 use super::*;
 
 #[derive(Clone, Copy)]
@@ -41,14 +42,6 @@ impl<'a> HistorySelection<'a> {
     }
 }
 
-pub(super) struct PreparedContext {
-    pub(super) messages: Vec<Message>,
-    pub(super) history_groups: Vec<PreparedHistoryGroup>,
-    pub(super) current_message_requirements: InputRequirements,
-    pub(super) audio_duration_ms: u64,
-    pub(super) request_context: RequestContextInfo,
-}
-
 pub(super) fn prepare_context(
     turns: &[Turn],
     parent_response_id: Option<&str>,
@@ -57,33 +50,24 @@ pub(super) fn prepare_context(
     user_message: &dyn Fn(&UserMessage) -> Result<Message, String>,
 ) -> Result<PreparedContext, String> {
     let selection = HistorySelection::new(turns, parent_response_id, history_limit);
-    let current_message_requirements = user_input_requirements(current_user);
-
-    let mut messages = Vec::new();
-    let mut history_groups = Vec::with_capacity(selection.ancestors.len());
+    let mut history = Vec::with_capacity(selection.ancestors.len());
     for ancestor in &selection.ancestors {
-        let start = messages.len();
+        let mut messages = Vec::new();
         expand_ancestor(*ancestor, user_message, &mut messages)?;
-        history_groups.push(PreparedHistoryGroup {
-            message_count: messages.len() - start,
-            audio_duration_ms: user_audio_duration_ms(&ancestor.turn.user),
-            requirements: user_input_requirements(&ancestor.turn.user),
-        });
+        history.push(MessageGroup::new(
+            messages,
+            user_audio_duration_ms(&ancestor.turn.user),
+            user_input_requirements(&ancestor.turn.user),
+        ));
     }
-    messages.push(user_message(current_user)?);
-
-    let audio_duration_ms = history_groups
-        .iter()
-        .fold(0_u64, |duration_ms, group| {
-            duration_ms.saturating_add(group.audio_duration_ms)
-        })
-        .saturating_add(user_audio_duration_ms(current_user));
-
     Ok(PreparedContext {
-        messages,
-        history_groups,
-        current_message_requirements,
-        audio_duration_ms,
+        opening: None,
+        history,
+        current: MessageGroup::new(
+            vec![user_message(current_user)?],
+            user_audio_duration_ms(current_user),
+            user_input_requirements(current_user),
+        ),
         request_context: selection.request_context(),
     })
 }
@@ -184,8 +168,8 @@ fn expand_ancestor(
 ) -> Result<(), String> {
     messages.push(user_message(&ancestor.turn.user)?);
     if ancestor.response.transcript.is_empty() {
-        if !ancestor.response.content.is_empty() {
-            messages.push(Message::assistant(ancestor.response.content.clone()));
+        if ancestor.response.has_output() {
+            messages.push(Message::assistant(ancestor.response.output_text()));
         }
     } else {
         messages.extend(ancestor.response.transcript.clone());

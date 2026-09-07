@@ -165,7 +165,7 @@ impl OneChat {
         let reload_prompts = section == SettingsSection::SystemPrompts;
         if self.settings_ui.section == section {
             if reload_prompts {
-                self.reload_snapshot(cx);
+                self.load_prompt_presets(cx);
             }
             return;
         }
@@ -182,7 +182,7 @@ impl OneChat {
         self.settings_ui.mcp_error = None;
         self.settings_ui.form_error = None;
         if reload_prompts {
-            self.reload_snapshot(cx);
+            self.load_prompt_presets(cx);
         }
         cx.notify();
     }

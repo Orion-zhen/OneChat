@@ -3,29 +3,25 @@ use std::collections::{BTreeMap, HashSet};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    application::{
-        context_usage::estimate_input_tokens,
-        prompt::{PromptContext, PromptRenderError, render_prompt_templates},
-    },
+    application::prompt::{PromptContext, PromptRenderError, render_prompt_templates},
     domain::{
         AssistantResponse, Attachment, Conversation, GenerationConfig, GenerationError,
-        GenerationErrorKind, GenerationRequest, HistoryLimit, Message, MessageStatus, Model,
-        PromptVariableSource, Provider, RequestContextInfo, RequestInfo, RequestKind,
-        ToolSelection, Turn, UserMessage, active_turns, now_timestamp,
+        GenerationRequest, HistoryLimit, Message, MessageStatus, Model, PromptVariableSource,
+        Provider, RequestContextInfo, RequestInfo, RequestKind, ToolSelection, Turn, UserMessage,
+        active_turns, now_timestamp,
     },
 };
+mod context;
 mod history;
 mod request;
 
+use history::prepare_context;
 pub use history::{
     HistoryPreview, history_audio_duration_ms_for_new_turn, history_audio_duration_ms_for_turn,
     history_for_new_turn, history_for_turn, history_preview_for_new_turn,
 };
-use history::{prepare_context, turn_count};
-use request::{
-    RequestInput, prepare_continuation_response, prepare_response, provider_request,
-    update_input_token_estimate,
-};
+pub use request::PreparedRequest;
+use request::prepare_response;
 
 #[derive(Clone, Copy)]
 pub struct ContextPolicy<'a> {
@@ -45,57 +41,20 @@ impl<'a> ContextPolicy<'a> {
     }
 }
 
-#[derive(Clone)]
-pub enum GenerationStart {
-    NewTurn(Box<Turn>),
-    AddResponse { turn_id: String },
-    RetryResponse { turn_id: String },
-    ContinueResponse { turn_id: String },
-}
-
-#[derive(Clone, Copy, Default)]
-pub(super) struct InputRequirements {
-    pub(super) vision: bool,
-    pub(super) audio: bool,
-}
-
-#[derive(Clone)]
-pub(super) struct PreparedHistoryGroup {
-    pub(super) message_count: usize,
-    pub(super) audio_duration_ms: u64,
-    pub(super) requirements: InputRequirements,
-}
+pub use crate::domain::GenerationStart;
 
 #[derive(Clone)]
 pub struct PreparedGeneration {
     pub start: GenerationStart,
     pub response: AssistantResponse,
     pub request_info: RequestInfo,
-    pub provider_request: GenerationRequest,
+    pub request: PreparedRequest,
     pub tool_selection: ToolSelection,
     pub new_attachments: Vec<Attachment>,
     pub continuation_baseline: Option<AssistantResponse>,
-    pub(super) history_groups: Vec<PreparedHistoryGroup>,
-    pub(super) current_message_requirements: InputRequirements,
-    history_start_index: usize,
-    current_tail_message_count: usize,
     assistant_opening_template: Option<String>,
     prompt_variables: BTreeMap<String, PromptVariableSource>,
     prompt_context: PromptContext,
-}
-
-fn prepend_assistant_opening(
-    context: &mut history::PreparedContext,
-    conversation: &Conversation,
-) -> usize {
-    if conversation.assistant_opening.is_empty() {
-        return 0;
-    }
-    context.messages.insert(
-        0,
-        Message::assistant(conversation.assistant_opening.clone()),
-    );
-    1
 }
 
 impl PreparedGeneration {
@@ -110,55 +69,60 @@ impl PreparedGeneration {
     ) -> Result<Self, String> {
         let response = AssistantResponse::new(model, provider);
         let mut turn = Turn::new(conversation, parent_response_id.clone(), user, response);
-        let mut context = prepare_context(
+        let context = prepare_context(
             turns,
             parent_response_id.as_deref(),
             &turn.user,
             context_policy.history_limit,
             context_policy.user_message,
         )?;
-        let history_start_index = prepend_assistant_opening(&mut context, conversation);
+        let request = PreparedRequest::new(
+            conversation,
+            provider,
+            model,
+            &conversation.generation_config,
+            context,
+        );
         let response = &mut turn.responses[0];
-        let mut request_info = prepare_response(
+        let request_info = prepare_response(
             &conversation.id,
             &turn.id,
             response,
-            provider,
-            model,
-            RequestInput::new(
-                &conversation.system_prompt,
-                &context.messages,
-                context.audio_duration_ms,
-            ),
+            RequestKind::Generate,
+            &request,
         );
-        request_info.context = Some(context.request_context);
         let response = response.clone();
-        let provider_request = provider_request(
-            provider,
-            model,
-            &conversation.system_prompt,
-            &conversation.generation_config,
-            context.messages,
-            context.audio_duration_ms,
-        );
-        Ok(Self {
-            start: GenerationStart::NewTurn(Box::new(turn)),
+        Ok(Self::assembled(
+            conversation,
+            GenerationStart::NewTurn(Box::new(turn)),
             response,
             request_info,
-            provider_request,
+            request,
+            None,
+        ))
+    }
+
+    fn assembled(
+        conversation: &Conversation,
+        start: GenerationStart,
+        response: AssistantResponse,
+        request_info: RequestInfo,
+        request: PreparedRequest,
+        continuation_baseline: Option<AssistantResponse>,
+    ) -> Self {
+        Self {
+            start,
+            response,
+            request_info,
+            request,
             tool_selection: conversation.tool_selection.clone(),
             new_attachments: Vec::new(),
-            continuation_baseline: None,
-            history_groups: context.history_groups,
-            current_message_requirements: context.current_message_requirements,
-            history_start_index,
-            current_tail_message_count: 1,
-            assistant_opening_template: (history_start_index == 1)
+            continuation_baseline,
+            assistant_opening_template: (!conversation.assistant_opening.is_empty())
                 .then(|| conversation.assistant_opening.clone()),
             prompt_variables: BTreeMap::new(),
             prompt_context: PromptContext::default(),
         }
-        .validated())
     }
 
     pub fn with_new_attachments(mut self, attachments: Vec<Attachment>) -> Self {
@@ -179,7 +143,7 @@ impl PreparedGeneration {
         &mut self,
         cancellation: CancellationToken,
     ) -> Result<(), PromptRenderError> {
-        let system_template = self.provider_request.system_prompt.clone();
+        let system_template = self.request.system_prompt.clone();
         let mut templates = vec![system_template.clone()];
         templates.extend(self.assistant_opening_template.clone());
         let snapshots = render_prompt_templates(
@@ -207,94 +171,25 @@ impl PreparedGeneration {
             }
         };
         let system_snapshot = snapshots.remove(0);
-        self.provider_request.system_prompt = system_snapshot.resolved.clone();
+        self.request.system_prompt = system_snapshot.resolved.clone();
         self.request_info.system_prompt = Some(system_snapshot);
         if let Some(opening_snapshot) = snapshots.pop() {
-            self.provider_request.messages[0] =
-                Message::assistant(opening_snapshot.resolved.clone());
+            self.request
+                .context
+                .set_opening(opening_snapshot.resolved.clone());
             self.request_info.assistant_opening = Some(opening_snapshot);
         }
-        update_input_token_estimate(&mut self.request_info, &self.provider_request);
+        self.request.update_request_info(&mut self.request_info);
         Ok(())
     }
 
     pub fn finalize_context(&mut self) -> Result<(), GenerationError> {
-        update_input_token_estimate(&mut self.request_info, &self.provider_request);
-
-        if let Some(context_window) = self.provider_request.model.context_window_tokens {
-            while self.estimated_input_tokens() > u64::from(context_window)
-                && !self.history_groups.is_empty()
-            {
-                let group = self.history_groups.remove(0);
-                self.provider_request.messages.drain(
-                    self.history_start_index..self.history_start_index + group.message_count,
-                );
-                self.provider_request.audio_duration_ms = self
-                    .provider_request
-                    .audio_duration_ms
-                    .saturating_sub(group.audio_duration_ms);
-                if let Some(context) = &mut self.request_info.context {
-                    context.included_history_turns = turn_count(self.history_groups.len());
-                    context.limited_by_context_window = true;
-                }
-                update_input_token_estimate(&mut self.request_info, &self.provider_request);
-            }
-        }
-
-        let capabilities = &self.provider_request.model.capabilities;
-        self.check_input_requirement(
-            capabilities.vision,
-            |requirements| requirements.vision,
-            "an image or PDF",
-        )?;
-        self.check_input_requirement(
-            capabilities.audio_input,
-            |requirements| requirements.audio,
-            "audio",
-        )?;
-
-        debug_assert_eq!(
-            self.history_groups
-                .iter()
-                .map(|group| group.message_count)
-                .sum::<usize>()
-                + self.history_start_index
-                + self.current_tail_message_count,
-            self.provider_request.messages.len()
+        self.request.context.trim_to_window(
+            &self.request.system_prompt,
+            self.request.model.context_window_tokens,
         );
-        Ok(())
-    }
-
-    fn check_input_requirement(
-        &self,
-        supported: bool,
-        required: impl Fn(InputRequirements) -> bool,
-        content: &str,
-    ) -> Result<(), GenerationError> {
-        if supported {
-            return Ok(());
-        }
-        let current = required(self.current_message_requirements);
-        let retained_history = self
-            .history_groups
-            .iter()
-            .any(|group| required(group.requirements));
-        if !current && !retained_history {
-            return Ok(());
-        }
-        let location = if current {
-            "the current message"
-        } else {
-            "the retained conversation context"
-        };
-        Err(GenerationError::new(
-            GenerationErrorKind::UnsupportedParameter,
-            format!("The selected model cannot read {content} in {location}"),
-        ))
-    }
-
-    fn estimated_input_tokens(&self) -> u64 {
-        self.request_info.usage.input_tokens.unwrap_or_default()
+        self.request.update_request_info(&mut self.request_info);
+        self.request.context.validate(&self.request.model)
     }
 
     pub fn additional(
@@ -353,11 +248,9 @@ impl PreparedGeneration {
         previous_response: &AssistantResponse,
         context_policy: ContextPolicy<'_>,
     ) -> Result<Self, String> {
-        if previous_response.content.is_empty() {
+        if !previous_response.has_output() {
             return Err("Only a response with output can be continued".into());
         }
-
-        let baseline = previous_response.clone();
         let mut response = previous_response.clone();
         response.prepare_continuation();
         let mut context = prepare_context(
@@ -367,60 +260,34 @@ impl PreparedGeneration {
             context_policy.history_limit,
             context_policy.user_message,
         )?;
-        let history_start_index = prepend_assistant_opening(&mut context, conversation);
-        let continuation_messages = response.transcript.clone();
-        if continuation_messages.is_empty() {
+        if response.transcript.is_empty() {
             return Err("The response has no assistant transcript to continue".into());
         }
-        let current_tail_message_count = 1 + continuation_messages.len();
-        context.messages.extend(continuation_messages);
-
-        let mut request_info = prepare_continuation_response(
-            &conversation.id,
-            &turn.id,
-            &mut response,
-            provider,
-            model,
-            RequestInput::new(
-                &conversation.system_prompt,
-                &context.messages,
-                context.audio_duration_ms,
-            ),
-        );
-        request_info.context = Some(context.request_context);
+        context
+            .current
+            .append_transcript(response.transcript.clone());
         let mut config = turn.generation_config.clone();
         config
             .reasoning_preset
             .clone_from(&conversation.generation_config.reasoning_preset);
-        let provider_request = provider_request(
-            provider,
-            model,
-            &conversation.system_prompt,
-            &config,
-            context.messages,
-            context.audio_duration_ms,
+        let request = PreparedRequest::new(conversation, provider, model, &config, context);
+        let request_info = prepare_response(
+            &conversation.id,
+            &turn.id,
+            &mut response,
+            RequestKind::Continue,
+            &request,
         );
-
-        Ok(Self {
-            start: GenerationStart::ContinueResponse {
+        Ok(Self::assembled(
+            conversation,
+            GenerationStart::ContinueResponse {
                 turn_id: turn.id.clone(),
             },
             response,
             request_info,
-            provider_request,
-            tool_selection: conversation.tool_selection.clone(),
-            new_attachments: Vec::new(),
-            continuation_baseline: Some(baseline),
-            history_groups: context.history_groups,
-            current_message_requirements: context.current_message_requirements,
-            history_start_index,
-            current_tail_message_count,
-            assistant_opening_template: (history_start_index == 1)
-                .then(|| conversation.assistant_opening.clone()),
-            prompt_variables: BTreeMap::new(),
-            prompt_context: PromptContext::default(),
-        }
-        .validated())
+            request,
+            Some(previous_response.clone()),
+        ))
     }
 
     fn existing_turn(
@@ -433,72 +300,30 @@ impl PreparedGeneration {
         context_policy: ContextPolicy<'_>,
     ) -> Result<Self, String> {
         let (conversation, provider, model) = target;
-        let mut context = prepare_context(
+        let context = prepare_context(
             turns,
             turn.parent_response_id.as_deref(),
             &turn.user,
             context_policy.history_limit,
             context_policy.user_message,
         )?;
-        let history_start_index = prepend_assistant_opening(&mut context, conversation);
-        let mut request_info = prepare_response(
-            &conversation.id,
-            &turn.id,
-            &mut response,
-            provider,
-            model,
-            RequestInput::new(
-                &conversation.system_prompt,
-                &context.messages,
-                context.audio_duration_ms,
-            ),
-        );
-        request_info.kind = match &start {
+        let request = PreparedRequest::new(conversation, provider, model, &config, context);
+        let kind = match &start {
             GenerationStart::AddResponse { .. } => RequestKind::Additional,
             GenerationStart::RetryResponse { .. } => RequestKind::Regenerate,
             GenerationStart::NewTurn(_) | GenerationStart::ContinueResponse { .. } => {
                 unreachable!("existing turn preparation received an invalid start")
             }
         };
-        request_info.context = Some(context.request_context);
-        let provider_request = provider_request(
-            provider,
-            model,
-            &conversation.system_prompt,
-            &config,
-            context.messages,
-            context.audio_duration_ms,
-        );
-        Ok(Self {
+        let request_info =
+            prepare_response(&conversation.id, &turn.id, &mut response, kind, &request);
+        Ok(Self::assembled(
+            conversation,
             start,
             response,
             request_info,
-            provider_request,
-            tool_selection: conversation.tool_selection.clone(),
-            new_attachments: Vec::new(),
-            continuation_baseline: None,
-            history_groups: context.history_groups,
-            current_message_requirements: context.current_message_requirements,
-            history_start_index,
-            current_tail_message_count: 1,
-            assistant_opening_template: (history_start_index == 1)
-                .then(|| conversation.assistant_opening.clone()),
-            prompt_variables: BTreeMap::new(),
-            prompt_context: PromptContext::default(),
-        }
-        .validated())
-    }
-
-    fn validated(self) -> Self {
-        debug_assert_eq!(
-            self.history_groups
-                .iter()
-                .map(|group| group.message_count)
-                .sum::<usize>()
-                + self.history_start_index
-                + self.current_tail_message_count,
-            self.provider_request.messages.len()
-        );
-        self
+            request,
+            None,
+        ))
     }
 }

@@ -31,7 +31,8 @@ impl OneChat {
         response: &AssistantResponse,
         cx: &mut Context<Self>,
     ) {
-        if !response.is_usable_as_context() || response.content.trim().is_empty() {
+        let assistant_response = response.output_text();
+        if !response.is_usable_as_context() || assistant_response.trim().is_empty() {
             return;
         }
         if !self.data.snapshot.conversations.iter().any(|conversation| {
@@ -45,7 +46,7 @@ impl OneChat {
             conversation_id,
             AutoTitleRequest::Initial {
                 user_message,
-                assistant_response: response.content.clone(),
+                assistant_response,
             },
             cx,
         );
@@ -167,10 +168,13 @@ impl OneChat {
                             .data
                             .snapshot
                             .conversations
-                            .iter_mut()
+                            .iter()
                             .find(|conversation| conversation.id == conversation_id)
+                            .cloned()
                         {
+                            let mut conversation = conversation;
                             conversation.auto_title_state = AutoTitleState::Running;
+                            this.apply_conversation_metadata(conversation, cx);
                             cx.notify();
                         }
                     }
@@ -203,11 +207,14 @@ impl OneChat {
                             );
                         }
                         let conversation_id = conversation_id.clone();
-                        this.mutate_and_reload(
+                        this.spawn_storage(
                             move |storage| {
-                                storage
-                                    .finish_auto_title(&conversation_id, title.as_deref())
-                                    .map(|_| ())
+                                storage.finish_auto_title(&conversation_id, title.as_deref())
+                            },
+                            |this, conversation, cx| {
+                                if let Some(conversation) = conversation {
+                                    this.apply_conversation_metadata(conversation, cx);
+                                }
                             },
                             cx,
                         );
@@ -265,8 +272,8 @@ mod tests {
     #[test]
     fn current_source_uses_the_target_conversations_model_and_reasoning() {
         let provider = Provider::new("Provider", ProviderKind::OpenAi);
-        let primary = Model::new(&provider.id, "primary", "Primary");
-        let current = Model::new(&provider.id, "current", "Current");
+        let primary = Model::new(&provider.id, "primary", "Primary", provider.kind);
+        let current = Model::new(&provider.id, "current", "Current", provider.kind);
         let mut conversation = Conversation::new("Chat", Some(&current), "");
         conversation.generation_config.reasoning_preset = Some("high".into());
         let settings = AppSettings {
@@ -286,8 +293,8 @@ mod tests {
     #[test]
     fn fixed_source_uses_the_title_reasoning_setting() {
         let provider = Provider::new("Provider", ProviderKind::OpenAi);
-        let primary = Model::new(&provider.id, "primary", "Primary");
-        let current = Model::new(&provider.id, "current", "Current");
+        let primary = Model::new(&provider.id, "primary", "Primary", provider.kind);
+        let current = Model::new(&provider.id, "current", "Current", provider.kind);
         let mut conversation = Conversation::new("Chat", Some(&current), "");
         conversation.generation_config.reasoning_preset = Some("high".into());
         let settings = AppSettings {

@@ -46,9 +46,9 @@ futures-util = "*"
 hayro = "*"
 hound = "*"
 image = { version = "*", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "pnm", "tiff", "webp"] }
-gpui = { package = "gpui-pre", version = "0.3.1" }
+gpui = { package = "gpui-pre", version = "*" }
 gpui-base = { git = "https://github.com/longbridge/gpui-kit" }
-gpui_platform = { package = "gpui-pre-platform", version = "0.3.1", features = ["font-kit", "runtime_shaders", "wayland", "x11"] }
+gpui_platform = { package = "gpui-pre-platform", version = "*", features = ["font-kit", "runtime_shaders", "wayland", "x11"] }
 gpui-component = { git = "https://github.com/longbridge/gpui-kit" }
 gpui-kit-assets = { git = "https://github.com/longbridge/gpui-kit" }
 json5 = "*"
@@ -79,6 +79,7 @@ whatlang = "*"
 zip = { version = "*", default-features = false, features = ["deflate"] }
 
 [dev-dependencies]
+gpui = { package = "gpui-pre", version = "*", features = ["test-support"] }
 tempfile = "*"
 
 [[test]]

@@ -91,6 +91,9 @@ impl OneChat {
                 let ComboboxEvent::Change(values) = event else {
                     return;
                 };
+                if let Some(editor) = &mut this.settings_ui.model_editor {
+                    editor.combobox_dirty = true;
+                }
                 let Some(remote_id) = values.last() else {
                     return;
                 };
@@ -331,7 +334,7 @@ impl OneChat {
         let insert = editor.is_new();
         self.settings_ui.model_editor = None;
         self.settings_ui.form_error = None;
-        self.mutate_and_reload(
+        self.spawn_storage(
             move |storage| {
                 if insert {
                     storage.insert_model(&model)
@@ -339,6 +342,7 @@ impl OneChat {
                     storage.update_model(&model)
                 }
             },
+            Self::apply_model_catalog,
             cx,
         );
     }
@@ -359,6 +363,10 @@ impl OneChat {
     }
 
     pub(crate) fn delete_model(&mut self, id: String, cx: &mut Context<Self>) {
-        self.mutate_and_reload(move |storage| storage.delete_model(&id), cx);
+        self.spawn_storage(
+            move |storage| storage.delete_model(&id),
+            Self::apply_model_catalog,
+            cx,
+        );
     }
 }

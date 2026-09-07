@@ -52,7 +52,7 @@ impl ModelPickerDelegate {
             .and_then(|turn_id| {
                 app.data
                     .snapshot
-                    .current_turns
+                    .current_turns()
                     .iter()
                     .find(|turn| turn.id == turn_id)
             })

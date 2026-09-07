@@ -1,4 +1,4 @@
-use gpui::{AnyElement, Context, div, prelude::*};
+use gpui::{AnyElement, Context, Window, div, prelude::*};
 
 use super::{prompts, result, source};
 use crate::desktop::{
@@ -7,14 +7,18 @@ use crate::desktop::{
 };
 
 pub(crate) fn render(
-    app: &OneChat,
+    app: &mut OneChat,
     available_width: f32,
     scale_factor: f32,
+    window: &mut Window,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    app.chat
+    app.translation.sync_prompt_controls(window, cx);
+    app.translation
+        .output
+        .presentation
         .text_selection
-        .begin_frame(app.translation.result_scroll.clone());
+        .begin_frame(app.translation.output.scroll.clone());
     let layout = LayoutClass::from_width(available_width);
     let stacked = !layout.is_wide();
     let workbench = div()

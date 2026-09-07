@@ -12,6 +12,7 @@ pub(super) fn render_message_header(
     let header_content = if multiple_responses {
         let tabs_scroll = app
             .chat
+            .presentation
             .horizontal_scrolls
             .handle(format!("response-tabs:{}", turn.id));
         let boundary_scroll = tabs_scroll.clone();

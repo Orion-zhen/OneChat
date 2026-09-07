@@ -20,10 +20,6 @@ pub(super) fn prepare_render(
         &app.settings().code_font_families,
         cx,
     );
-    settings::sync_controls(app, window, cx);
-    inspector::sync_controls(app, window, cx);
-    app.sync_translation_prompt_controls(window, cx);
-    app.sync_tts_controls(window, cx);
     let playback_progress = app.playback.seek_preview.unwrap_or_else(|| {
         if app.playback.snapshot.duration_ms == 0 {
             0.0

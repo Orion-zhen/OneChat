@@ -81,7 +81,7 @@ async fn discovered_reasoning_presets_select_wire_model_ids_for_every_provider()
         let models = list_models(&provider).await.unwrap();
         assert_eq!(models.len(), 1);
         assert_eq!(models[0].id, "model");
-        let mut model = Model::new_for_provider(&provider.id, &models[0].id, "Model", kind);
+        let mut model = Model::new(&provider.id, &models[0].id, "Model", kind);
         model.reasoning = Some(ModelReasoningConfig::ModelIdSuffix(
             models[0].reasoning.clone().unwrap(),
         ));

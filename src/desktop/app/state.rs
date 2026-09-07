@@ -1,32 +1,25 @@
 use std::{
-    cell::Cell,
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
     time::Instant,
 };
 
-use gpui::{Entity, FocusHandle, ScrollHandle, Task};
+use gpui::{Entity, FocusHandle, Task};
 use gpui_component::{
     input::TextareaState, list::ListState, select::SelectState, slider::SliderState,
 };
 use tokio::runtime::Runtime;
 
 use super::{
-    CachedMarkdown, ComposerImeHandler, ConnectionTestStatus, DestructiveAction, MessageEditor,
-    Page, PendingFocus, PendingTitleTransition, RenameEditor, SystemPromptMode, TitleTransition,
-    motion::{
-        DrawerMotion, MessageScrollMotion, SidebarWidthMotion, ThinkingMotion, VisibilityMotion,
-    },
+    ConnectionTestStatus, DestructiveAction, Page, PendingFocus, RenameEditor,
+    motion::{DrawerMotion, SidebarWidthMotion, VisibilityMotion},
 };
 use crate::{
-    application::generation::GenerationManager,
     desktop::{
         audio_playback::{AudioPlayback, PlaybackSnapshot},
-        audio_recording::{AudioRecording, RecordingSnapshot},
-        branch_swipe::{BranchSwipeState, BranchSwipeTarget},
+        audio_recording::AudioRecording,
         ui::{
-            inspector::{GenerationConfigEditor, InspectorTab},
-            selectable_text::TextSelection,
+            inspector::InspectorTab,
             settings::{
                 DefaultModelItem, FontFamilyItem, McpServerEditor, ModelEditor,
                 PromptPresetWorkspace, PromptSelectItem, PromptVariableEditor, ProviderEditor,
@@ -36,10 +29,8 @@ use crate::{
                 CommandPaletteDelegate, ConversationSearchDelegate, ModelPickerDelegate,
                 PromptPickerDelegate, ReasoningPickerDelegate,
             },
-            stream::HorizontalScrollRegistry,
         },
     },
-    domain::AttachmentDraft,
     mcp::{McpManager, McpSnapshot},
     storage::{Storage, StorageSnapshot},
 };
@@ -192,60 +183,6 @@ pub(crate) struct PlaybackState {
     pub(super) observer_task: Task<()>,
 }
 
-pub(crate) struct ChatState {
-    pub(super) draft_model_id: Option<String>,
-    pub(super) transient_conversation_id: Option<String>,
-    pub(super) selected_request_id: Option<String>,
-    pub(crate) visible_response_ids: HashMap<String, String>,
-    pub(super) pending_search_target: Option<SearchTarget>,
-    pub(crate) search_highlight_id: Option<String>,
-    pub(super) expanded_error_ids: HashSet<String>,
-    pub(super) thinking_expansion_overrides: HashSet<String>,
-    pub(super) expanded_tool_execution_ids: HashSet<String>,
-    pub(crate) expanded_conversation_tool_server_ids: HashSet<String>,
-    pub(super) message_editor: Option<MessageEditor>,
-    pub(crate) message_scroll: ScrollHandle,
-    pub(crate) message_scroll_motion: MessageScrollMotion,
-    pub(crate) jump_to_latest_motion: VisibilityMotion,
-    pub(crate) timeline: TimelineState,
-    pub(crate) text_selection: TextSelection,
-    pub(crate) branch_swipe: BranchSwipeState<BranchSwipeTarget>,
-    #[cfg(target_os = "macos")]
-    pub(crate) response_tab_force_click: ForceClickGesture<String>,
-    pub(crate) horizontal_scrolls: HorizontalScrollRegistry,
-    pub(crate) thinking_scrolls: HashMap<String, ScrollHandle>,
-    pub(crate) thinking_motions: HashMap<String, ThinkingMotion>,
-    pub(crate) thinking_started_at: HashMap<String, Instant>,
-    pub(crate) follow_latest: bool,
-    pub(crate) system_prompt_mode: SystemPromptMode,
-    pub(crate) system_prompt_editor: Option<Entity<TextareaState>>,
-    pub(crate) assistant_opening_editor: Option<Entity<TextareaState>>,
-    pub(crate) generation_config_editor: Option<GenerationConfigEditor>,
-    pub(crate) history_limit_slider: Entity<SliderState>,
-    pub(crate) history_limit_preview: Option<crate::domain::HistoryLimit>,
-    pub(crate) generation_config_save_revision: u64,
-    pub(crate) parameter_error: Option<String>,
-    pub(crate) composer: Entity<TextareaState>,
-    pub(crate) composer_ime: Entity<ComposerImeHandler>,
-    pub(crate) composer_committed_value: String,
-    pub(crate) composer_multiline: Cell<bool>,
-    pub(crate) composer_expanded: Cell<bool>,
-    pub(crate) context_usage_popover_open: bool,
-    pub(crate) context_usage_popover_motion: VisibilityMotion,
-    pub(crate) attachments: Vec<AttachmentDraft>,
-    pub(crate) attachment_previews: HashMap<String, Arc<gpui::Image>>,
-    pub(crate) temporary_attachment_files: HashMap<String, Vec<u8>>,
-    pub(crate) attachments_loading: bool,
-    pub(crate) attachments_revision: u64,
-    pub(crate) audio_recording: RecordingSnapshot,
-    pub(super) audio_recording_task: Task<()>,
-    pub(super) recording_conversation_id: Option<String>,
-    pub(super) generations: GenerationManager,
-    pub(super) markdown_documents: HashMap<String, CachedMarkdown>,
-    pub(super) pending_title_transitions: HashMap<String, PendingTitleTransition>,
-    pub(super) title_transitions: HashMap<String, TitleTransition>,
-}
-
 #[derive(Clone, Debug)]
 pub(crate) enum SettingsDestination {
     Section(SettingsSection),
@@ -268,10 +205,7 @@ pub(crate) struct SettingsState {
     pub(crate) title_model_select: Entity<SelectState<Vec<TitleModelItem>>>,
     pub(crate) title_reasoning_select: Entity<SelectState<Vec<ReasoningPresetSelectItem>>>,
     pub(crate) default_prompt_select: Entity<SelectState<Vec<PromptSelectItem>>>,
-    pub(crate) synced_primary_models: Vec<DefaultModelItem>,
-    pub(crate) synced_title_models: Vec<TitleModelItem>,
-    pub(crate) synced_title_reasoning_presets: Vec<ReasoningPresetSelectItem>,
-    pub(crate) synced_prompts: Vec<PromptSelectItem>,
+    pub(crate) controls_dirty: bool,
     pub(crate) prompt_preset_workspace: Option<PromptPresetWorkspace>,
     pub(crate) pending_prompt_preset_exit: Option<SettingsDestination>,
     pub(crate) prompt_variable_editor: Option<PromptVariableEditor>,

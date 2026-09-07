@@ -2,7 +2,11 @@ use super::*;
 
 pub(super) fn render_attachments(app: &OneChat, cx: &mut Context<OneChat>) -> Option<AnyElement> {
     (!app.chat.attachments.is_empty() || app.chat.attachments_loading).then(|| {
-        let attachment_scroll = app.chat.horizontal_scrolls.handle("composer-attachments");
+        let attachment_scroll = app
+            .chat
+            .presentation
+            .horizontal_scrolls
+            .handle("composer-attachments");
         let boundary_scroll = attachment_scroll.clone();
 
         let attachments = div()

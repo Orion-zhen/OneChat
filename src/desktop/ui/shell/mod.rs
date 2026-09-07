@@ -315,9 +315,9 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
             context_usage_popover_progress,
             cx,
         ),
-        Page::Translate => translate::render(app, page_available_width, scale_factor, cx),
-        Page::Tts => tts::render(app, page_available_width, cx),
-        Page::Settings => settings::render(app, sidebar_width, page_available_width, cx),
+        Page::Translate => translate::render(app, page_available_width, scale_factor, window, cx),
+        Page::Tts => tts::render(app, page_available_width, window, cx),
+        Page::Settings => settings::render(app, sidebar_width, page_available_width, window, cx),
     };
     let inspector = (app.navigation.page == Page::Chat
         && (app.navigation.inspector_open || inspector_progress > 0.0))
@@ -346,7 +346,7 @@ pub fn render(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>)
                         .bottom_0()
                         .left_0()
                         .child(translated_x(
-                            inspector::render(app, cx),
+                            inspector::render(app, window, cx),
                             px(368.0 * (1.0 - inspector_progress)),
                         )),
                 )

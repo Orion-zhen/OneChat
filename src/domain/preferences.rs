@@ -164,6 +164,20 @@ pub struct AppSettings {
 }
 
 impl AppSettings {
+    pub fn retain_models(&mut self, models: &[super::Model]) -> bool {
+        let missing = |id: &str| !models.iter().any(|model| model.id == id);
+        let mut changed = false;
+        if self.primary_model_id.as_deref().is_some_and(missing) {
+            self.primary_model_id = None;
+            changed = true;
+        }
+        if self.title_generation_model.model_id().is_some_and(missing) {
+            self.title_generation_model = TitleModelSource::Current;
+            changed = true;
+        }
+        changed
+    }
+
     pub fn normalize(&mut self) -> bool {
         let fonts_changed = self.normalize_fonts();
         let history_limit = self.history_limit.normalized();

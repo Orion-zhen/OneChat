@@ -20,20 +20,13 @@ fn failed_settings_edit_does_not_write_partial_changes() {
 }
 
 #[test]
-fn continuation_validation_promotion_and_failed_conversation_edit_are_atomic() {
+fn first_completed_response_becomes_context_until_explicitly_changed() {
     let (_directory, storage) = open_storage();
     let (provider, first_model) = catalog(&storage);
-    let second_model = Model::new(&provider.id, "second-model", "Second Model");
+    let second_model = Model::new(&provider.id, "second-model", "Second Model", provider.kind);
     storage.insert_model(&second_model).unwrap();
     let conversation = Conversation::new("Chat", Some(&first_model), "");
     storage.insert_conversation(&conversation).unwrap();
-    storage
-        .save_settings(&AppSettings {
-            current_conversation_id: Some(conversation.id.clone()),
-            ..AppSettings::default()
-        })
-        .unwrap();
-
     let first = prepare_turn(
         &storage,
         &conversation,
@@ -43,38 +36,11 @@ fn continuation_validation_promotion_and_failed_conversation_edit_are_atomic() {
         None,
         UserMessage::new("question", Vec::new()),
     );
-    let GenerationStart::NewTurn(first_turn) = first.start else {
-        panic!("expected a new turn");
-    };
-    storage
-        .begin_turn(&first_turn, &first.request_info)
+    let session = storage
+        .update_session(&conversation.id, |session| {
+            session.begin_generation(&first.start, &first.response, &first.request_info)
+        })
         .unwrap();
-    let first_id = first.response.id.clone();
-
-    let mut first_response = first.response;
-    first_response.status = MessageStatus::Completed;
-    storage
-        .update_response(&conversation.id, &first_turn.id, &first_response)
-        .unwrap();
-    assert!(
-        storage
-            .set_continuation_response(&conversation.id, &first_turn.id, &first_id)
-            .is_err()
-    );
-
-    first_response.status = MessageStatus::Streaming;
-    first_response.content = "partial".into();
-    storage
-        .update_response(&conversation.id, &first_turn.id, &first_response)
-        .unwrap();
-    assert!(
-        storage
-            .set_continuation_response(&conversation.id, &first_turn.id, &first_id)
-            .is_err()
-    );
-
-    let snapshot = storage.load_snapshot().unwrap();
-    let turn = &snapshot.current_turns[0];
     let loader = |user: &UserMessage| {
         storage
             .message_for_user(&conversation.id, user, false)
@@ -84,25 +50,19 @@ fn continuation_validation_promotion_and_failed_conversation_edit_are_atomic() {
         &conversation,
         &provider,
         &second_model,
-        &snapshot.current_turns,
-        turn,
+        &session.turns,
+        &session.turns[0],
         ContextPolicy::new(HistoryLimit::Unlimited, &loader),
     )
     .unwrap();
-    let GenerationStart::AddResponse { turn_id } = &second.start else {
-        panic!("expected an additional response");
-    };
     storage
-        .begin_response(
-            &conversation.id,
-            turn_id,
-            &second.response,
-            &second.request_info,
-        )
+        .update_session(&conversation.id, |session| {
+            session.begin_generation(&second.start, &second.response, &second.request_info)
+        })
         .unwrap();
     let mut second_response = second.response;
     second_response.status = MessageStatus::Completed;
-    second_response.content = "second answer".into();
+    second_response.append_output("second answer", 0);
     let second_id = second_response.id.clone();
     let mut second_request = second.request_info;
     second_request.status = RequestStatus::Completed;
@@ -110,40 +70,30 @@ fn continuation_validation_promotion_and_failed_conversation_edit_are_atomic() {
         .persist_generation(&second_response, &second_request)
         .unwrap();
     assert_eq!(
-        storage.load_snapshot().unwrap().current_turns[0].continuation_response_id,
+        storage.load_conversation(&conversation.id).unwrap().turns[0].continuation_response_id,
         Some(second_id.clone())
     );
 
+    let mut first_response = first.response;
     first_response.status = MessageStatus::Completed;
-    first_response.content = "first answer".into();
+    first_response.append_output("first answer", 0);
     let mut first_request = first.request_info;
     first_request.status = RequestStatus::Completed;
     storage
         .persist_generation(&first_response, &first_request)
         .unwrap();
     assert_eq!(
-        storage.load_snapshot().unwrap().current_turns[0].continuation_response_id,
+        storage.load_conversation(&conversation.id).unwrap().turns[0].continuation_response_id,
         Some(second_id)
     );
 
-    storage
-        .set_continuation_response(&conversation.id, &first_turn.id, &first_id)
+    let session = storage
+        .update_session(&conversation.id, |session| {
+            session.set_continuation_response(&first_request.turn_id, &first_response.id)
+        })
         .unwrap();
-    let path = storage
-        .conversations_dir()
-        .join(&conversation.id)
-        .join(format!("{}.json", conversation.id));
-    let before = fs::read(&path).unwrap();
-    first_response.content = "must not be written".into();
-    assert!(
-        storage
-            .begin_regeneration(
-                &conversation.id,
-                &first_turn.id,
-                &first_response,
-                &first_request,
-            )
-            .is_err()
+    assert_eq!(
+        session.turns[0].continuation_response_id,
+        Some(first_response.id)
     );
-    assert_eq!(fs::read(path).unwrap(), before);
 }

@@ -1,13 +1,16 @@
-use onechat::speech::{ChunkPlanner, SegmentationConfig, TextSegment};
+use onechat::speech::{ChunkPlanner, SegmentationConfig, SentencexSegmenter, TextSegment};
 use unicode_segmentation::UnicodeSegmentation;
 
 fn plan(text: &str, max_chars: usize) -> Vec<TextSegment> {
-    ChunkPlanner::new(SegmentationConfig {
-        min_chars: 3,
-        target_chars: max_chars.saturating_sub(2).max(3),
-        max_chars,
-        spread: 3,
-    })
+    ChunkPlanner::with_segmenter(
+        SentencexSegmenter::default(),
+        SegmentationConfig {
+            min_chars: 3,
+            target_chars: max_chars.saturating_sub(2).max(3),
+            max_chars,
+            spread: 3,
+        },
+    )
     .unwrap()
     .plan(text)
     .unwrap()

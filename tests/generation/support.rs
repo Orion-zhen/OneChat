@@ -9,7 +9,7 @@ pub(crate) fn completed_turn(
     provider: &Provider,
 ) -> Turn {
     let mut response = AssistantResponse::new(model, provider);
-    response.content = answer.into();
+    response.append_output(answer, 0);
     let mut turn = Turn::new(
         conversation,
         parent_response_id,

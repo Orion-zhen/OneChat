@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn additional_and_regenerated_responses_only_use_target_ancestors_and_user_message() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let model = Model::new(&provider.id, "test-model", "Test Model", provider.kind);
     let conversation = Conversation::new("Chat", Some(&model), "");
     let root = completed_turn(
         &conversation,
@@ -57,8 +57,8 @@ fn additional_and_regenerated_responses_only_use_target_ancestors_and_user_messa
     )
     .unwrap();
     for messages in [
-        &additional.provider_request.messages,
-        &regenerated.provider_request.messages,
+        &additional.request.clone().into_request().messages,
+        &regenerated.request.clone().into_request().messages,
     ] {
         let messages = serialized_messages(messages).join("\n");
         assert!(messages.contains("root question"));
@@ -72,7 +72,7 @@ fn additional_and_regenerated_responses_only_use_target_ancestors_and_user_messa
 #[test]
 fn visual_attachments_only_require_vision_when_their_turn_is_retained() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-    let model = Model::new(&provider.id, "text-model", "Text Model");
+    let model = Model::new(&provider.id, "text-model", "Text Model", provider.kind);
     let conversation = Conversation::new("Chat", Some(&model), "");
     let mut root = completed_turn(
         &conversation,
@@ -117,7 +117,7 @@ fn visual_attachments_only_require_vision_when_their_turn_is_retained() {
         ContextPolicy::new(HistoryLimit::Unlimited, &loader),
     )
     .unwrap();
-    window_trimmed.provider_request.model.context_window_tokens = Some(recent_only_tokens as u32);
+    window_trimmed.request.model.context_window_tokens = Some(recent_only_tokens as u32);
     window_trimmed.finalize_context().unwrap();
     assert_eq!(
         window_trimmed
@@ -173,7 +173,7 @@ fn visual_attachments_only_require_vision_when_their_turn_is_retained() {
 #[test]
 fn audio_only_requires_support_when_its_turn_is_retained() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-    let model = Model::new(&provider.id, "text-model", "Text Model");
+    let model = Model::new(&provider.id, "text-model", "Text Model", provider.kind);
     let conversation = Conversation::new("Chat", Some(&model), "");
     let mut root = completed_turn(
         &conversation,
@@ -218,7 +218,7 @@ fn audio_only_requires_support_when_its_turn_is_retained() {
         ContextPolicy::new(HistoryLimit::Unlimited, &loader),
     )
     .unwrap();
-    window_trimmed.provider_request.model.context_window_tokens = Some(recent_only_tokens as u32);
+    window_trimmed.request.model.context_window_tokens = Some(recent_only_tokens as u32);
     window_trimmed.finalize_context().unwrap();
     assert_eq!(
         window_trimmed
@@ -263,7 +263,7 @@ fn audio_only_requires_support_when_its_turn_is_retained() {
 #[test]
 fn additional_and_regenerated_audio_messages_apply_the_same_capability_check() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-    let model = Model::new(&provider.id, "text-model", "Text Model");
+    let model = Model::new(&provider.id, "text-model", "Text Model", provider.kind);
     let conversation = Conversation::new("Chat", Some(&model), "");
     let mut turn = completed_turn(
         &conversation,

@@ -151,7 +151,7 @@ impl OneChat {
                     &conversation,
                     &provider,
                     &model,
-                    &self.data.snapshot.current_turns,
+                    self.data.snapshot.current_turns(),
                     parent_response_id,
                     crate::domain::UserMessage::new(prompt, attachments.clone()),
                     context_policy,
@@ -232,7 +232,7 @@ impl OneChat {
         let Some(turn) = self
             .data
             .snapshot
-            .current_turns
+            .current_turns()
             .iter()
             .find(|turn| turn.id == turn_id)
             .cloned()
@@ -253,7 +253,7 @@ impl OneChat {
                 &conversation,
                 &provider,
                 &model,
-                &self.data.snapshot.current_turns,
+                self.data.snapshot.current_turns(),
                 &turn,
                 context_policy,
             )
@@ -315,7 +315,7 @@ impl OneChat {
             cx.notify();
             return;
         }
-        if response.content.is_empty()
+        if !response.has_output()
             || matches!(
                 response.status,
                 crate::domain::MessageStatus::Pending | crate::domain::MessageStatus::Streaming
@@ -346,7 +346,7 @@ impl OneChat {
                 &conversation,
                 &provider,
                 &model,
-                &self.data.snapshot.current_turns,
+                self.data.snapshot.current_turns(),
                 &turn,
                 &response,
                 context_policy,
@@ -394,7 +394,7 @@ impl OneChat {
                 &conversation,
                 &provider,
                 &model,
-                &self.data.snapshot.current_turns,
+                self.data.snapshot.current_turns(),
                 &turn,
                 &response,
                 context_policy,

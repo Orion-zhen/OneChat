@@ -7,7 +7,7 @@ use gpui_component::{
     select::{SelectEvent, SelectState},
 };
 
-use super::state::TranslationPromptKind;
+use super::state::{TranslationPromptKind, TranslationState};
 use crate::{
     desktop::app::{OneChat, ShellOverlay},
     domain::{DEFAULT_TRANSLATION_SYSTEM_PROMPT, DEFAULT_TRANSLATION_USER_PROMPT},
@@ -143,32 +143,29 @@ fn textarea_with_value(
     })
 }
 
-impl OneChat {
-    pub(crate) fn sync_translation_prompt_controls(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+impl TranslationState {
+    pub(crate) fn sync_prompt_controls(&mut self, window: &mut Window, cx: &mut Context<OneChat>) {
+        if !std::mem::take(&mut self.prompts_dirty) {
+            return;
+        }
         sync_textarea(
-            &self.translation.controls.system_prompt,
-            &self.translation.system_prompt,
+            &self.controls.system_prompt,
+            &self.system_prompt,
             window,
             cx,
         );
-        sync_textarea(
-            &self.translation.controls.user_prompt,
-            &self.translation.user_prompt,
-            window,
-            cx,
-        );
+        sync_textarea(&self.controls.user_prompt, &self.user_prompt, window, cx);
     }
+}
 
+impl OneChat {
     pub(in crate::desktop::app) fn set_translation_prompts(
         &mut self,
         system_prompt: String,
         user_prompt: String,
         cx: &mut Context<Self>,
     ) {
+        self.translation.prompts_dirty = true;
         self.translation.system_prompt = system_prompt;
         self.translation.user_prompt = user_prompt;
         self.translation.error = None;
@@ -206,6 +203,7 @@ impl OneChat {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.translation.sync_prompt_controls(window, cx);
         let (overlay, input) = match kind {
             TranslationPromptKind::System => (
                 ShellOverlay::TranslationSystemPrompt,

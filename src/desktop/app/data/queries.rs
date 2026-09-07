@@ -41,9 +41,17 @@ impl OneChat {
             .as_deref())?;
         self.data
             .snapshot
-            .conversations
-            .iter()
-            .find(|conversation| conversation.id == id)
+            .current
+            .as_ref()
+            .filter(|session| session.conversation.id == id)
+            .map(|session| &session.conversation)
+            .or_else(|| {
+                self.data
+                    .snapshot
+                    .conversations
+                    .iter()
+                    .find(|conversation| conversation.id == id)
+            })
     }
 
     pub(crate) fn current_conversation_id(&self) -> Option<&str> {
@@ -176,7 +184,7 @@ impl OneChat {
     }
 
     pub(crate) fn current_turns(&self) -> Vec<&Turn> {
-        active_turns(&self.data.snapshot.current_turns)
+        active_turns(self.data.snapshot.current_turns())
     }
 
     pub(crate) fn active_leaf_turn(&self) -> Option<&Turn> {
@@ -184,7 +192,7 @@ impl OneChat {
     }
 
     pub(crate) fn user_branches(&self, turn: &Turn) -> Vec<&Turn> {
-        user_branches(&self.data.snapshot.current_turns, turn)
+        user_branches(self.data.snapshot.current_turns(), turn)
     }
 
     pub(crate) fn current_request(&self) -> Option<&RequestInfo> {
@@ -193,7 +201,7 @@ impl OneChat {
             return self
                 .data
                 .snapshot
-                .current_requests
+                .current_requests()
                 .iter()
                 .find(|request| request.id == active.request_id);
         }
@@ -214,7 +222,7 @@ impl OneChat {
         let request_id = response.request_id.as_deref()?;
         self.data
             .snapshot
-            .current_requests
+            .current_requests()
             .iter()
             .find(|request| request.id == request_id)
     }
@@ -226,7 +234,7 @@ impl OneChat {
             .and_then(|id| {
                 self.data
                     .snapshot
-                    .current_requests
+                    .current_requests()
                     .iter()
                     .find(|request| request.id == id)
             })
@@ -249,7 +257,7 @@ impl OneChat {
     pub(crate) fn response(&self, response_id: &str) -> Option<(&Turn, &AssistantResponse)> {
         self.data
             .snapshot
-            .current_turns
+            .current_turns()
             .iter()
             .find_map(|turn| turn.response(response_id).map(|response| (turn, response)))
     }
@@ -274,7 +282,7 @@ impl OneChat {
     pub(crate) fn current_context_messages(&self) -> Vec<Message> {
         let limit = self.displayed_history_limit();
         let mut messages = crate::application::generation::history_for_new_turn(
-            &self.data.snapshot.current_turns,
+            self.data.snapshot.current_turns(),
             limit,
         );
         if let Some(opening) = self
@@ -289,7 +297,7 @@ impl OneChat {
 
     pub(crate) fn current_context_audio_duration_ms(&self) -> u64 {
         crate::application::generation::history_audio_duration_ms_for_new_turn(
-            &self.data.snapshot.current_turns,
+            self.data.snapshot.current_turns(),
             self.displayed_history_limit(),
         )
     }

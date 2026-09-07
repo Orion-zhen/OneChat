@@ -62,7 +62,7 @@ pub fn conversation_markdown(
             output.push_str(response.status.as_str());
         }
         output.push_str("\n\n");
-        append_content(&mut output, &response.content);
+        append_content(&mut output, &response.output_text());
         output.push('\n');
     }
 
@@ -127,10 +127,11 @@ pub fn conversation_html(
         output.push_str("</span></span><time class=\"message-time\">");
         output.push_str(&format_display_timestamp(response.created_at));
         output.push_str("</time></header>\n<div class=\"assistant-content prose\">\n");
-        if response.content.trim().is_empty() {
+        let text = response.output_text();
+        if text.trim().is_empty() {
             output.push_str("<p><em>No text content.</em></p>\n");
         } else {
-            output.push_str(&markdown::to_html(&response.content));
+            output.push_str(&markdown::to_html(&text));
         }
         output.push_str("</div>\n</section>\n</article>\n");
     }

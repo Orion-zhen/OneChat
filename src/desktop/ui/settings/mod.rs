@@ -8,7 +8,7 @@ mod providers;
 mod reasoning;
 mod theme_color;
 
-pub(crate) use controls::sync_controls;
+use controls::sync_controls;
 pub(crate) use dialog::prompt_variable_dialog;
 pub(crate) use editors::{
     Capability, DefaultModelItem, FontFamilyItem, McpServerEditor, McpServerEditorMode,
@@ -90,11 +90,13 @@ use crate::{
 };
 
 pub(crate) fn render(
-    app: &OneChat,
+    app: &mut OneChat,
     sidebar_width: f32,
     available_width: f32,
+    window: &mut Window,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
+    sync_controls(app, window, cx);
     let layout = crate::desktop::ui::layout::LayoutClass::from_width(available_width);
     let detail = if app.settings_ui.prompt_preset_workspace.is_some() {
         prompt_preset_workspace(app, layout, cx)

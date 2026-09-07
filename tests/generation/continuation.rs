@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn continuation_requires_completed_nonempty_content_and_only_promotes_when_needed() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-    let model = Model::new(&provider.id, "model", "Model");
+    let model = Model::new(&provider.id, "model", "Model", provider.kind);
     let conversation = Conversation::new("Chat", Some(&model), "");
     let mut first = AssistantResponse::new(&model, &provider);
     let first_id = first.id.clone();
@@ -17,13 +17,13 @@ fn continuation_requires_completed_nonempty_content_and_only_promotes_when_neede
     assert!(!first.is_usable_as_context());
     assert!(turn.continuation_response().is_none());
 
-    first.content = "partial".into();
+    first.append_output("partial", 0);
     first.status = MessageStatus::Streaming;
     turn.responses[0] = first;
     assert!(turn.continuation_response().is_none());
 
     let mut second = AssistantResponse::new(&model, &provider);
-    second.content = "answer".into();
+    second.append_output("answer", 0);
     let second_id = second.id.clone();
     turn.responses.push(second);
     assert!(turn.promote_continuation_response(&second_id));

@@ -236,7 +236,6 @@ fn summary_chip(label: &str, tone: IconTone, cx: &App) -> AnyElement {
 
 fn run_stage(status: RunStatus) -> (&'static str, AppIcon, IconTone) {
     match status {
-        RunStatus::Planning => ("Planning segments", AppIcon::Search, IconTone::Accent),
         RunStatus::Running => ("Generating speech", AppIcon::Sparkles, IconTone::Accent),
         RunStatus::Completed => ("Speech ready", AppIcon::ContextSelected, IconTone::Success),
         RunStatus::Partial => ("Partial audio ready", AppIcon::Info, IconTone::Warning),

@@ -20,8 +20,8 @@ pub struct ModelEditor {
     pub reasoning: ModelReasoningEditor,
     pub available_models: Vec<AvailableModel>,
     pub fetch_status: ModelFetchStatus,
-    synced_models: Vec<AvailableModel>,
-    synced_remote_id: String,
+    pub(crate) combobox_dirty: bool,
+    context_window_sync_pending: bool,
 }
 
 impl ModelEditor {
@@ -34,7 +34,7 @@ impl ModelEditor {
     ) -> Self {
         let value = model
             .clone()
-            .unwrap_or_else(|| Model::new_for_provider(&provider_id, "", "", provider_kind));
+            .unwrap_or_else(|| Model::new(&provider_id, "", "", provider_kind));
         let remote_id = value.remote_id.clone();
         let context_window = value
             .context_window_tokens
@@ -68,8 +68,8 @@ impl ModelEditor {
             reasoning,
             available_models: Vec::new(),
             fetch_status: ModelFetchStatus::Loading,
-            synced_models: Vec::new(),
-            synced_remote_id: remote_id,
+            combobox_dirty: false,
+            context_window_sync_pending: false,
         }
     }
 
@@ -86,9 +86,10 @@ impl ModelEditor {
     }
 
     pub fn build(&self, cx: &App) -> Result<Model, String> {
-        let mut model = self.original.clone().unwrap_or_else(|| {
-            Model::new_for_provider(&self.provider_id, "", "", self.provider_kind)
-        });
+        let mut model = self
+            .original
+            .clone()
+            .unwrap_or_else(|| Model::new(&self.provider_id, "", "", self.provider_kind));
         model.provider_id = self.provider_id.clone();
         model.remote_id = self.remote_id(cx).trim().to_string();
         if model.remote_id.is_empty() {
@@ -109,10 +110,13 @@ impl ModelEditor {
     pub fn begin_fetch(&mut self) {
         self.fetch_status = ModelFetchStatus::Loading;
         self.available_models.clear();
+        self.combobox_dirty = true;
     }
 
     pub fn finish_fetch(&mut self, models: Vec<AvailableModel>, cx: &App) {
         self.available_models = models;
+        self.combobox_dirty = true;
+        self.context_window_sync_pending = true;
         self.fetch_status = ModelFetchStatus::Loaded;
         let remote_id = self.remote_id(cx);
         self.update_capabilities_for_remote_id(&remote_id);
@@ -121,16 +125,16 @@ impl ModelEditor {
 
     pub fn fail_fetch(&mut self, message: String) {
         self.available_models.clear();
+        self.combobox_dirty = true;
         self.fetch_status = ModelFetchStatus::Failed(message);
     }
 
     pub fn sync_combobox(&mut self, window: &mut Window, cx: &mut Context<OneChat>) {
-        let remote_id = self.remote_id(cx);
-        let models_changed = self.synced_models != self.available_models;
-        if !models_changed && self.synced_remote_id == remote_id {
+        if !std::mem::take(&mut self.combobox_dirty) {
             return;
         }
-        if models_changed {
+        let remote_id = self.remote_id(cx);
+        if std::mem::take(&mut self.context_window_sync_pending) {
             let current = self.context_window.read(cx).value().to_string();
             if let Some(tokens) =
                 context_window_to_sync(&self.available_models, &remote_id, &current)
@@ -140,8 +144,6 @@ impl ModelEditor {
                 });
             }
         }
-        self.synced_models.clone_from(&self.available_models);
-        self.synced_remote_id.clone_from(&remote_id);
         let delegate = ModelIdDelegate::new(&remote_id, &self.available_models);
         self.remote_id
             .update(cx, |state, cx| state.set_items(delegate, window, cx));
@@ -153,6 +155,7 @@ impl ModelEditor {
         window: &mut Window,
         cx: &mut Context<OneChat>,
     ) {
+        self.combobox_dirty = true;
         let previous_remote_id = std::mem::replace(&mut self.last_remote_id, remote_id.clone());
         let remote_id_changed = previous_remote_id.trim() != remote_id.trim();
         let display_name = self.display_name.read(cx).value().trim().to_string();

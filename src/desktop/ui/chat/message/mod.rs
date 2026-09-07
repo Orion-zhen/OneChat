@@ -16,8 +16,8 @@ pub(in crate::desktop::ui::chat) use assistant::render_assistant_turn;
 pub(in crate::desktop::ui) use assistant::render_readonly_assistant_content;
 use attachments::render_sent_attachment;
 pub(super) use opening::render_assistant_opening;
-use reasoning::{render_reasoning, render_reasoning_block};
-use tools::{render_tool_execution, render_tool_executions, render_tool_placeholder};
+use reasoning::render_reasoning_block;
+use tools::{render_tool_execution, render_tool_placeholder};
 pub(super) use user::render_user_turn;
 
 fn user_message_max_width(message_max_width: f32) -> f32 {

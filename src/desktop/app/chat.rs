@@ -1,3 +1,6 @@
+mod state;
+pub(crate) use state::ChatState;
+
 use std::{collections::BTreeSet, time::Duration};
 
 use gpui::{Context, Window, prelude::*};
@@ -166,6 +169,7 @@ impl OneChat {
     ) {
         if let Some(editor) = &mut self.chat.generation_config_editor {
             editor.add(parameter);
+            self.chat.controls_dirty = true;
             self.chat.parameter_error = None;
             cx.notify();
         }
@@ -202,6 +206,7 @@ impl OneChat {
     }
 
     pub(crate) fn schedule_generation_config_save(&mut self, cx: &mut Context<Self>) {
+        self.chat.controls_dirty = true;
         let Some(conversation_id) = self.current_conversation().map(|value| value.id.clone())
         else {
             return;
@@ -394,15 +399,6 @@ impl OneChat {
         }
         conversation.tool_selection = selection;
         conversation.updated_at = now_timestamp();
-        if let Some(current) = self
-            .data
-            .snapshot
-            .conversations
-            .iter_mut()
-            .find(|current| current.id == conversation.id)
-        {
-            current.clone_from(&conversation);
-        }
         self.save_conversation_update(conversation, cx);
     }
 
@@ -433,14 +429,25 @@ impl OneChat {
         cx: &mut Context<Self>,
     ) {
         if self.is_transient_conversation(&conversation_id) {
-            self.data.snapshot.current_turns.clear();
-            self.data.snapshot.current_requests.clear();
+            self.edit_current_session(
+                |session| {
+                    session.clear();
+                    Ok(())
+                },
+                cx,
+            );
             self.reset_conversation_ui(cx);
             cx.notify();
             return;
         }
-        self.mutate_and_reload(
+        self.spawn_storage(
             move |storage| storage.clear_conversation_context(&conversation_id),
+            |this, session, cx| {
+                if this.current_conversation_id() == Some(session.conversation.id.as_str()) {
+                    this.reset_conversation_ui(cx);
+                }
+                this.apply_conversation_session(session, cx);
+            },
             cx,
         );
     }

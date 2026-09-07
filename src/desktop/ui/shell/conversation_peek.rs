@@ -156,7 +156,7 @@ fn render_turn(turn: &Turn, cx: &App) -> AnyElement {
         .children(response.map(|response| {
             peek_message(
                 response.model_name.clone(),
-                text_summary(&response.content, 180, Some("No response text")),
+                text_summary(&response.output_text(), 180, Some("No response text")),
                 false,
                 cx,
             )

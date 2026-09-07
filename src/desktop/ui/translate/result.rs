@@ -23,10 +23,10 @@ pub(super) fn render(
 ) -> AnyElement {
     let stacked = !layout.is_wide();
     let narrow = layout.is_narrow();
-    let response = app.translation.response.as_ref();
-    let request = app.translation.request.as_ref();
+    let response = app.translation.output.response.as_ref();
+    let request = app.translation.output.request.as_ref();
     let output = response
-        .map(|response| response.content.clone())
+        .map(|response| response.output_text())
         .unwrap_or_default();
     let stats = request.map(format_stats).unwrap_or_default();
     let request_error = request.and_then(|request| request.error.as_ref());
@@ -67,7 +67,7 @@ pub(super) fn render(
                 .min_w_0()
                 .flex_1()
                 .overflow_y_scroll()
-                .track_scroll(&app.translation.result_scroll)
+                .track_scroll(&app.translation.output.scroll)
                 .p_4()
                 .child(body)
                 .children(request_error.map(|error| {

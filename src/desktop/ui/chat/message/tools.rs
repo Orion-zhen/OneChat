@@ -1,31 +1,5 @@
 use super::*;
 
-pub(super) fn render_tool_executions(
-    app: &OneChat,
-    message: &AssistantResponse,
-    typography: MessageTypography,
-    cx: &mut Context<OneChat>,
-) -> Option<AnyElement> {
-    if message.tool_executions.is_empty() {
-        return None;
-    }
-
-    Some(
-        div()
-            .mb_4()
-            .flex()
-            .flex_col()
-            .gap_2()
-            .children(
-                message
-                    .tool_executions
-                    .iter()
-                    .map(|execution| render_tool_execution(app, execution, typography, cx)),
-            )
-            .into_any_element(),
-    )
-}
-
 pub(super) fn render_tool_placeholder(
     block_id: &str,
     typography: MessageTypography,
@@ -215,6 +189,7 @@ fn tool_detail(
 ) -> AnyElement {
     let selection_group = app
         .chat
+        .presentation
         .text_selection
         .group(format!("tool-{}-{execution_id}", label.to_lowercase()));
     div()

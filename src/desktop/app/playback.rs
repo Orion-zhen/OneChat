@@ -168,7 +168,7 @@ impl OneChat {
             let attachment = self
                 .data
                 .snapshot
-                .current_turns
+                .current_turns()
                 .iter()
                 .flat_map(|turn| &turn.user.attachments)
                 .find(|attachment| attachment.id == attachment_id)?;

@@ -2,22 +2,13 @@ use std::ops::Range;
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::{SentenceSpan, SentencexSegmenter, TextSegmenter};
+use super::{SentenceSpan, TextSegmenter};
 use crate::speech::{config::SegmentationConfig, error::SpeechError, model::TextSegment};
 
 #[derive(Debug, Clone)]
-pub struct ChunkPlanner<S = SentencexSegmenter> {
+pub struct ChunkPlanner<S> {
     segmenter: S,
     config: SegmentationConfig,
-}
-
-impl ChunkPlanner<SentencexSegmenter> {
-    pub fn new(config: SegmentationConfig) -> Result<Self, SpeechError> {
-        Ok(Self {
-            segmenter: SentencexSegmenter::default(),
-            config: config.validate()?,
-        })
-    }
 }
 
 impl<S: TextSegmenter> ChunkPlanner<S> {

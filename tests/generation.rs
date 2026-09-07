@@ -38,6 +38,8 @@ mod branching;
 mod context_window;
 #[path = "generation/continuation.rs"]
 mod continuation;
+#[path = "generation/grouped_context.rs"]
+mod grouped_context;
 #[path = "generation/history.rs"]
 mod history;
 #[path = "generation/manager.rs"]
@@ -46,6 +48,8 @@ mod manager;
 mod preparation;
 #[path = "generation/reasoning.rs"]
 mod reasoning;
+#[path = "generation/response.rs"]
+mod response;
 #[path = "generation/streaming.rs"]
 mod streaming;
 #[path = "generation/support.rs"]

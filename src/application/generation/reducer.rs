@@ -195,7 +195,11 @@ fn finish_request(request: &mut RequestInfo, status: RequestStatus, elapsed: Dur
 fn estimate_output_usage(assistant: &AssistantResponse, request: &mut RequestInfo) {
     if request.usage.output_tokens.is_none() {
         request.usage.output_tokens = Some(estimate_tokens(
-            assistant.content.chars().count() + assistant.thinking.chars().count(),
+            assistant
+                .output_blocks()
+                .chain(assistant.reasoning_blocks())
+                .map(|(_, content)| content.chars().count())
+                .sum(),
         ));
         request.usage.estimated = true;
     }

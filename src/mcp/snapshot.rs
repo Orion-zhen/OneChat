@@ -10,7 +10,6 @@ pub enum McpServerStatus {
     AuthorizationRequired,
     Ready,
     Failed(String),
-    Stopped,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

@@ -115,17 +115,7 @@ impl Element for SelectableText {
         window: &mut Window,
         cx: &mut App,
     ) {
-        let text: SharedString = self.source[self.source_range.clone()].to_string().into();
-        let selected_range = self.group.project_text(
-            self.order,
-            self.section,
-            self.source_range.start,
-            text.clone(),
-            self.text.layout().clone(),
-            bounds,
-            window,
-            cx,
-        );
+        let selected_range = self.project_text(bounds, window, cx);
         if let Some(range) = selected_range {
             for quad in selection_quads(self.text.layout(), &range, self.selection_color) {
                 window.paint_quad(quad);

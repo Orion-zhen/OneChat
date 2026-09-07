@@ -1,4 +1,4 @@
-use gpui::{AnyElement, App, Context, FontWeight, div, prelude::*, px};
+use gpui::{AnyElement, App, Context, FontWeight, Window, div, prelude::*, px};
 use gpui_component::{
     ActiveTheme as _, Disableable as _,
     button::{Button, ButtonVariants as _},
@@ -10,7 +10,13 @@ use crate::desktop::{
     ui::icons::{AppIcon, IconTone, render_icon},
 };
 
-pub(crate) fn render(app: &OneChat, available_width: f32, cx: &mut Context<OneChat>) -> AnyElement {
+pub(crate) fn render(
+    app: &mut OneChat,
+    available_width: f32,
+    window: &mut Window,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    app.tts.sync_controls(window, cx);
     if !tts_connected(app) {
         return landing_page(
             app,

@@ -122,31 +122,37 @@ fn audio_attachment_lifecycle_persists_replays_forks_clears_and_deletes() {
     let source = storage
         .attachment_path(&conversation.id, &attachments[0].files[0].path)
         .unwrap();
-    let mut response = AssistantResponse::new(&model, &provider);
-    response.content = "transcript".into();
-    let mut turn = Turn::new(
+    let prepared = prepare_turn(
+        &storage,
         &conversation,
+        &provider,
+        &model,
+        &[],
         None,
         UserMessage::new("Transcribe", attachments.clone()),
-        response,
     );
-    let request = RequestInfo::new(&conversation.id, &turn.id, &turn.responses[0].id);
-    turn.responses[0].request_id = Some(request.id.clone());
-    storage.begin_turn(&turn, &request).unwrap();
+    begin_and_complete(&storage, prepared, "transcript");
+    let turn = storage
+        .load_conversation_turns(&conversation.id)
+        .unwrap()
+        .remove(0);
 
     let mut continued = prepare_turn(
         &storage,
         &conversation,
         &provider,
         &model,
-        &[turn.clone()],
+        std::slice::from_ref(&turn),
         Some(turn.responses[0].id.clone()),
         UserMessage::new("Continue", Vec::new()),
     );
     continued.finalize_context().unwrap();
-    assert_eq!(continued.provider_request.audio_duration_ms, 1_250);
+    assert_eq!(
+        continued.request.clone().into_request().audio_duration_ms,
+        1_250
+    );
     assert!(
-        serde_json::to_string(&continued.provider_request.messages)
+        serde_json::to_string(&continued.request.clone().into_request().messages)
             .unwrap()
             .contains("YXVkaW8gYnl0ZXM=")
     );
@@ -158,7 +164,7 @@ fn audio_attachment_lifecycle_persists_replays_forks_clears_and_deletes() {
         &conversation,
         &provider,
         &text_model,
-        &[turn.clone()],
+        std::slice::from_ref(&turn),
         Some(turn.responses[0].id.clone()),
         UserMessage::new("Continue", Vec::new()),
     );
@@ -176,29 +182,19 @@ fn audio_attachment_lifecycle_persists_replays_forks_clears_and_deletes() {
         .unwrap();
     assert_eq!(fs::read(&copied).unwrap(), bytes);
 
-    let mut settings = storage.load_snapshot().unwrap().settings;
-    settings.current_conversation_id = Some(fork.id.clone());
-    storage.save_settings(&settings).unwrap();
-    let snapshot = storage.load_snapshot().unwrap();
+    let session = storage.load_conversation(&fork.id).unwrap();
     assert_eq!(
-        snapshot.current_turns[0].user.attachments[0].audio,
+        session.turns[0].user.attachments[0].audio,
         attachments[0].audio
     );
 
-    storage.clear_conversation_context(&fork.id).unwrap();
+    let cleared = storage.clear_conversation_context(&fork.id).unwrap();
     assert!(!copied.exists());
-    assert!(storage.load_snapshot().unwrap().current_turns.is_empty());
+    assert!(cleared.turns.is_empty());
 
     storage.delete_conversation(&conversation.id).unwrap();
     assert!(!source.exists());
-    assert!(
-        storage
-            .load_snapshot()
-            .unwrap()
-            .conversations
-            .iter()
-            .all(|stored| stored.id != conversation.id)
-    );
+    assert!(storage.load_conversation(&conversation.id).is_err());
 }
 
 #[test]

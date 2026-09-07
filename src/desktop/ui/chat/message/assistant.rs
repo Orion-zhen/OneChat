@@ -1,11 +1,12 @@
 use super::*;
+use crate::desktop::app::ResponseSurface;
 
 mod actions;
 mod content;
 mod header;
 
 use actions::render_message_actions;
-use content::{render_message_content, render_output_content, render_output_editor};
+use content::{render_output_content, render_output_editor};
 use header::render_message_header;
 
 pub(in crate::desktop::ui::chat) fn render_assistant_turn(
@@ -41,21 +42,15 @@ pub(in crate::desktop::ui) fn render_readonly_assistant_content(
     typography: MessageTypography,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
-    let content = if message.blocks.is_empty() {
-        render_message_content(app, message, scale_factor, typography, cx)
-    } else {
-        render_ordered_content(app, message, request, false, scale_factor, typography, cx)
-    };
-    div()
-        .children(
-            message
-                .blocks
-                .is_empty()
-                .then(|| render_reasoning(app, message, request, false, typography, cx))
-                .flatten(),
-        )
-        .child(content)
-        .into_any_element()
+    render_ordered_content(
+        app,
+        message,
+        request,
+        ResponseSurface::Translation,
+        scale_factor,
+        typography,
+        cx,
+    )
 }
 
 fn render_assistant_message(
@@ -71,11 +66,15 @@ fn render_assistant_message(
     let action_group: SharedString = format!("assistant-actions-{}", message.id).into();
     let latest = app.is_latest_turn(&turn.id);
     let generating = app.is_current_generating();
-    let content = if message.blocks.is_empty() {
-        render_message_content(app, message, scale_factor, typography, cx)
-    } else {
-        render_ordered_content(app, message, request, true, scale_factor, typography, cx)
-    };
+    let content = render_ordered_content(
+        app,
+        message,
+        request,
+        ResponseSurface::Chat,
+        scale_factor,
+        typography,
+        cx,
+    );
     let actions = render_message_actions(
         app,
         turn,
@@ -115,18 +114,7 @@ fn render_assistant_message(
         .w_full()
         .max_w(px(message_max_width))
         .child(header)
-        .children(message.blocks.is_empty().then(|| {
-            div()
-                .children(render_reasoning(
-                    app, message, request, true, typography, cx,
-                ))
-                .children(render_tool_executions(app, message, typography, cx))
-        }))
         .child(content)
-        .children(
-            (message.blocks.is_empty() && app.assistant_output_editing(message))
-                .then(|| render_editor_controls(app, message, typography, cx)),
-        )
         .children(render_error_card(
             app, message, request, latest, generating, typography, cx,
         ))
@@ -170,11 +158,12 @@ fn render_ordered_content(
     app: &OneChat,
     message: &AssistantResponse,
     request: Option<&RequestInfo>,
-    editable: bool,
+    surface: ResponseSurface,
     scale_factor: f32,
     typography: MessageTypography,
     cx: &mut Context<OneChat>,
 ) -> AnyElement {
+    let editable = surface == ResponseSurface::Chat;
     let output_count = message
         .blocks
         .iter()
@@ -204,7 +193,7 @@ fn render_ordered_content(
                     *started_after_ms,
                     *duration_ms,
                     request,
-                    editable,
+                    surface,
                     typography,
                     cx,
                 ));
@@ -222,7 +211,7 @@ fn render_ordered_content(
                         cx,
                     )
                 } else {
-                    render_output_content(app, id, content, scale_factor, typography, cx)
+                    render_output_content(app, surface, id, content, scale_factor, typography, cx)
                 };
                 output_index += 1;
                 body = body.child(div().mb_4().child(output));
@@ -246,7 +235,7 @@ fn render_ordered_content(
         }
     }
 
-    let waiting = message.content.is_empty()
+    let waiting = !message.has_output()
         && matches!(
             message.status,
             MessageStatus::Pending | MessageStatus::Streaming
@@ -290,7 +279,7 @@ pub(super) fn waiting_label(message: &AssistantResponse) -> String {
     }
     if !message.tool_executions.is_empty() {
         "Waiting for model…".into()
-    } else if message.thinking.is_empty() {
+    } else if !message.has_reasoning() {
         "Contacting provider…".into()
     } else {
         "Thinking…".into()

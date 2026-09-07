@@ -43,10 +43,6 @@ impl HorizontalScrollRegistry {
             .or_default()
             .clone()
     }
-
-    pub(crate) fn clear(&self) {
-        self.handles.borrow_mut().clear();
-    }
 }
 
 fn horizontal_scrollbar(id: impl Into<ElementId>, scroll: &ScrollHandle, cx: &App) -> Scrollbar {

@@ -17,6 +17,7 @@ impl OneChat {
             return;
         }
         self.data.snapshot.settings.primary_model_id = Some(model_id);
+        self.chat.controls_dirty = true;
         if self.data.snapshot.settings.title_generation_model == TitleModelSource::Primary {
             self.sync_title_reasoning_preset();
         }

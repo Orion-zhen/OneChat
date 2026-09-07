@@ -175,9 +175,19 @@ fn response(id: &str, content: &str, model: &str, created_at: i64) -> AssistantR
         provider_name: "Provider".into(),
         request_id: None,
         status: MessageStatus::Completed,
-        content: content.into(),
-        thinking: "hidden reasoning".into(),
-        blocks: Vec::new(),
+        blocks: vec![
+            crate::domain::AssistantBlock::Reasoning {
+                id: format!("{id}-reasoning"),
+                provider_id: None,
+                content: "hidden reasoning".into(),
+                started_after_ms: 0,
+                duration_ms: Some(0),
+            },
+            crate::domain::AssistantBlock::Output {
+                id: format!("{id}-output"),
+                content: content.into(),
+            },
+        ],
         transcript: Vec::new(),
         tool_executions: Vec::new(),
         created_at,

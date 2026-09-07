@@ -5,6 +5,9 @@ mod id;
 mod preferences;
 mod prompt;
 mod reasoning;
+mod session;
+
+pub use session::{ConversationSession, GenerationStart};
 
 pub use catalog::{
     GenerationConfig, Model, ModelCapabilities, Provider, ProviderKind, format_compact_token_count,

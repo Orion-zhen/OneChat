@@ -1,34 +1,5 @@
 use super::*;
-
-pub(super) fn render_reasoning(
-    app: &OneChat,
-    message: &AssistantResponse,
-    request: Option<&RequestInfo>,
-    editable: bool,
-    typography: MessageTypography,
-    cx: &mut Context<OneChat>,
-) -> Option<AnyElement> {
-    if message.thinking.is_empty() {
-        return None;
-    }
-    let editor = editable
-        .then(|| app.assistant_reasoning_editor(message, &message.id))
-        .flatten()
-        .map(|editor| &editor.input);
-    render_reasoning_block(
-        app,
-        message,
-        &message.id,
-        &message.thinking,
-        editor,
-        0,
-        request.and_then(|request| request.thinking_duration_ms),
-        request,
-        editable,
-        typography,
-        cx,
-    )
-}
+use crate::desktop::app::{ResponsePresentation, ResponseSurface};
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn render_reasoning_block(
@@ -40,7 +11,7 @@ pub(super) fn render_reasoning_block(
     started_after_ms: u64,
     duration_ms: Option<u64>,
     request: Option<&RequestInfo>,
-    editable: bool,
+    surface: ResponseSurface,
     typography: MessageTypography,
     cx: &mut Context<OneChat>,
 ) -> Option<AnyElement> {
@@ -48,6 +19,7 @@ pub(super) fn render_reasoning_block(
         return None;
     }
 
+    let presentation = app.response_presentation(surface);
     let live = matches!(
         message.status,
         MessageStatus::Pending | MessageStatus::Streaming
@@ -69,9 +41,10 @@ pub(super) fn render_reasoning_block(
         );
     }
 
-    let expanded = app.thinking_expanded(reasoning_id, live);
-    let duration = reasoning_duration_ms(app, request, started_after_ms, duration_ms, live)
-        .map(format_reasoning_duration);
+    let expanded = presentation.thinking_expanded(reasoning_id, live);
+    let duration =
+        reasoning_duration_ms(presentation, request, started_after_ms, duration_ms, live)
+            .map(format_reasoning_duration);
 
     let mut controls = div().flex().items_center().gap_2();
     if let Some(duration) = duration {
@@ -95,7 +68,7 @@ pub(super) fn render_reasoning_block(
                 .child(duration),
         );
     }
-    if editable {
+    if surface == ResponseSurface::Chat {
         let edit_response_id = message.id.clone();
         let edit_reasoning_id = reasoning_id.to_string();
         controls = controls.child(
@@ -129,9 +102,11 @@ pub(super) fn render_reasoning_block(
             IconTone::Accent,
             cx,
         )
-        .on_click(
-            cx.listener(move |this, _, _, cx| this.toggle_thinking(toggle_id.clone(), live, cx)),
-        )
+        .on_click(cx.listener(move |this, _, _, cx| {
+            this.response_presentation_mut(surface)
+                .toggle_thinking(toggle_id.clone(), live);
+            cx.notify();
+        }))
         .with_animation(
             SharedString::from(format!(
                 "thinking-toggle-{}-{reasoning_id}",
@@ -142,7 +117,7 @@ pub(super) fn render_reasoning_block(
         ),
     );
 
-    let body = render_reasoning_text(app, reasoning_id, content, expanded, cx);
+    let body = render_reasoning_text(presentation, reasoning_id, content, expanded, cx);
 
     let card = div()
         .mb_4()
@@ -177,16 +152,15 @@ pub(super) fn render_reasoning_block(
 }
 
 fn render_reasoning_text(
-    app: &OneChat,
+    presentation: &ResponsePresentation,
     reasoning_id: &str,
     content: &str,
     expanded: bool,
     cx: &App,
 ) -> AnyElement {
-    let scroll = app.chat.thinking_scrolls.get(reasoning_id).cloned();
+    let scroll = presentation.thinking_scrolls.get(reasoning_id).cloned();
     let boundary_scroll = scroll.clone();
-    let selection_group = app
-        .chat
+    let selection_group = presentation
         .text_selection
         .group(format!("thinking-text-{reasoning_id}"));
     let body = div()
@@ -207,7 +181,7 @@ fn render_reasoning_text(
     } else {
         body
     };
-    let body = if let Some(motion) = app.chat.thinking_motions.get(reasoning_id).copied() {
+    let body = if let Some(motion) = presentation.thinking_motions.get(reasoning_id).copied() {
         let target_height = if expanded {
             motion.full_height
         } else {
@@ -268,7 +242,7 @@ fn render_reasoning_text(
 }
 
 fn reasoning_duration_ms(
-    app: &OneChat,
+    presentation: &ResponsePresentation,
     request: Option<&RequestInfo>,
     started_after_ms: u64,
     duration_ms: Option<u64>,
@@ -281,7 +255,7 @@ fn reasoning_duration_ms(
         return None;
     }
     let request = request?;
-    app.chat
+    presentation
         .thinking_started_at
         .get(&request.id)
         .map(|started_at| {

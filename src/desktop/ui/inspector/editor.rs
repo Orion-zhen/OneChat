@@ -135,9 +135,7 @@ pub struct GenerationConfigEditor {
     conversation_id: String,
     active: HashSet<GenerationParameter>,
     pub parameter_select: Entity<SelectState<Vec<GenerationParameterItem>>>,
-    synced_options: Vec<GenerationParameterItem>,
     reasoning_preset: Option<String>,
-    synced_reasoning_options: Vec<ReasoningPresetItem>,
     pub reasoning_select: Entity<SelectState<Vec<ReasoningPresetItem>>>,
     pub temperature: Entity<InputState>,
     pub top_p: Entity<InputState>,
@@ -161,9 +159,7 @@ impl GenerationConfigEditor {
             conversation_id: conversation.id.clone(),
             active: active_parameters(config),
             parameter_select: cx.new(|cx| SelectState::new(Vec::new(), None, window, cx)),
-            synced_options: Vec::new(),
             reasoning_preset: config.reasoning_preset.clone(),
-            synced_reasoning_options: Vec::new(),
             reasoning_select: cx.new(|cx| SelectState::new(Vec::new(), None, window, cx)),
             temperature: optional_number_input(config.temperature, None, window, cx),
             top_p: optional_number_input(config.top_p, None, window, cx),
@@ -228,13 +224,10 @@ impl GenerationConfigEditor {
         cx: &mut Context<OneChat>,
     ) {
         let Some(reasoning) = &model.reasoning else {
-            if !self.synced_reasoning_options.is_empty() {
-                self.synced_reasoning_options.clear();
-                self.reasoning_select.update(cx, |select, cx| {
-                    select.set_items(Vec::new(), window, cx);
-                    select.set_selected_index(None, window, cx);
-                });
-            }
+            self.reasoning_select.update(cx, |select, cx| {
+                select.set_items(Vec::new(), window, cx);
+                select.set_selected_index(None, window, cx);
+            });
             return;
         };
         let options = reasoning
@@ -251,20 +244,10 @@ impl GenerationConfigEditor {
                 .filter(|id| options.iter().any(|item| item.value.as_ref() == Some(id)))
                 .unwrap_or_else(|| reasoning.default_preset().to_string()),
         );
-        let changed = options != self.synced_reasoning_options;
-        if changed {
-            self.synced_reasoning_options.clone_from(&options);
-        }
-        if changed
-            || self.reasoning_select.read(cx).selected_value().cloned() != Some(desired.clone())
-        {
-            self.reasoning_select.update(cx, |select, cx| {
-                if changed {
-                    select.set_items(options, window, cx);
-                }
-                select.set_selected_value(&desired, window, cx);
-            });
-        }
+        self.reasoning_select.update(cx, |select, cx| {
+            select.set_items(options, window, cx);
+            select.set_selected_value(&desired, window, cx);
+        });
     }
 
     pub fn is_active(&self, parameter: GenerationParameter) -> bool {
@@ -327,10 +310,6 @@ impl GenerationConfigEditor {
             .filter(|parameter| parameter.supported_by(capabilities) && !self.is_active(*parameter))
             .map(GenerationParameterItem)
             .collect::<Vec<_>>();
-        if options == self.synced_options {
-            return;
-        }
-        self.synced_options.clone_from(&options);
         self.parameter_select.update(cx, |select, cx| {
             select.set_items(options, window, cx);
             select.set_selected_index(None, window, cx);

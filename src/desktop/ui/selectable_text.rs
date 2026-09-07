@@ -271,7 +271,6 @@ impl TextSelection {
                     }
                     let scroll = scroll.clone();
                     let auto_scroll = Rc::downgrade(&auto_scroll);
-                    let window_handle = window_handle.clone();
                     cx.spawn(async move |cx| {
                         loop {
                             cx.background_executor()
@@ -382,40 +381,6 @@ impl SelectionGroup {
             .borrow_mut()
             .begin_frame(self.generation, self.section_separator.clone());
         (runtime, handle)
-    }
-
-    fn project_text(
-        &self,
-        order: u64,
-        section: u64,
-        source_start: usize,
-        text: SharedString,
-        layout: gpui::TextLayout,
-        bounds: Bounds<Pixels>,
-        window: &Window,
-        cx: &mut App,
-    ) -> Option<Range<usize>> {
-        let (runtime, handle) = self.runtime_and_handle(window, cx);
-        let run_index = {
-            let mut runtime = runtime.borrow_mut();
-            let index = runtime.runs.len();
-            runtime.runs.push(
-                TextSelectionRun::new(text.clone(), layout, bounds)
-                    .with_document_order(index as u64),
-            );
-            index
-        };
-        let runs = runtime.borrow().runs.clone();
-        let projection = handle.update_runs(&runs, cx);
-        let range = projection.ranges().get(run_index).cloned().flatten();
-        let mut runtime = runtime.borrow_mut();
-        runtime.selected.remove(&(section, order, source_start));
-        if let Some(range) = range.clone() {
-            runtime
-                .selected
-                .insert((section, order, source_start), text[range].to_string());
-        }
-        range
     }
 
     fn register_text_bounds(&self, bounds: Bounds<Pixels>) {
@@ -544,6 +509,39 @@ pub(crate) fn selection_color(cx: &App) -> Rgba {
 }
 
 impl SelectableText {
+    fn project_text(
+        &self,
+        bounds: Bounds<Pixels>,
+        window: &Window,
+        cx: &mut App,
+    ) -> Option<Range<usize>> {
+        let text: SharedString = self.source[self.source_range.clone()].to_string().into();
+        let (runtime, handle) = self.group.runtime_and_handle(window, cx);
+        let run_index = {
+            let mut runtime = runtime.borrow_mut();
+            let index = runtime.runs.len();
+            runtime.runs.push(
+                TextSelectionRun::new(text.clone(), self.text.layout().clone(), bounds)
+                    .with_document_order(index as u64),
+            );
+            index
+        };
+        let runs = runtime.borrow().runs.clone();
+        let projection = handle.update_runs(&runs, cx);
+        let range = projection.ranges().get(run_index).cloned().flatten();
+        let mut runtime = runtime.borrow_mut();
+        runtime
+            .selected
+            .remove(&(self.section, self.order, self.source_range.start));
+        if let Some(range) = range.clone() {
+            runtime.selected.insert(
+                (self.section, self.order, self.source_range.start),
+                text[range].to_string(),
+            );
+        }
+        range
+    }
+
     pub(crate) fn new(
         group: SelectionGroup,
         order: u64,

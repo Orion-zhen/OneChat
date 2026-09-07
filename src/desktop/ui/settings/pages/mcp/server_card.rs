@@ -21,7 +21,6 @@ pub(super) fn mcp_server_card(
             McpServerStatus::AuthorizationRequired => ("Sign in required", false, None),
             McpServerStatus::Ready => ("Ready", true, None),
             McpServerStatus::Failed(error) => ("Failed", false, Some(error.as_str())),
-            McpServerStatus::Stopped => ("Stopped", false, None),
         },
     };
     let endpoint = match &server.transport {

@@ -87,17 +87,26 @@ impl OneChat {
             settings.default_prompt_preset = Some(preset.name.clone());
         }
         self.data.snapshot.settings = settings.clone();
+        self.settings_ui.controls_dirty = true;
         self.settings_ui.prompt_preset_workspace = None;
         self.settings_ui.pending_prompt_preset_exit = None;
         self.settings_ui.form_error = None;
-        self.mutate_and_reload(
+        self.spawn_storage(
             move |storage| {
-                if let Some(original_name) = original_name {
-                    storage.update_prompt_preset(&original_name, &preset)?;
+                let preset = if let Some(original_name) = &original_name {
+                    storage.update_prompt_preset(original_name, &preset)?
                 } else {
-                    storage.insert_prompt_preset(&preset)?;
-                }
-                storage.save_settings(&settings)
+                    storage.insert_prompt_preset(&preset)?
+                };
+                storage.save_settings(&settings)?;
+                Ok((original_name, preset))
+            },
+            |this, (original_name, preset), _| {
+                this.data
+                    .snapshot
+                    .update_prompt_preset(original_name.as_deref(), preset);
+                this.settings_ui.controls_dirty = true;
+                this.data.error = None;
             },
             cx,
         );
@@ -122,12 +131,19 @@ impl OneChat {
             settings.default_prompt_preset = None;
         }
         self.data.snapshot.settings = settings.clone();
+        self.settings_ui.controls_dirty = true;
         self.settings_ui.prompt_preset_workspace = None;
         self.settings_ui.pending_prompt_preset_exit = None;
-        self.mutate_and_reload(
+        self.spawn_storage(
             move |storage| {
                 storage.delete_prompt_preset(&name)?;
-                storage.save_settings(&settings)
+                storage.save_settings(&settings)?;
+                Ok(name)
+            },
+            |this, name, _| {
+                this.data.snapshot.remove_prompt_preset(&name);
+                this.settings_ui.controls_dirty = true;
+                this.data.error = None;
             },
             cx,
         );
@@ -136,6 +152,6 @@ impl OneChat {
     pub(crate) fn reload_prompt_presets(&mut self, cx: &mut Context<Self>) {
         self.settings_ui.prompt_preset_workspace = None;
         self.settings_ui.pending_prompt_preset_exit = None;
-        self.reload_snapshot(cx);
+        self.load_prompt_presets(cx);
     }
 }

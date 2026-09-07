@@ -29,12 +29,13 @@ impl ConversationSearchEntry {
     }
 
     fn assistant(turn_id: &str, response: &AssistantResponse) -> Self {
+        let content = response.output_text();
         Self {
             turn_id: turn_id.to_string(),
             response_id: Some(response.id.clone()),
             source: ConversationSearchSource::Assistant,
-            content: response.content.clone(),
-            normalized: response.content.to_lowercase(),
+            normalized: content.to_lowercase(),
+            content,
         }
     }
 
@@ -49,7 +50,7 @@ pub struct ConversationSearchIndex {
 }
 
 impl ConversationSearchIndex {
-    pub(super) fn insert_conversation(&mut self, conversation_id: String, turns: &[Turn]) {
+    pub(crate) fn insert_conversation(&mut self, conversation_id: String, turns: &[Turn]) {
         let mut entries = Vec::new();
         for turn in turns {
             entries.push(ConversationSearchEntry::user(turn));
@@ -60,6 +61,10 @@ impl ConversationSearchIndex {
             );
         }
         self.entries.insert(conversation_id, entries);
+    }
+
+    pub(super) fn remove_conversation(&mut self, conversation_id: &str) {
+        self.entries.remove(conversation_id);
     }
 
     pub fn entries(&self, conversation_id: &str) -> &[ConversationSearchEntry] {
@@ -75,7 +80,9 @@ impl ConversationSearchIndex {
         turn_id: &str,
         response: &AssistantResponse,
     ) {
-        let entries = self.entries.entry(conversation_id.to_string()).or_default();
+        let Some(entries) = self.entries.get_mut(conversation_id) else {
+            return;
+        };
         let entry = ConversationSearchEntry::assistant(turn_id, response);
         if let Some(stored) = entries
             .iter_mut()
@@ -85,5 +92,40 @@ impl ConversationSearchIndex {
         } else {
             entries.push(entry);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::{Conversation, Model, Provider, ProviderKind, UserMessage};
+
+    #[test]
+    fn late_generation_updates_do_not_restore_discarded_search_entries() {
+        let provider = Provider::new("Provider", ProviderKind::OpenAi);
+        let model = Model::new(&provider.id, "model", "Model", provider.kind);
+        let conversation = Conversation::new("Chat", Some(&model), "");
+        let mut response = AssistantResponse::new(&model, &provider);
+        response.append_output("first", 0);
+        let turn = Turn::new(
+            &conversation,
+            None,
+            UserMessage::new("question", Vec::new()),
+            response.clone(),
+        );
+        let mut index = ConversationSearchIndex::default();
+        index.insert_conversation(conversation.id.clone(), std::slice::from_ref(&turn));
+        let output_id = response.output_blocks().next().unwrap().0.to_string();
+        response.replace_editable_text(&[], &[(output_id, "updated".into())]);
+        index.update_assistant_response(&conversation.id, &turn.id, &response);
+        assert!(
+            index
+                .entries(&conversation.id)
+                .iter()
+                .any(|entry| entry.content == "updated")
+        );
+        index.remove_conversation(&conversation.id);
+        index.update_assistant_response(&conversation.id, &turn.id, &response);
+        assert!(index.entries(&conversation.id).is_empty());
     }
 }

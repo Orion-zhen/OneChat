@@ -3,7 +3,7 @@ use crate::domain::{GenerationConfig, Model};
 
 fn request(kind: ProviderKind, audio_input: bool, with_audio: bool) -> GenerationRequest {
     let provider = Provider::new("Provider", kind);
-    let mut model = Model::new(&provider.id, "model", "Model");
+    let mut model = Model::new(&provider.id, "model", "Model", provider.kind);
     model.capabilities.audio_input = audio_input;
     let messages = if with_audio {
         vec![Message::User {

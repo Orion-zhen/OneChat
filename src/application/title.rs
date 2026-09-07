@@ -171,7 +171,7 @@ mod tests {
     #[test]
     fn title_request_uses_selected_reasoning_preset() {
         let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-        let mut model = Model::new(&provider.id, "gpt-test", "GPT Test");
+        let mut model = Model::new(&provider.id, "gpt-test", "GPT Test", provider.kind);
         model.context_window_tokens = Some(1);
 
         let user = UserMessage::new(

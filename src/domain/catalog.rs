@@ -256,14 +256,6 @@ impl Model {
         provider_id: impl Into<String>,
         remote_id: impl Into<String>,
         display_name: impl Into<String>,
-    ) -> Self {
-        Self::new_for_provider(provider_id, remote_id, display_name, ProviderKind::OpenAi)
-    }
-
-    pub fn new_for_provider(
-        provider_id: impl Into<String>,
-        remote_id: impl Into<String>,
-        display_name: impl Into<String>,
         provider_kind: ProviderKind,
     ) -> Self {
         let now = now_timestamp();

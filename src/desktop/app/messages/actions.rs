@@ -59,7 +59,7 @@ impl OneChat {
         let valid = self
             .data
             .snapshot
-            .current_turns
+            .current_turns()
             .iter()
             .find(|turn| turn.id == turn_id)
             .is_some_and(|turn| turn.response(&response_id).is_some());
@@ -87,7 +87,7 @@ impl OneChat {
         let Some(turn) = self
             .data
             .snapshot
-            .current_turns
+            .current_turns()
             .iter()
             .find(|turn| turn.id == turn_id)
         else {
@@ -150,7 +150,7 @@ impl OneChat {
         let Some(turn) = self
             .data
             .snapshot
-            .current_turns
+            .current_turns()
             .iter()
             .find(|turn| turn.id == turn_id)
         else {
@@ -204,27 +204,8 @@ impl OneChat {
         response_id: String,
         cx: &mut Context<Self>,
     ) {
-        let Some(conversation) = self.current_conversation() else {
-            return;
-        };
-        if conversation.temporary {
-            if let Some(turn) = self
-                .data
-                .snapshot
-                .current_turns
-                .iter_mut()
-                .find(|turn| turn.id == turn_id)
-                && turn.promote_continuation_response(&response_id)
-            {
-                cx.notify();
-            }
-            return;
-        }
-        let conversation_id = conversation.id.clone();
-        self.mutate_and_reload(
-            move |storage| {
-                storage.set_continuation_response(&conversation_id, &turn_id, &response_id)
-            },
+        self.edit_current_session(
+            move |session| session.set_continuation_response(&turn_id, &response_id),
             cx,
         );
     }
@@ -267,15 +248,24 @@ impl OneChat {
         conversation.created_at = now;
         conversation.updated_at = now;
 
-        let source_id = source.id;
-        let fork_id = conversation.id.clone();
+        let source_id = source.id.clone();
         let mut settings = self.data.snapshot.settings.clone();
-        settings.current_conversation_id = Some(fork_id);
-        self.navigation.pending_focus = Some(PendingFocus::Composer);
-        self.mutate_and_reload(
+        settings.current_conversation_id = Some(conversation.id.clone());
+        self.spawn_storage(
             move |storage| {
-                storage.fork_conversation(&source_id, &response_id, &conversation)?;
-                storage.save_settings(&settings)
+                let session = storage.fork_conversation(&source_id, &response_id, &conversation)?;
+                storage.save_settings(&settings)?;
+                Ok(session)
+            },
+            move |this, session, cx| {
+                if this.current_conversation_id() == Some(source.id.as_str()) {
+                    this.data.snapshot.settings.current_conversation_id =
+                        Some(session.conversation.id.clone());
+                    this.data.snapshot.current = None;
+                    this.reset_conversation_ui(cx);
+                    this.navigation.pending_focus = Some(PendingFocus::Composer);
+                }
+                this.apply_conversation_session(session, cx);
             },
             cx,
         );
@@ -350,7 +340,7 @@ impl OneChat {
         let Some(turn) = self
             .data
             .snapshot
-            .current_turns
+            .current_turns()
             .iter()
             .find(|turn| turn.id == turn_id)
         else {
@@ -406,7 +396,7 @@ impl OneChat {
         let Some((content, attachments)) = self
             .data
             .snapshot
-            .current_turns
+            .current_turns()
             .iter()
             .find(|turn| turn.id == turn_id)
             .map(|turn| (turn.user.content.clone(), turn.user.attachments.clone()))
@@ -446,24 +436,16 @@ impl OneChat {
         let Some((_, response)) = self.response(&response_id) else {
             return;
         };
-        let texts = if response.blocks.is_empty() {
-            vec![(
-                AssistantTextKind::Output,
-                response.id.clone(),
-                response.content.clone(),
-            )]
-        } else {
-            response
-                .blocks
-                .iter()
-                .filter_map(|block| match block {
-                    AssistantBlock::Output { id, content } => {
-                        Some((AssistantTextKind::Output, id.clone(), content.clone()))
-                    }
-                    _ => None,
-                })
-                .collect()
-        };
+        let texts = response
+            .output_blocks()
+            .map(|(id, content)| {
+                (
+                    AssistantTextKind::Output,
+                    id.to_string(),
+                    content.to_string(),
+                )
+            })
+            .collect();
         self.begin_assistant_text_edit(response_id, texts, window, cx);
     }
 
@@ -480,16 +462,8 @@ impl OneChat {
         let Some((_, response)) = self.response(&response_id) else {
             return;
         };
-        let content = if response.blocks.is_empty() && block_id == response.id {
-            Some(response.thinking.clone())
-        } else {
-            response.blocks.iter().find_map(|block| match block {
-                AssistantBlock::Reasoning { id, content, .. } if id == &block_id => {
-                    Some(content.clone())
-                }
-                _ => None,
-            })
-        };
+        let content =
+            assistant_text(response, AssistantTextKind::Reasoning, &block_id).map(str::to_string);
         let Some(content) = content else {
             return;
         };
@@ -575,7 +549,7 @@ impl OneChat {
         let Some(turn) = self
             .data
             .snapshot
-            .current_turns
+            .current_turns()
             .iter()
             .find(|turn| turn.id == turn_id)
             .cloned()
@@ -634,7 +608,7 @@ impl OneChat {
                     &conversation,
                     &provider,
                     &model,
-                    &self.data.snapshot.current_turns,
+                    self.data.snapshot.current_turns(),
                     turn.parent_response_id,
                     crate::domain::UserMessage::new(content, attachments),
                     context_policy,
@@ -669,36 +643,9 @@ impl OneChat {
         {
             return;
         }
-        let Some(conversation) = self.current_conversation() else {
-            return;
-        };
-        let temporary = conversation.temporary;
-        let conversation_id = conversation.id.clone();
         self.chat.selected_request_id = None;
         self.chat.visible_response_ids.clear();
-        if temporary {
-            let Some(parent) = self
-                .data
-                .snapshot
-                .current_turns
-                .iter()
-                .find(|turn| turn.id == turn_id)
-                .map(|turn| turn.parent_response_id.clone())
-            else {
-                return;
-            };
-            for turn in &mut self.data.snapshot.current_turns {
-                if turn.parent_response_id == parent {
-                    turn.selected = turn.id == turn_id;
-                }
-            }
-            cx.notify();
-            return;
-        }
-        self.mutate_and_reload(
-            move |storage| storage.select_user_branch(&conversation_id, &turn_id),
-            cx,
-        );
+        self.edit_current_session(move |session| session.select_user_branch(&turn_id), cx);
     }
 
     pub(crate) fn save_assistant_edit(&mut self, response_id: String, cx: &mut Context<Self>) {
@@ -728,38 +675,12 @@ impl OneChat {
         else {
             return;
         };
-        let Some(conversation_id) = self.current_conversation().map(|value| value.id.clone())
-        else {
-            return;
-        };
         response.replace_editable_text(&reasoning, &outputs);
         response.updated_at = now_timestamp();
         self.chat.message_editor = None;
         self.navigation.pending_focus = Some(PendingFocus::Composer);
-        if self
-            .current_conversation()
-            .is_some_and(|conversation| conversation.temporary)
-        {
-            if let Some(stored) = self
-                .data
-                .snapshot
-                .current_turns
-                .iter_mut()
-                .find(|turn| turn.id == turn_id)
-                .and_then(|turn| {
-                    turn.responses
-                        .iter_mut()
-                        .find(|stored| stored.id == response_id)
-                })
-            {
-                *stored = response;
-            }
-            self.refresh_markdown_documents(cx);
-            cx.notify();
-            return;
-        }
-        self.mutate_and_reload(
-            move |storage| storage.update_response(&conversation_id, &turn_id, &response),
+        self.edit_current_session(
+            move |session| session.update_response(&turn_id, &response),
             cx,
         );
     }
@@ -781,12 +702,6 @@ fn assistant_text<'a>(
     kind: AssistantTextKind,
     block_id: &str,
 ) -> Option<&'a str> {
-    if response.blocks.is_empty() {
-        return (block_id == response.id).then_some(match kind {
-            AssistantTextKind::Reasoning => response.thinking.as_str(),
-            AssistantTextKind::Output => response.content.as_str(),
-        });
-    }
     response
         .blocks
         .iter()

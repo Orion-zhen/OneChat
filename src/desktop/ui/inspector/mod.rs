@@ -54,7 +54,10 @@ pub enum InspectorTab {
     Info,
 }
 
-pub(crate) fn sync_controls(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>) {
+fn sync_controls(app: &mut OneChat, window: &mut Window, cx: &mut Context<OneChat>) {
+    if !std::mem::take(&mut app.chat.controls_dirty) {
+        return;
+    }
     let history_limit = app.displayed_history_limit().slider_value();
     sync_slider(&app.chat.history_limit_slider, history_limit, window, cx);
 
@@ -66,7 +69,12 @@ pub(crate) fn sync_controls(app: &mut OneChat, window: &mut Window, cx: &mut Con
     }
 }
 
-pub(crate) fn render(app: &OneChat, cx: &mut Context<OneChat>) -> AnyElement {
+pub(crate) fn render(
+    app: &mut OneChat,
+    window: &mut Window,
+    cx: &mut Context<OneChat>,
+) -> AnyElement {
+    sync_controls(app, window, cx);
     let selected_tab = match app.navigation.inspector_tab {
         InspectorTab::Model => 0,
         InspectorTab::Context => 1,

@@ -45,16 +45,7 @@ pub(super) fn waiting_results(segments: &[TextSegment]) -> Vec<SegmentResult> {
     segments
         .iter()
         .cloned()
-        .map(|segment| SegmentResult {
-            segment,
-            status: SegmentStatus::Waiting,
-            attempt: 0,
-            seed: None,
-            clip: None,
-            error: None,
-            audio_validation: None,
-            transcript_validation: None,
-        })
+        .map(SegmentResult::waiting)
         .collect()
 }
 

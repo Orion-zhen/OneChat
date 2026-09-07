@@ -15,7 +15,7 @@ use crate::{
         },
         prompt::PromptContext,
     },
-    domain::{AssistantBlock, AssistantResponse, MessageStatus, RequestInfo},
+    domain::{AssistantResponse, MessageStatus, RequestInfo, UserMessage},
     markdown::MarkdownDocument,
 };
 
@@ -42,8 +42,8 @@ impl OneChat {
                 .iter()
                 .find(|conversation| conversation.id == conversation_id)
                 .map_or_else(String::new, |conversation| conversation.title.clone()),
-            model_name: prepared.provider_request.model.display_name.clone(),
-            provider_name: prepared.provider_request.provider.name.clone(),
+            model_name: prepared.request.model.display_name.clone(),
+            provider_name: prepared.request.provider.name.clone(),
         };
         prepared.configure_prompt(
             self.data.snapshot.settings.prompt_variables.clone(),
@@ -66,6 +66,7 @@ impl OneChat {
         self.sidebar.unseen_generations.remove(&conversation_id);
 
         self.chat.history_limit_preview = None;
+        self.chat.controls_dirty = true;
         let turn_id = prepared.request_info.turn_id.clone();
         let response_id = prepared.response.id.clone();
         let scroll_to_bottom =
@@ -81,15 +82,41 @@ impl OneChat {
             self.chat.message_scroll.scroll_to_bottom();
         }
         self.chat.message_editor = None;
-        self.chat.thinking_expansion_overrides.remove(&response_id);
-        self.chat.thinking_motions.remove(&response_id);
         self.chat
+            .presentation
+            .thinking_expansion_overrides
+            .remove(&response_id);
+        self.chat.presentation.thinking_motions.remove(&response_id);
+        self.chat
+            .presentation
             .thinking_scrolls
             .insert(response_id, ScrollHandle::new());
         cx.notify();
 
+        let root_user_message = match &prepared.start {
+            GenerationStart::NewTurn(turn) => Some(turn.as_ref()),
+            _ => self
+                .data
+                .snapshot
+                .current_turns()
+                .iter()
+                .find(|turn| turn.id == prepared.request_info.turn_id),
+        }
+        .filter(|turn| turn.parent_response_id.is_none())
+        .map(|turn| turn.user.clone());
+
         if temporary {
-            if let Err(error) = self.begin_temporary_generation_records(&prepared) {
+            let session = self
+                .data
+                .snapshot
+                .current
+                .as_mut()
+                .expect("temporary conversation is loaded");
+            if let Err(error) = session.begin_generation(
+                &prepared.start,
+                &prepared.response,
+                &prepared.request_info,
+            ) {
                 self.remove_temporary_attachments(&prepared.new_attachments);
                 self.chat
                     .generations
@@ -98,9 +125,15 @@ impl OneChat {
                 cx.notify();
                 return;
             }
+            let summary = session.conversation.clone();
+            self.data
+                .snapshot
+                .conversation_search
+                .insert_conversation(conversation_id.clone(), &session.turns);
+            self.data.snapshot.update_conversation_summary(summary);
             self.chat.selected_request_id = Some(prepared.request_info.id.clone());
-            self.refresh_markdown_documents(cx);
-            self.launch_generation(prepared, cancellation, false, cx);
+            self.refresh_conversation_content(cx);
+            self.launch_generation(prepared, cancellation, false, root_user_message, cx);
             cx.notify();
             return;
         }
@@ -112,42 +145,32 @@ impl OneChat {
             previous.await;
             let result = cx
                 .background_spawn(async move {
-                    let persistence = match &persisted.start {
-                        GenerationStart::NewTurn(turn) => {
-                            storage.begin_turn(turn, &persisted.request_info)
-                        }
-                        GenerationStart::AddResponse { turn_id } => storage.begin_response(
-                            &persisted.request_info.conversation_id,
-                            turn_id,
-                            &persisted.response,
-                            &persisted.request_info,
-                        ),
-                        GenerationStart::RetryResponse { turn_id }
-                        | GenerationStart::ContinueResponse { turn_id } => storage
-                            .begin_regeneration(
-                                &persisted.request_info.conversation_id,
-                                turn_id,
+                    let persistence = storage.update_session(
+                        &persisted.request_info.conversation_id,
+                        |session| {
+                            session.begin_generation(
+                                &persisted.start,
                                 &persisted.response,
                                 &persisted.request_info,
-                            ),
-                    };
-                    if let Err(error) = persistence {
+                            )
+                        },
+                    );
+                    if persistence.is_err() {
                         let _ = storage.remove_attachments(
                             &persisted.request_info.conversation_id,
                             &persisted.new_attachments,
                         );
-                        return Err(error);
                     }
-                    storage.load_snapshot()
+                    persistence
                 })
                 .await;
             let _ = this.update(cx, |this, cx| match result {
-                Ok(snapshot) => {
-                    this.data.snapshot = snapshot;
-                    this.data.error = None;
-                    this.chat.selected_request_id = Some(prepared.request_info.id.clone());
-                    this.refresh_markdown_documents(cx);
-                    this.launch_generation(prepared, cancellation, true, cx);
+                Ok(session) => {
+                    this.apply_conversation_session(session, cx);
+                    if this.current_conversation_id() == Some(conversation_id.as_str()) {
+                        this.chat.selected_request_id = Some(prepared.request_info.id.clone());
+                    }
+                    this.launch_generation(prepared, cancellation, true, root_user_message, cx);
                     cx.notify();
                 }
                 Err(error) => {
@@ -161,73 +184,18 @@ impl OneChat {
         });
     }
 
-    fn begin_temporary_generation_records(
-        &mut self,
-        prepared: &PreparedGeneration,
-    ) -> Result<(), String> {
-        match &prepared.start {
-            GenerationStart::NewTurn(turn) => {
-                for sibling in &mut self.data.snapshot.current_turns {
-                    if sibling.parent_response_id == turn.parent_response_id {
-                        sibling.selected = false;
-                    }
-                }
-                let mut turn = (**turn).clone();
-                turn.selected = true;
-                self.data.snapshot.current_turns.push(turn);
-            }
-            GenerationStart::AddResponse { turn_id } => {
-                let turn = self
-                    .data
-                    .snapshot
-                    .current_turns
-                    .iter_mut()
-                    .find(|turn| turn.id == *turn_id)
-                    .ok_or_else(|| format!("turn not found: {turn_id}"))?;
-                turn.responses.push(prepared.response.clone());
-            }
-            GenerationStart::RetryResponse { turn_id }
-            | GenerationStart::ContinueResponse { turn_id } => {
-                let response = self
-                    .data
-                    .snapshot
-                    .current_turns
-                    .iter_mut()
-                    .find(|turn| turn.id == *turn_id)
-                    .and_then(|turn| {
-                        turn.responses
-                            .iter_mut()
-                            .find(|response| response.id == prepared.response.id)
-                    })
-                    .ok_or_else(|| format!("response not found: {}", prepared.response.id))?;
-                *response = prepared.response.clone();
-            }
-        }
-        self.data
-            .snapshot
-            .current_requests
-            .insert(0, prepared.request_info.clone());
-        Ok(())
-    }
-
     fn launch_generation(
         &mut self,
         prepared: PreparedGeneration,
         cancellation: CancellationToken,
         persist: bool,
+        root_user_message: Option<UserMessage>,
         cx: &mut Context<Self>,
     ) {
         let conversation_id = prepared.request_info.conversation_id.clone();
         let request_id = prepared.request_info.id.clone();
-        let root_user_message = self
-            .data
-            .snapshot
-            .current_turns
-            .iter()
-            .find(|turn| turn.id == prepared.request_info.turn_id)
-            .filter(|turn| turn.parent_response_id.is_none())
-            .map(|turn| turn.user.clone());
         self.chat
+            .presentation
             .thinking_started_at
             .insert(request_id.clone(), Instant::now());
         let storage = self.services.storage.clone();
@@ -260,6 +228,7 @@ impl OneChat {
                     .update(cx, |this, cx| {
                         let ticking = this
                             .chat
+                            .presentation
                             .thinking_started_at
                             .contains_key(&timer_request_id);
                         if ticking {
@@ -315,7 +284,10 @@ impl OneChat {
                             .await;
                         let _ = this.update(cx, |this, cx| {
                             if terminal {
-                                this.chat.thinking_started_at.remove(&request.id);
+                                this.chat
+                                    .presentation
+                                    .thinking_started_at
+                                    .remove(&request.id);
                             }
                             let visible = this.update_generation_snapshot(
                                 &conversation_id,
@@ -334,7 +306,7 @@ impl OneChat {
                             }
                             if visible {
                                 for reasoning_id in finished_reasoning_ids {
-                                    this.finish_thinking(reasoning_id);
+                                    this.chat.presentation.finish_thinking(reasoning_id);
                                 }
                             }
                             for (id, source, document) in parsed_markdown {
@@ -344,6 +316,7 @@ impl OneChat {
                                     == Some(source.as_str());
                                 if current {
                                     this.chat
+                                        .presentation
                                         .markdown_documents
                                         .insert(id, CachedMarkdown { source, document });
                                 }
@@ -385,7 +358,10 @@ impl OneChat {
                 }
             }
             let _ = this.update(cx, |this, _| {
-                this.chat.thinking_started_at.remove(&cleanup_request_id);
+                this.chat
+                    .presentation
+                    .thinking_started_at
+                    .remove(&cleanup_request_id);
             });
         })
         .detach();
@@ -400,45 +376,29 @@ impl OneChat {
         if self.current_conversation_id() != Some(conversation_id) {
             return false;
         }
-        let thinking_grew = self
-            .response(&response.id)
-            .is_none_or(|(_, stored)| stored.thinking.len() < response.thinking.len());
-        if let Some(turn) = self
-            .data
-            .snapshot
-            .current_turns
-            .iter_mut()
-            .find(|turn| turn.id == request.turn_id)
-        {
-            if let Some(stored) = turn
-                .responses
-                .iter_mut()
-                .find(|stored| stored.id == response.id)
-            {
-                *stored = response.clone();
-            }
-            turn.promote_continuation_response(&response.id);
+        let growing_reasoning = response
+            .reasoning_blocks()
+            .next_back()
+            .filter(|(id, text)| {
+                self.response(&response.id)
+                    .and_then(|(_, stored)| {
+                        stored
+                            .reasoning_blocks()
+                            .find(|(stored_id, _)| stored_id == id)
+                    })
+                    .is_none_or(|(_, stored)| stored.len() < text.len())
+            })
+            .map(|(id, _)| id.to_string());
+        let Some(session) = self.data.snapshot.current.as_mut() else {
+            return false;
+        };
+        if let Err(error) = session.update_generation(response, request) {
+            self.data.error = Some(error);
+            return false;
         }
-        if let Some(info) = self
-            .data
-            .snapshot
-            .current_requests
-            .iter_mut()
-            .find(|info| info.id == request.id)
-        {
-            *info = request.clone();
-        }
-        if thinking_grew {
-            let reasoning_id = response
-                .blocks
-                .iter()
-                .rev()
-                .find_map(|block| match block {
-                    AssistantBlock::Reasoning { id, .. } => Some(id.clone()),
-                    _ => None,
-                })
-                .unwrap_or_else(|| response.id.clone());
+        if let Some(reasoning_id) = growing_reasoning {
             self.chat
+                .presentation
                 .thinking_scrolls
                 .entry(reasoning_id)
                 .or_default()
@@ -452,28 +412,15 @@ impl OneChat {
 }
 
 fn response_output_sources(response: &AssistantResponse) -> Vec<(String, String)> {
-    if response.blocks.is_empty() {
-        return vec![(response.id.clone(), response.content.clone())];
-    }
     response
-        .blocks
-        .iter()
-        .filter_map(|block| match block {
-            AssistantBlock::Output { id, content } => Some((id.clone(), content.clone())),
-            _ => None,
-        })
+        .output_blocks()
+        .map(|(id, content)| (id.to_string(), content.to_string()))
         .collect()
 }
 
 fn response_output_source<'a>(response: &'a AssistantResponse, id: &str) -> Option<&'a str> {
-    if response.blocks.is_empty() {
-        return (response.id == id).then_some(response.content.as_str());
-    }
-    response.blocks.iter().find_map(|block| match block {
-        AssistantBlock::Output {
-            id: output_id,
-            content,
-        } if output_id == id => Some(content.as_str()),
-        _ => None,
-    })
+    response
+        .output_blocks()
+        .find(|(output_id, _)| *output_id == id)
+        .map(|(_, content)| content)
 }

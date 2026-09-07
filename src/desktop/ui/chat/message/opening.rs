@@ -20,12 +20,12 @@ pub(in crate::desktop::ui::chat) fn render_assistant_opening(
         markdown::render(
             document,
             &message_id,
-            &app.chat.text_selection,
+            &app.chat.presentation.text_selection,
             scale_factor,
             typography,
             markdown::MarkdownBehavior {
                 code_block_wrap: app.settings().code_block_wrap,
-                horizontal_scrolls: &app.chat.horizontal_scrolls,
+                horizontal_scrolls: &app.chat.presentation.horizontal_scrolls,
             },
             cx,
         )
@@ -33,7 +33,7 @@ pub(in crate::desktop::ui::chat) fn render_assistant_opening(
         markdown::render_plain(
             &conversation.assistant_opening,
             &message_id,
-            &app.chat.text_selection,
+            &app.chat.presentation.text_selection,
             typography,
             cx,
         )

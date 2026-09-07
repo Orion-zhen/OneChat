@@ -38,7 +38,15 @@ The crate keeps reusable code independent from the GPUI desktop shell:
 - `speech`: UI-independent audio.cpp client, segmentation, validation, retry, audio processing, and WAV/MP3 export pipeline
 - `desktop`: GPUI coordination and feature-oriented chat, TTS, settings, inspector, and shell presentation
 
-The desktop shell starts through `gpui_platform`, installs `gpui_component_assets`, and wraps each window in `gpui_component::Root`. Standard inputs, buttons, pickers, dialogs, forms, tabs, switches, sliders, alerts, and notifications come from `gpui-component`. `desktop/ui/theme.rs` is the semantic color center: it generates light and dark palettes from the configured theme color, feeds component theme tokens, and owns product-specific message, Markdown, status, media, glass, and selection colors. `desktop/ui/icons.rs` maps product semantics to component or Lucide icons. Chat layout, glass materials, product motion, Markdown/LaTeX rendering, and cross-node message selection remain OneChat-owned.
+`ConversationSession` owns a conversation's metadata, turns, and requests. Temporary chats edit this object in memory. Persistent chats use the same operations inside `Storage::update_session`, which serializes edits to the in-memory session and commits them after a successful file write. Conversation mutations return the affected session or metadata instead of reloading all conversations. Metadata updates do not replace streaming content, and results for background conversations do not change the selected session. Catalog and prompt changes update only their own data. Full snapshots are used at startup and for explicit storage reloads.
+
+Assistant responses store display text only in ordered `blocks`. Copy, export, search, and title generation derive their text from output blocks. The native `transcript` remains separate for provider reasoning metadata, tool calls, tool results, and history replay. Response editing updates the blocks and the corresponding native text.
+
+Chat and translation each own a `ResponsePresentation` for Markdown caches, text selection, horizontal scrolling, and reasoning expansion. They share rendering code without sharing mutable display state. `TranslationOutput` owns generation progress, cancellation, and stale-result checks. Switching conversations rebuilds `ChatState` while retaining background generation, request clocks, and revision counters.
+
+Settings, Inspector, translation, and TTS synchronize their controls within their own page boundaries. Data changes mark the affected controls for refresh. Hidden pages retain pending refreshes until they are shown, and streaming updates do not rebuild unrelated model or prompt menus. View construction is separate from starting background services so GPUI tests can exercise controls without launching live tasks.
+
+The desktop shell starts through `gpui_platform`, installs `gpui_kit_assets`, and wraps each window in `gpui_component::Root`. Standard inputs, buttons, pickers, dialogs, forms, tabs, switches, sliders, alerts, and notifications come from `gpui-component`. `desktop/ui/theme.rs` is the semantic color center: it generates light and dark palettes from the configured theme color, feeds component theme tokens, and owns product-specific message, Markdown, status, media, glass, and selection colors. `desktop/ui/icons.rs` maps product semantics to component or Lucide icons. Chat layout, glass materials, product motion, Markdown/LaTeX rendering, and cross-node message selection remain OneChat-owned.
 
 `src/main.rs` normally starts `desktop::run()`; on Linux and Windows the same executable can also enter a private, isolated HTML snapshot helper mode so WebKitGTK/WebView2 does not interfere with GPUI's event loop. Another UI or CLI can reuse the library modules without depending on desktop internals.
 
@@ -56,6 +64,8 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 cargo check
 ```
+
+The test build enables GPUI's `test-support` feature for headless control and view-state tests. These tests do not replace manual platform and visual checks.
 
 ## Package
 
@@ -103,11 +113,15 @@ Reusable prompt presets are stored in one directory per preset:
 
 Each directory contains `<preset-name>.md` for the system prompt and may contain `<preset-name>.opening.md` for an optional assistant opening. The Markdown extension is for editor convenience; OneChat sends both files as plain text without parsing them.
 
-Each conversation has its own directory containing `<conversation-id>.json`, including its messages and request history:
+Each conversation has its own directory containing `<conversation-id>.json`, including its messages and request history. Responses require `blocks` and no longer write aggregate `content` or `thinking` fields. Summary-only responses from older formats are unsupported and are not converted automatically.
+
+Conversation directories are stored at:
 
 - macOS: `~/Library/Application Support/OneChat/conversations/<conversation-id>/`
 - Linux: `${XDG_STATE_HOME:-~/.local/state}/onechat/conversations/<conversation-id>/`
 - Windows: `%LOCALAPPDATA%\OneChat\conversations\<conversation-id>\`
+
+OneChat keeps persistent conversations in memory and commits each change after its file is written successfully. Background generation and conversation edits share this state. Restart OneChat after editing settings or conversation JSON outside the app. Prompt presets can be refreshed without reloading conversations.
 
 Attachment metadata and relative paths are stored in that JSON file. Attachment contents are stored under `attachments/` in the same conversation directory, so images and rendered PDF pages do not inflate the conversation log. Deleting or clearing a conversation removes its attachment files, and forking copies the attachments used by the forked history.
 
@@ -139,7 +153,7 @@ Modern Office attachments (`.docx`, `.xlsx`, and `.pptx`) are parsed locally int
 
 Excel workbooks preserve the last formatted cell values saved in the file; OneChat does not recalculate formulas or expose their expressions. PowerPoint presentations provide extracted text, tables, chart cache data, notes, and individual embedded images, but slides are not rendered as full-page images, so layout, themes, SmartArt, and other visual relationships may not be preserved.
 
-The settings parser accepts JSONC comments and trailing commas. Files written by OneChat are formatted as plain JSON, which is also valid JSONC. Existing comments are not preserved when the app writes the settings file. Legacy SQLite files are neither imported nor deleted.
+The settings parser accepts JSONC comments and trailing commas. Files written by OneChat are formatted as plain JSON, which is also valid JSONC. Existing comments are not preserved when the app writes the settings file. Conversation files must use the current data format. OneChat does not migrate historical formats or rewrite files merely to read them. Back up and convert older data separately before opening it with a newer build. Legacy SQLite files are neither imported nor deleted.
 
 ## Models and conversation context
 

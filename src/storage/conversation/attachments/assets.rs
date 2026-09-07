@@ -6,10 +6,10 @@ use std::{
 
 use crate::{
     domain::{Attachment, AttachmentDraft, AttachmentFile},
-    storage::{Result, Storage, StorageError, conflict, missing},
+    storage::{Result, Storage, StorageError, conflict},
 };
 
-use super::super::{ConversationFile, validate_component};
+use super::super::{ConversationSession, validate_component};
 
 impl Storage {
     pub fn store_attachments(
@@ -17,10 +17,8 @@ impl Storage {
         conversation_id: &str,
         drafts: &[AttachmentDraft],
     ) -> Result<Vec<Attachment>> {
-        let _guard = self.lock()?;
-        if !self.conversation_path(conversation_id)?.exists() {
-            return Err(missing("conversation", conversation_id));
-        }
+        let mut state = self.lock()?;
+        self.sessions(&mut state)?.get(conversation_id)?;
 
         let mut created = Vec::with_capacity(drafts.len());
         let result = (|| {
@@ -118,7 +116,7 @@ impl Storage {
     pub(in crate::storage::conversation) fn copy_attachment_assets(
         &self,
         source_conversation_id: &str,
-        destination: &ConversationFile,
+        destination: &ConversationSession,
     ) -> Result<()> {
         for attachment in destination
             .turns

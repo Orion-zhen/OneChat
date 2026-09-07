@@ -40,6 +40,7 @@ impl OneChat {
             });
         })
         .detach();
+        self.settings_ui.controls_dirty = true;
         cx.notify();
     }
 
@@ -119,6 +120,7 @@ impl OneChat {
             return;
         }
         self.data.snapshot.settings.background_opacity = opacity;
+        self.settings_ui.controls_dirty = true;
         cx.notify();
     }
 
@@ -128,6 +130,7 @@ impl OneChat {
             return;
         }
         self.data.snapshot.settings.message_width_ratio = ratio;
+        self.settings_ui.controls_dirty = true;
         cx.notify();
     }
 
@@ -137,6 +140,7 @@ impl OneChat {
             return;
         }
         self.data.snapshot.settings.message_font_size = size;
+        self.settings_ui.controls_dirty = true;
         cx.notify();
     }
 
@@ -146,7 +150,9 @@ impl OneChat {
             return;
         }
         self.data.snapshot.settings.history_limit = limit;
+        self.chat.controls_dirty = true;
         self.settings_ui.history_limit_save_pending = true;
+        self.settings_ui.controls_dirty = true;
         cx.notify();
     }
 

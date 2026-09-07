@@ -112,7 +112,7 @@ mod tests {
     #[test]
     fn keeps_anthropic_parameters_at_the_expected_level() {
         let provider = Provider::new("Anthropic", ProviderKind::Anthropic);
-        let mut model = Model::new(&provider.id, "model", "Model");
+        let mut model = Model::new(&provider.id, "model", "Model", provider.kind);
         model.capabilities.top_k = true;
         let mut config = GenerationConfig {
             top_p: Some(0.8),

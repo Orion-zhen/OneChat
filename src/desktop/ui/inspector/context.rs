@@ -17,7 +17,7 @@ pub(super) fn render_context(app: &OneChat, cx: &mut Context<OneChat>) -> AnyEle
     let source = app.prompt_setup_label(conversation);
     let estimated_tokens = estimate_context_tokens(app);
     let history_preview = crate::application::generation::history_preview_for_new_turn(
-        &app.data.snapshot.current_turns,
+        app.data.snapshot.current_turns(),
         app.displayed_history_limit(),
     );
     let request_context = app.inspected_request().and_then(|request| request.context);

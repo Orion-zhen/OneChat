@@ -26,6 +26,7 @@ pub(super) fn render_message_content(
         let palette = crate::desktop::ui::theme::palette(cx).user_message;
         let attachment_scroll = app
             .chat
+            .presentation
             .horizontal_scrolls
             .handle(format!("edit-user-attachments:{}", turn.id));
         let attachment_boundary_scroll = attachment_scroll.clone();
@@ -237,12 +238,12 @@ pub(super) fn render_message_content(
                             markdown::render_user(
                                 document,
                                 &turn.user.id,
-                                &app.chat.text_selection,
+                                &app.chat.presentation.text_selection,
                                 scale_factor,
                                 typography,
                                 markdown::MarkdownBehavior {
                                     code_block_wrap: app.settings().code_block_wrap,
-                                    horizontal_scrolls: &app.chat.horizontal_scrolls,
+                                    horizontal_scrolls: &app.chat.presentation.horizontal_scrolls,
                                 },
                                 cx,
                             )
@@ -250,7 +251,7 @@ pub(super) fn render_message_content(
                             markdown::render_user_plain(
                                 &turn.user.content,
                                 &turn.user.id,
-                                &app.chat.text_selection,
+                                &app.chat.presentation.text_selection,
                                 typography,
                                 cx,
                             )

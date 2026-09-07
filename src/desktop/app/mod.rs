@@ -13,17 +13,22 @@ mod motion;
 mod navigation;
 mod overlays;
 mod playback;
+mod presentation;
 mod recording;
 mod settings;
 mod state;
+#[cfg(test)]
+mod tests;
 mod tokio_bridge;
 mod translate;
 mod tts;
 
+use chat::ChatState;
 pub(crate) use composer_ime::{ComposerImeHandler, register_composer_ime};
 use motion::*;
 pub use navigation::{ConversationGroup, Page};
 pub(crate) use playback::{attachment_source_id, tts_combined_source_id, tts_segment_source_id};
+pub(crate) use presentation::{ResponsePresentation, ResponseSurface};
 #[cfg(target_os = "macos")]
 pub(crate) use state::ConversationPeekContent;
 use state::*;

@@ -32,18 +32,6 @@ fn provider_usage_anchors_only_the_known_request_and_estimates_the_delta() {
 }
 
 #[test]
-fn legacy_single_step_usage_can_build_a_provider_reference() {
-    let messages = vec![Message::user("hello")];
-    let reference = provider_usage_reference(12, "", &messages, 0).unwrap();
-    assert_eq!(reference.input_tokens, 12);
-    assert_eq!(
-        reference.estimated_input_tokens,
-        estimate_input_tokens("", &messages, 0)
-    );
-    assert!(provider_usage_reference(0, "", &messages, 0).is_none());
-}
-
-#[test]
 fn reasoning_counts_only_when_it_is_replayed_in_the_transcript() {
     let reasoning = Message::Assistant {
         id: None,

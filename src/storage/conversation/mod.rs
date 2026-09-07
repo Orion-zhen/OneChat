@@ -5,33 +5,22 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use serde::{Deserialize, Serialize};
-
 use crate::domain::{
-    AutoTitleState, Conversation, RequestInfo, Turn, UserMessage, active_turns, new_id,
+    AutoTitleState, Conversation, ConversationSession, RequestInfo, Turn, UserMessage,
+    active_turns, new_id,
 };
 
-use super::{
-    Result, Storage, StorageError, codec::write_json, conflict,
-    migration::read_conversation as read_and_migrate, missing,
-};
+use super::{Result, Storage, StorageError, codec::write_json, conflict, missing};
 
 mod attachments;
 mod generation;
+mod state;
 
-#[derive(Debug, Deserialize, Serialize)]
-pub(super) struct ConversationFile {
-    #[serde(flatten)]
-    pub(super) conversation: Conversation,
-    pub(super) turns: Vec<Turn>,
-    #[serde(default)]
-    pub(super) requests: Vec<RequestInfo>,
-}
+pub(super) use state::Sessions;
 
 impl Storage {
     pub fn load_conversation_turns(&self, conversation_id: &str) -> Result<Vec<Turn>> {
-        let _guard = self.lock()?;
-        Ok(self.read_conversation(conversation_id)?.turns)
+        Ok(self.load_conversation(conversation_id)?.turns)
     }
 
     pub fn export_conversation_archive(
@@ -40,8 +29,9 @@ impl Storage {
         markdown: &str,
         destination: &Path,
     ) -> Result<()> {
-        let _guard = self.lock()?;
-        let source_json = fs::read(self.conversation_path(conversation_id)?)?;
+        let mut state = self.lock()?;
+        let sessions = self.sessions(&mut state)?;
+        let source_json = serde_json::to_vec_pretty(sessions.get(conversation_id)?)?;
         let attachments_dir = self.conversation_dir(conversation_id)?.join("attachments");
         let attachment_files = files_below(&attachments_dir)?;
         if let Some(parent) = destination.parent() {
@@ -78,56 +68,35 @@ impl Storage {
     }
 
     pub fn insert_conversation(&self, conversation: &Conversation) -> Result<()> {
-        let _guard = self.lock()?;
+        let mut state = self.lock()?;
+        let sessions = self.sessions(&mut state)?;
         let path = self.conversation_path(&conversation.id)?;
-        if path.exists() {
+        if sessions.contains(&conversation.id) || path.exists() {
             return Err(conflict("conversation", &conversation.id));
         }
-        self.write_conversation(&ConversationFile {
-            conversation: conversation.clone(),
-            turns: Vec::new(),
-            requests: Vec::new(),
-        })
+        self.commit_session(sessions, &ConversationSession::new(conversation.clone()))
     }
 
     pub fn update_conversation(&self, conversation: &Conversation) -> Result<()> {
-        self.edit_conversation(&conversation.id, |file| {
-            let title = file.conversation.title.clone();
-            let auto_title_state = file.conversation.auto_title_state;
-            let updated_at = file.conversation.updated_at.max(conversation.updated_at);
-            file.conversation = conversation.clone();
-            file.conversation.title = title;
-            file.conversation.auto_title_state = auto_title_state;
-            file.conversation.updated_at = updated_at;
+        self.update_session(&conversation.id, |session| {
+            session.update_conversation(conversation);
             Ok(())
         })
-    }
-
-    pub fn rename_conversation(&self, conversation_id: &str, title: &str) -> Result<()> {
-        let title = title.trim();
-        if title.is_empty() {
-            return Err(StorageError::InvalidData(
-                "conversation title cannot be empty".into(),
-            ));
-        }
-        self.edit_conversation(conversation_id, |file| {
-            file.conversation.title = title.to_string();
-            file.conversation.auto_title_state = AutoTitleState::Finished;
-            Ok(())
-        })
+        .map(|_| ())
     }
 
     pub fn claim_auto_title(&self, conversation_id: &str) -> Result<bool> {
-        let _guard = self.lock()?;
-        if !self.conversation_path(conversation_id)?.exists() {
+        let mut state = self.lock()?;
+        let sessions = self.sessions(&mut state)?;
+        if !sessions.contains(conversation_id) {
             return Ok(false);
         }
-        let mut file = self.read_conversation(conversation_id)?;
+        let mut file = sessions.get(conversation_id)?.clone();
         if file.conversation.auto_title_state != AutoTitleState::Pending {
             return Ok(false);
         }
         file.conversation.auto_title_state = AutoTitleState::Running;
-        self.write_conversation(&file)?;
+        self.commit_session(sessions, &file)?;
         Ok(true)
     }
 
@@ -135,20 +104,20 @@ impl Storage {
         &self,
         conversation_id: &str,
     ) -> Result<Option<Vec<(UserMessage, String)>>> {
-        let _guard = self.lock()?;
-        if !self.conversation_path(conversation_id)?.exists() {
+        let mut state = self.lock()?;
+        let sessions = self.sessions(&mut state)?;
+        if !sessions.contains(conversation_id) {
             return Ok(None);
         }
-        let mut file = self.read_conversation(conversation_id)?;
+        let mut file = sessions.get(conversation_id)?.clone();
         if file.conversation.auto_title_state == AutoTitleState::Running {
             return Ok(None);
         }
         let conversation = active_turns(&file.turns)
             .into_iter()
             .filter_map(|turn| {
-                turn.continuation_response()
-                    .filter(|response| !response.content.trim().is_empty())
-                    .map(|response| (turn.user.clone(), response.content.clone()))
+                let text = turn.continuation_response()?.output_text();
+                (!text.trim().is_empty()).then(|| (turn.user.clone(), text))
             })
             .take(3)
             .collect::<Vec<_>>();
@@ -156,25 +125,30 @@ impl Storage {
             return Ok(None);
         }
         file.conversation.auto_title_state = AutoTitleState::Running;
-        self.write_conversation(&file)?;
+        self.commit_session(sessions, &file)?;
         Ok(Some(conversation))
     }
 
-    pub fn finish_auto_title(&self, conversation_id: &str, title: Option<&str>) -> Result<bool> {
-        let _guard = self.lock()?;
-        if !self.conversation_path(conversation_id)?.exists() {
-            return Ok(false);
+    pub fn finish_auto_title(
+        &self,
+        conversation_id: &str,
+        title: Option<&str>,
+    ) -> Result<Option<Conversation>> {
+        let mut state = self.lock()?;
+        let sessions = self.sessions(&mut state)?;
+        if !sessions.contains(conversation_id) {
+            return Ok(None);
         }
-        let mut file = self.read_conversation(conversation_id)?;
+        let mut file = sessions.get(conversation_id)?.clone();
         if file.conversation.auto_title_state != AutoTitleState::Running {
-            return Ok(false);
+            return Ok(None);
         }
         if let Some(title) = title.map(str::trim).filter(|title| !title.is_empty()) {
             file.conversation.title = title.to_string();
         }
         file.conversation.auto_title_state = AutoTitleState::Finished;
-        self.write_conversation(&file)?;
-        Ok(true)
+        self.commit_session(sessions, &file)?;
+        Ok(Some(file.conversation))
     }
 
     pub fn fork_conversation(
@@ -182,229 +156,98 @@ impl Storage {
         source_conversation_id: &str,
         response_id: &str,
         conversation: &Conversation,
-    ) -> Result<()> {
-        let _guard = self.lock()?;
+    ) -> Result<ConversationSession> {
+        let mut state = self.lock()?;
+        let sessions = self.sessions(&mut state)?;
         let path = self.conversation_path(&conversation.id)?;
-        if path.exists() {
+        if sessions.contains(&conversation.id) || path.exists() {
             return Err(conflict("conversation", &conversation.id));
         }
 
-        let source = self.read_conversation(source_conversation_id)?;
-        let (turns, requests) = fork_path(&source, response_id, &conversation.id)?;
+        let source = sessions.get(source_conversation_id)?;
+        let (turns, requests) = fork_path(source, response_id, &conversation.id)?;
         let mut conversation = conversation.clone();
         conversation.auto_title_state = AutoTitleState::Finished;
-        let file = ConversationFile {
+        let file = ConversationSession {
             conversation,
             turns,
             requests,
         };
-        self.write_conversation(&file)?;
-        if let Err(error) = self.copy_attachment_assets(source_conversation_id, &file) {
+        if let Err(error) = self
+            .copy_attachment_assets(source_conversation_id, &file)
+            .and_then(|()| self.commit_session(sessions, &file))
+        {
             let _ = fs::remove_dir_all(self.conversation_dir(&file.conversation.id)?);
             return Err(error);
-        }
-        Ok(())
-    }
-
-    pub fn delete_conversation(&self, id: &str) -> Result<()> {
-        let _guard = self.lock()?;
-        if !self.conversation_path(id)?.exists() {
-            return Err(missing("conversation", id));
-        }
-        fs::remove_dir_all(self.conversation_dir(id)?)?;
-        Ok(())
-    }
-
-    pub fn clear_conversation_context(&self, conversation_id: &str) -> Result<()> {
-        let _guard = self.lock()?;
-        let mut file = self.read_conversation(conversation_id)?;
-        file.turns.clear();
-        file.requests.clear();
-        self.write_conversation(&file)?;
-        let attachments = self.conversation_dir(conversation_id)?.join("attachments");
-        match fs::remove_dir_all(attachments) {
-            Ok(()) => Ok(()),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(error) => Err(error.into()),
-        }
-    }
-
-    pub fn set_continuation_response(
-        &self,
-        conversation_id: &str,
-        turn_id: &str,
-        response_id: &str,
-    ) -> Result<()> {
-        self.edit_conversation(conversation_id, |file| {
-            if !active_turns(&file.turns)
-                .iter()
-                .any(|turn| turn.id == turn_id)
-            {
-                return Err(StorageError::InvalidData(
-                    "only an active turn can change context".into(),
-                ));
-            }
-            let turn = file
-                .turns
-                .iter_mut()
-                .find(|turn| turn.id == turn_id)
-                .ok_or_else(|| missing("turn", turn_id))?;
-            let response = turn
-                .response(response_id)
-                .ok_or_else(|| missing("response", response_id))?;
-            if !response.is_usable_as_context() {
-                return Err(StorageError::InvalidData(
-                    "only a completed response can be used as context".into(),
-                ));
-            }
-            turn.continuation_response_id = Some(response_id.to_string());
-            Ok(())
-        })
-    }
-
-    pub fn select_user_branch(&self, conversation_id: &str, turn_id: &str) -> Result<()> {
-        self.edit_conversation(conversation_id, |file| {
-            let parent_response_id = file
-                .turns
-                .iter()
-                .find(|turn| turn.id == turn_id)
-                .ok_or_else(|| missing("turn", turn_id))?
-                .parent_response_id
-                .clone();
-            for turn in &mut file.turns {
-                if turn.parent_response_id == parent_response_id {
-                    turn.selected = turn.id == turn_id;
-                }
-            }
-            Ok(())
-        })
-    }
-
-    pub fn select_turn_path(&self, conversation_id: &str, turn_id: &str) -> Result<()> {
-        self.edit_conversation(conversation_id, |file| {
-            let mut path = Vec::new();
-            let mut current_id = turn_id.to_string();
-            loop {
-                let turn = file
-                    .turns
-                    .iter()
-                    .find(|turn| turn.id == current_id)
-                    .ok_or_else(|| missing("turn", &current_id))?;
-                path.push((turn.id.clone(), turn.parent_response_id.clone()));
-                let Some(parent_response_id) = &turn.parent_response_id else {
-                    break;
-                };
-                current_id = file
-                    .turns
-                    .iter()
-                    .find(|candidate| candidate.response(parent_response_id).is_some())
-                    .ok_or_else(|| missing("parent response", parent_response_id))?
-                    .id
-                    .clone();
-            }
-
-            for (selected_id, parent_response_id) in path.iter().rev() {
-                for turn in &mut file.turns {
-                    if turn.parent_response_id == *parent_response_id {
-                        turn.selected = turn.id == *selected_id;
-                    }
-                }
-                if let Some(parent_response_id) = parent_response_id
-                    && let Some(parent) = file
-                        .turns
-                        .iter_mut()
-                        .find(|turn| turn.response(parent_response_id).is_some())
-                {
-                    parent.continuation_response_id = Some(parent_response_id.clone());
-                }
-            }
-            Ok(())
-        })
-    }
-
-    pub(super) fn clear_conversation_models(&self, removed_models: &[String]) -> Result<()> {
-        if removed_models.is_empty() {
-            return Ok(());
-        }
-        for mut file in self.read_conversations()? {
-            if file
-                .conversation
-                .model_id
-                .as_ref()
-                .is_some_and(|id| removed_models.contains(id))
-            {
-                file.conversation.model_id = None;
-                self.write_conversation(&file)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn edit_conversation(
-        &self,
-        conversation_id: &str,
-        edit: impl FnOnce(&mut ConversationFile) -> Result<()>,
-    ) -> Result<()> {
-        let _guard = self.lock()?;
-        let mut file = self.read_conversation(conversation_id)?;
-        edit(&mut file)?;
-        self.write_conversation(&file)
-    }
-
-    pub(super) fn read_conversations(&self) -> Result<Vec<ConversationFile>> {
-        let mut directories = fs::read_dir(&self.conversations_dir)?
-            .map(|entry| entry.map(|entry| entry.path()))
-            .collect::<std::io::Result<Vec<_>>>()?;
-        directories.retain(|path| path.is_dir());
-        directories.sort();
-
-        let mut files = Vec::with_capacity(directories.len());
-        for directory in directories {
-            let Some(id) = directory.file_name().and_then(|name| name.to_str()) else {
-                continue;
-            };
-            let path = directory.join(format!("{id}.json"));
-            if !path.is_file() {
-                continue;
-            }
-            let file = match read_and_migrate(&path) {
-                Ok(file) => file,
-                Err(StorageError::Parse { .. }) => continue,
-                Err(error) => return Err(error),
-            };
-            let expected_path = self.conversation_path(&file.conversation.id)?;
-            if expected_path != path {
-                return Err(StorageError::InvalidData(format!(
-                    "conversation id {} does not match file {}",
-                    file.conversation.id,
-                    path.display()
-                )));
-            }
-            files.push(file);
-        }
-        Ok(files)
-    }
-
-    fn read_conversation(&self, id: &str) -> Result<ConversationFile> {
-        let path = self.conversation_path(id)?;
-        let file = match read_and_migrate(&path) {
-            Ok(file) => file,
-            Err(StorageError::Io(error)) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Err(missing("conversation", id));
-            }
-            Err(error) => return Err(error),
-        };
-        if file.conversation.id != id {
-            return Err(StorageError::InvalidData(format!(
-                "conversation id {} does not match file {}",
-                file.conversation.id,
-                path.display()
-            )));
         }
         Ok(file)
     }
 
-    pub(super) fn write_conversation(&self, file: &ConversationFile) -> Result<()> {
+    pub fn delete_conversation(&self, id: &str) -> Result<()> {
+        let mut state = self.lock()?;
+        let sessions = self.sessions(&mut state)?;
+        sessions.get(id)?;
+        fs::remove_dir_all(self.conversation_dir(id)?)?;
+        sessions.remove(id);
+        Ok(())
+    }
+
+    pub fn clear_conversation_context(&self, conversation_id: &str) -> Result<ConversationSession> {
+        let mut state = self.lock()?;
+        let sessions = self.sessions(&mut state)?;
+        let mut file = sessions.get(conversation_id)?.clone();
+        file.clear();
+        self.commit_session(sessions, &file)?;
+        let attachments = self.conversation_dir(conversation_id)?.join("attachments");
+        match fs::remove_dir_all(attachments) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+        Ok(file)
+    }
+
+    pub(super) fn clear_conversation_models(
+        &self,
+        sessions: &mut Sessions,
+        removed_models: &[String],
+    ) -> Result<()> {
+        let affected = sessions
+            .values()
+            .filter(|file| {
+                file.conversation
+                    .model_id
+                    .as_ref()
+                    .is_some_and(|id| removed_models.contains(id))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        for mut file in affected {
+            file.conversation.model_id = None;
+            self.commit_session(sessions, &file)?;
+        }
+        Ok(())
+    }
+
+    pub fn update_session(
+        &self,
+        conversation_id: &str,
+        edit: impl FnOnce(&mut ConversationSession) -> std::result::Result<(), String>,
+    ) -> Result<ConversationSession> {
+        let mut state = self.lock()?;
+        let sessions = self.sessions(&mut state)?;
+        let mut session = sessions.get(conversation_id)?.clone();
+        edit(&mut session).map_err(StorageError::InvalidData)?;
+        self.commit_session(sessions, &session)?;
+        Ok(session)
+    }
+
+    pub fn load_conversation(&self, conversation_id: &str) -> Result<ConversationSession> {
+        let mut state = self.lock()?;
+        Ok(self.sessions(&mut state)?.get(conversation_id)?.clone())
+    }
+
+    pub(super) fn write_conversation(&self, file: &ConversationSession) -> Result<()> {
         let path = self.conversation_path(&file.conversation.id)?;
         write_json(&path, file)
     }
@@ -503,7 +346,7 @@ fn validate_component(kind: &str, value: &str) -> Result<()> {
 }
 
 fn fork_path(
-    source: &ConversationFile,
+    source: &ConversationSession,
     response_id: &str,
     conversation_id: &str,
 ) -> Result<(Vec<Turn>, Vec<RequestInfo>)> {

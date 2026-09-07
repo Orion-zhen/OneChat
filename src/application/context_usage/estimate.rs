@@ -17,21 +17,58 @@ pub fn estimate_input_tokens(
     messages: &[Message],
     audio_duration_ms: u64,
 ) -> u64 {
-    let mut characters = system_prompt.chars().count();
-    let mut image_tokens = 0_u64;
-    for message in messages {
-        let (message_characters, message_image_tokens) = estimate_message(message);
-        characters = characters.saturating_add(message_characters);
-        image_tokens = image_tokens.saturating_add(message_image_tokens);
+    InputEstimate::new(messages, audio_duration_ms).tokens(system_prompt)
+}
+
+// Combine unrounded counts so turn boundaries do not change the token estimate.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct InputEstimate {
+    characters: usize,
+    image_tokens: u64,
+    audio_duration_ms: u64,
+}
+
+impl InputEstimate {
+    pub(crate) fn new(messages: &[Message], audio_duration_ms: u64) -> Self {
+        let mut estimate = Self {
+            audio_duration_ms,
+            ..Self::default()
+        };
+        for message in messages {
+            let (characters, image_tokens) = estimate_message(message);
+            estimate.characters = estimate.characters.saturating_add(characters);
+            estimate.image_tokens = estimate.image_tokens.saturating_add(image_tokens);
+        }
+        estimate
     }
 
-    let text_tokens = characters.div_ceil(4) as u64;
-    let audio_tokens = audio_duration_ms
-        .saturating_mul(AUDIO_INPUT_TOKENS_PER_SECOND)
-        .div_ceil(1_000);
-    text_tokens
-        .saturating_add(image_tokens)
-        .saturating_add(audio_tokens)
+    pub(crate) fn combine(self, other: Self) -> Self {
+        Self {
+            characters: self.characters.saturating_add(other.characters),
+            image_tokens: self.image_tokens.saturating_add(other.image_tokens),
+            audio_duration_ms: self
+                .audio_duration_ms
+                .saturating_add(other.audio_duration_ms),
+        }
+    }
+
+    pub(crate) fn tokens(self, system_prompt: &str) -> u64 {
+        let text_tokens = self
+            .characters
+            .saturating_add(system_prompt.chars().count())
+            .div_ceil(4) as u64;
+        let audio_tokens = self
+            .audio_duration_ms
+            .saturating_mul(AUDIO_INPUT_TOKENS_PER_SECOND)
+            .div_ceil(1_000);
+        text_tokens
+            .saturating_add(self.image_tokens)
+            .saturating_add(audio_tokens)
+    }
+
+    pub(crate) fn audio_duration_ms(self) -> u64 {
+        self.audio_duration_ms
+    }
 }
 
 fn estimate_message(message: &Message) -> (usize, u64) {
@@ -116,6 +153,42 @@ mod tests {
     use rig_core::message::{ImageMediaType, UserContent};
 
     use super::*;
+
+    #[test]
+    fn grouped_estimates_round_text_and_audio_only_after_combining() {
+        let first = vec![Message::user("中"), Message::assistant("a")];
+        let second = vec![Message::user("é"), Message::assistant("bc")];
+        let combined = InputEstimate::new(&first, 33).combine(InputEstimate::new(&second, 33));
+        let messages = [first, second].concat();
+        let characters = 1 + messages
+            .iter()
+            .map(|message| serde_json::to_string(message).unwrap().chars().count())
+            .sum::<usize>();
+        let expected = characters.div_ceil(4) as u64 + (66_u64 * 32).div_ceil(1_000);
+        assert_eq!(combined.tokens("系"), expected);
+        assert_eq!(
+            combined.tokens("系"),
+            estimate_input_tokens("系", &messages, 66)
+        );
+        assert_eq!(combined.audio_duration_ms(), 66);
+    }
+
+    #[test]
+    fn grouped_estimates_preserve_image_costs() {
+        let first = vec![Message::User {
+            content: vec![UserContent::image_base64(
+                STANDARD.encode(png_header(256, 256)),
+                Some(ImageMediaType::PNG),
+                None,
+            )],
+        }];
+        let second = vec![Message::user("question"), Message::assistant("answer")];
+        let combined = InputEstimate::new(&first, 0).combine(InputEstimate::new(&second, 0));
+        assert_eq!(
+            combined.tokens("prompt"),
+            estimate_input_tokens("prompt", &[first, second].concat(), 0)
+        );
+    }
 
     #[test]
     fn image_tokens_scale_with_pixels_and_are_bounded() {

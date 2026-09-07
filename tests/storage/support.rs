@@ -13,7 +13,7 @@ pub(crate) fn open_storage() -> (TempDir, Storage) {
 pub(crate) fn catalog(storage: &Storage) -> (Provider, Model) {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
     storage.insert_provider(&provider).unwrap();
-    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let model = Model::new(&provider.id, "test-model", "Test Model", provider.kind);
     storage.insert_model(&model).unwrap();
     (provider, model)
 }
@@ -48,13 +48,17 @@ pub(crate) fn begin_and_complete(
     prepared: PreparedGeneration,
     answer: &str,
 ) -> (Turn, String) {
+    storage
+        .update_session(&prepared.request_info.conversation_id, |session| {
+            session.begin_generation(&prepared.start, &prepared.response, &prepared.request_info)
+        })
+        .unwrap();
     let GenerationStart::NewTurn(turn) = prepared.start else {
         panic!("expected a new turn");
     };
-    storage.begin_turn(&turn, &prepared.request_info).unwrap();
 
     let mut response = prepared.response;
-    response.content = answer.into();
+    response.append_output(answer, 0);
     response.status = MessageStatus::Completed;
     let mut request = prepared.request_info;
     request.status = RequestStatus::Completed;

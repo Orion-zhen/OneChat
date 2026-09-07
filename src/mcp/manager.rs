@@ -50,13 +50,7 @@ pub struct McpManager {
 struct ManagerState {
     snapshot: McpSnapshot,
     sessions: BTreeMap<String, ServerSession>,
-    tools: BTreeMap<String, ToolRoute>,
-}
-
-struct ToolRoute {
-    server_id: String,
-    tool_name: String,
-    definition: McpToolDefinition,
+    tools: BTreeMap<String, McpToolDefinition>,
 }
 
 struct ServerSession {
@@ -298,44 +292,8 @@ impl McpManager {
         snapshot
     }
 
-    pub async fn tools(&self) -> Vec<McpToolDefinition> {
-        self.state
-            .read()
-            .await
-            .tools
-            .values()
-            .filter(|route| route.definition.enabled)
-            .map(|route| route.definition.clone())
-            .collect()
-    }
-
     pub async fn all_tools(&self) -> Vec<McpToolDefinition> {
-        self.state
-            .read()
-            .await
-            .tools
-            .values()
-            .map(|route| route.definition.clone())
-            .collect()
-    }
-
-    pub async fn call_model_tool(
-        &self,
-        name: &str,
-        arguments: Map<String, Value>,
-        cancellation: CancellationToken,
-    ) -> Result<CallToolResult> {
-        let (server_id, tool_name) = self
-            .state
-            .read()
-            .await
-            .tools
-            .get(name)
-            .filter(|route| route.definition.enabled)
-            .map(|route| (route.server_id.clone(), route.tool_name.clone()))
-            .ok_or_else(|| McpError::new(format!("Unknown MCP tool: {name}")))?;
-        self.call_tool(&server_id, &tool_name, arguments, cancellation)
-            .await
+        self.state.read().await.tools.values().cloned().collect()
     }
 
     pub async fn call_tool(
@@ -372,20 +330,6 @@ impl McpManager {
                 "MCP server returned an unsupported tool response",
             )),
         }
-    }
-
-    pub async fn shutdown(&self) {
-        let sessions = {
-            let mut state = self.state.write().await;
-            for server in &mut state.snapshot.servers {
-                if server.status == McpServerStatus::Ready {
-                    server.status = McpServerStatus::Stopped;
-                }
-            }
-            state.tools.clear();
-            std::mem::take(&mut state.sessions)
-        };
-        close_sessions(sessions).await;
     }
 }
 

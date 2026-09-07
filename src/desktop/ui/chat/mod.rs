@@ -147,7 +147,7 @@ pub(crate) fn render(
     let show_assistant_opening =
         !conversation.assistant_opening.is_empty() && !editing_prompt_setup;
     let show_prompt_setup = has_prompt_setup || editing_prompt_setup;
-    let text_selection = app.chat.text_selection.clone();
+    let text_selection = app.chat.presentation.text_selection.clone();
     text_selection.begin_frame(app.chat.message_scroll.clone());
     #[cfg(target_os = "macos")]
     let selection_pressure = text_selection.clone();
@@ -233,7 +233,7 @@ pub(crate) fn render(
                     timestamp: response.created_at,
                     xray: TimelineXray::assistant(
                         &response.model_name,
-                        &response.content,
+                        &response.output_text(),
                         response.status,
                     ),
                 });

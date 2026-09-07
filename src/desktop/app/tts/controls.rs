@@ -6,6 +6,7 @@ use gpui_component::{
     slider::{SliderEvent, SliderState},
 };
 
+use super::state::TtsState;
 use crate::{
     desktop::{app::OneChat, ui::controls::sync_slider},
     speech::{AudioValidationConfig, MergeConfig, SegmentationConfig, SpeechConfig},
@@ -64,8 +65,6 @@ pub(crate) struct TtsControls {
     pub(crate) model: Entity<SelectState<Vec<TtsSelectOption>>>,
     pub(crate) voice: Entity<SelectState<Vec<TtsSelectOption>>>,
     pub(crate) tuning: TtsTuningControls,
-    synced_models: Vec<String>,
-    synced_voices: Vec<String>,
 }
 
 impl TtsControls {
@@ -174,8 +173,6 @@ impl TtsControls {
             model,
             voice,
             tuning,
-            synced_models: Vec::new(),
-            synced_voices: Vec::new(),
         }
     }
 }
@@ -201,10 +198,12 @@ impl TtsTuningControls {
     }
 }
 
-impl OneChat {
-    pub(crate) fn sync_tts_controls(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+impl TtsState {
+    pub(crate) fn sync_controls(&mut self, window: &mut Window, cx: &mut Context<OneChat>) {
+        if !std::mem::take(&mut self.controller.controls_dirty) {
+            return;
+        }
         let models = self
-            .tts
             .controller
             .discovery
             .catalog
@@ -213,27 +212,25 @@ impl OneChat {
             .map(|model| model.id.clone())
             .collect::<Vec<_>>();
         sync_select(
-            &self.tts.controls.model,
-            &mut self.tts.controls.synced_models,
+            &self.controls.model,
             models,
-            (!self.tts.controller.config.generation.model.is_empty())
-                .then(|| self.tts.controller.config.generation.model.clone()),
+            (!self.controller.config.generation.model.is_empty())
+                .then(|| self.controller.config.generation.model.clone()),
             window,
             cx,
         );
 
-        let voices = self.tts.controller.discovery.voices.clone();
+        let voices = self.controller.discovery.voices.clone();
         sync_select(
-            &self.tts.controls.voice,
-            &mut self.tts.controls.synced_voices,
+            &self.controls.voice,
             voices,
-            self.tts.controller.config.generation.voice.clone(),
+            self.controller.config.generation.voice.clone(),
             window,
             cx,
         );
 
-        let tuning = &self.tts.controls.tuning;
-        let segmentation = self.tts.controller.config.segmentation;
+        let tuning = &self.controls.tuning;
+        let segmentation = self.controller.config.segmentation;
         for (slider, value) in [
             (&tuning.min_chars, segmentation.min_chars as f32),
             (&tuning.target_chars, segmentation.target_chars as f32),
@@ -242,7 +239,7 @@ impl OneChat {
         ] {
             sync_slider(slider, value, window, cx);
         }
-        let audio = self.tts.controller.config.audio_validation;
+        let audio = self.controller.config.audio_validation;
         for (slider, value) in [
             (&tuning.min_duration, audio.min_duration_sec),
             (&tuning.min_rms, audio.min_rms),
@@ -254,12 +251,11 @@ impl OneChat {
             (&tuning.trim_keep_silence, audio.trim_keep_edge_silence_sec),
             (
                 &tuning.merge_silence,
-                self.tts.controller.config.merge.min_silence_sec,
+                self.controller.config.merge.min_silence_sec,
             ),
             (
                 &tuning.similarity,
-                self.tts
-                    .controller
+                self.controller
                     .config
                     .transcript_validation
                     .similarity_threshold,
@@ -292,30 +288,20 @@ fn slider_with_step(
 
 fn sync_select(
     state: &Entity<SelectState<Vec<TtsSelectOption>>>,
-    synced: &mut Vec<String>,
     items: Vec<String>,
     selected: Option<String>,
     window: &mut Window,
     cx: &mut Context<OneChat>,
 ) {
-    let items_changed = *synced != items;
-    if items_changed {
-        synced.clone_from(&items);
-    }
-    let selected_changed = state.read(cx).selected_value().cloned() != selected;
-    if items_changed || selected_changed {
-        state.update(cx, |select, cx| {
-            if items_changed {
-                select.set_items(
-                    items.into_iter().map(TtsSelectOption::new).collect(),
-                    window,
-                    cx,
-                );
-            }
-            match selected.as_ref() {
-                Some(selected) => select.set_selected_value(selected, window, cx),
-                None => select.set_selected_index(None, window, cx),
-            }
-        });
-    }
+    state.update(cx, |select, cx| {
+        select.set_items(
+            items.into_iter().map(TtsSelectOption::new).collect(),
+            window,
+            cx,
+        );
+        match selected.as_ref() {
+            Some(selected) => select.set_selected_value(selected, window, cx),
+            None => select.set_selected_index(None, window, cx),
+        }
+    });
 }

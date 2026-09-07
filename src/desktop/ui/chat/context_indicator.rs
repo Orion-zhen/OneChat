@@ -6,7 +6,7 @@ use gpui_component::popover::Popover;
 use super::*;
 use crate::application::context_usage::{
     ContextUsage, ContextUsageReference, ContextUsageSource, context_usage_from_input_tokens,
-    project_context_usage, provider_usage_reference,
+    project_context_usage,
 };
 
 pub(super) fn render_context_indicator(
@@ -110,8 +110,7 @@ fn current_context_usage(app: &OneChat, cx: &App) -> Option<ContextUsage> {
         .map_or(conversation.system_prompt.as_str(), |prompt| {
             prompt.resolved.as_str()
         });
-    let reference =
-        reference_request.and_then(|request| request_usage_reference(app, request, system_prompt));
+    let reference = reference_request.and_then(request_usage_reference);
 
     Some(project_context_usage(
         system_prompt,
@@ -156,58 +155,11 @@ fn running_request_input_usage(request: &RequestInfo) -> Option<(u64, ContextUsa
         })
 }
 
-fn request_usage_reference(
-    app: &OneChat,
-    request: &RequestInfo,
-    system_prompt: &str,
-) -> Option<ContextUsageReference> {
-    if let (Some(input_tokens), Some(estimated_input_tokens)) = (
-        request.last_step_input_tokens,
-        request.last_step_estimated_input_tokens,
-    ) {
-        return Some(ContextUsageReference {
-            input_tokens,
-            estimated_input_tokens,
-        });
-    }
-    if request.usage.estimated || request.tool_call_count > 0 {
-        return None;
-    }
-
-    let (turn, _) = app.response(&request.response_id)?;
-    let history_limit = request
-        .context
-        .map_or(crate::domain::HistoryLimit::Unlimited, |context| {
-            if context.history_limit == crate::domain::HistoryLimit::Unlimited
-                && !context.limited_by_context_window
-            {
-                crate::domain::HistoryLimit::Unlimited
-            } else {
-                crate::domain::HistoryLimit::Last(context.included_history_turns)
-            }
-        });
-    let mut messages = crate::application::generation::history_for_turn(
-        &app.data.snapshot.current_turns,
-        turn,
-        history_limit,
-    );
-    if let Some(opening) = request.assistant_opening.as_ref() {
-        messages.insert(
-            0,
-            crate::domain::Message::assistant(opening.resolved.clone()),
-        );
-    }
-    let audio_duration_ms = crate::application::generation::history_audio_duration_ms_for_turn(
-        &app.data.snapshot.current_turns,
-        turn,
-        history_limit,
-    );
-    provider_usage_reference(
-        request.usage.input_tokens?,
-        system_prompt,
-        &messages,
-        audio_duration_ms,
-    )
+fn request_usage_reference(request: &RequestInfo) -> Option<ContextUsageReference> {
+    Some(ContextUsageReference {
+        input_tokens: request.last_step_input_tokens?,
+        estimated_input_tokens: request.last_step_estimated_input_tokens?,
+    })
 }
 
 fn indicator_color(remaining_ratio: Option<f32>, cx: &App) -> Hsla {
@@ -554,6 +506,23 @@ mod tests {
         assert_eq!(
             running_request_input_usage(&request),
             Some((13_000, ContextUsageSource::ProviderAnchored))
+        );
+    }
+
+    #[test]
+    fn reference_uses_the_last_step_not_cumulative_usage() {
+        let mut request = RequestInfo::new("conversation", "turn", "response");
+        request.usage.input_tokens = Some(50_000);
+        assert_eq!(request_usage_reference(&request), None);
+        request.last_step_input_tokens = Some(13_000);
+        assert_eq!(request_usage_reference(&request), None);
+        request.last_step_estimated_input_tokens = Some(12_500);
+        assert_eq!(
+            request_usage_reference(&request),
+            Some(ContextUsageReference {
+                input_tokens: 13_000,
+                estimated_input_tokens: 12_500,
+            })
         );
     }
 

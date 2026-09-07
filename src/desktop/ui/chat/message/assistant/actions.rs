@@ -13,7 +13,7 @@ pub(super) fn render_message_actions(
     let editing_output = app.assistant_output_editing(message);
     let editing_any = app.active_message_editor().is_some();
     let has_info = app.request_for_response(message).is_some();
-    let has_content = !message.content.is_empty();
+    let has_content = message.has_output();
     let can_copy = has_content;
     let can_edit = has_content && !generating && (!editing_any || editing_output);
     let can_regenerate = latest
@@ -47,7 +47,7 @@ pub(super) fn render_message_actions(
         if can_copy {
             group = group.child(CopyButton::new(
                 SharedString::from(format!("copy-message-{}", message.id)),
-                message.content.clone(),
+                message.output_text(),
             ));
         }
         if can_edit {

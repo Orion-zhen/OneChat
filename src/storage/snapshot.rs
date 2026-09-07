@@ -1,82 +1,56 @@
 use std::collections::HashSet;
 
 use crate::domain::{
-    AutoTitleState, MessageStatus, RequestKind, RequestStatus, TitleModelSource,
-    ToolExecutionStatus, now_timestamp,
+    AutoTitleState, MessageStatus, RequestKind, RequestStatus, ToolExecutionStatus, now_timestamp,
 };
 
-use super::{ConversationSearchIndex, Result, Storage, StorageSnapshot};
+use super::{
+    ConversationSearchIndex, ModelCatalog, Result, Storage, StorageSnapshot, conversation::Sessions,
+};
 
 impl Storage {
-    pub(super) fn load_snapshot_locked(&self) -> Result<StorageSnapshot> {
+    pub(super) fn snapshot(&self, sessions: &Sessions) -> Result<StorageSnapshot> {
         let mut settings = self.read_settings()?;
-        let files = self.read_conversations()?;
         let prompt_presets = self.read_prompt_presets()?;
         let mut settings_changed = settings.app.normalize();
         if settings
             .app
             .current_conversation_id
             .as_ref()
-            .is_some_and(|id| !files.iter().any(|file| &file.conversation.id == id))
+            .is_some_and(|id| !sessions.contains(id))
         {
             settings.app.current_conversation_id = None;
             settings_changed = true;
         }
-        if settings
-            .app
-            .primary_model_id
-            .as_ref()
-            .is_some_and(|id| !settings.models.iter().any(|model| &model.id == id))
-        {
-            settings.app.primary_model_id = None;
-            settings_changed = true;
-        }
-        if settings
-            .app
-            .title_generation_model
-            .model_id()
-            .is_some_and(|id| !settings.models.iter().any(|model| model.id == id))
-        {
-            settings.app.title_generation_model = TitleModelSource::Current;
-            settings_changed = true;
-        }
+        settings_changed |= settings.app.retain_models(&settings.models);
         if settings_changed {
             self.write_settings(&settings)?;
         }
 
-        let (current_turns, current_requests) = settings
+        let mut current = settings
             .app
             .current_conversation_id
             .as_deref()
-            .and_then(|id| files.iter().find(|file| file.conversation.id == id))
-            .map(|file| {
-                let turns = file.turns.clone();
-                let mut requests = file.requests.clone();
-                requests.sort_by(|a, b| {
-                    b.started_at
-                        .cmp(&a.started_at)
-                        .then_with(|| b.id.cmp(&a.id))
-                });
-                (turns, requests)
-            })
-            .unwrap_or_default();
+            .and_then(|id| sessions.get(id).ok())
+            .cloned();
+        if let Some(session) = current.as_mut() {
+            session.requests.sort_by(|a, b| {
+                b.started_at
+                    .cmp(&a.started_at)
+                    .then_with(|| b.id.cmp(&a.id))
+            });
+        }
 
         let mut conversation_search = ConversationSearchIndex::default();
-        for file in &files {
+        for file in sessions.values() {
             conversation_search.insert_conversation(file.conversation.id.clone(), &file.turns);
         }
 
-        let providers = settings.providers;
-        let mut models = settings.models;
-        models.sort_by(|a, b| {
-            a.display_name
-                .to_lowercase()
-                .cmp(&b.display_name.to_lowercase())
-                .then_with(|| a.id.cmp(&b.id))
-        });
-        let mut conversations = files
-            .into_iter()
-            .map(|file| file.conversation)
+        let ModelCatalog { providers, models } =
+            ModelCatalog::new(settings.providers, settings.models);
+        let mut conversations = sessions
+            .values()
+            .map(|file| file.conversation.clone())
             .collect::<Vec<_>>();
         conversations.sort_by(|a, b| {
             b.pinned
@@ -91,14 +65,18 @@ impl Storage {
             prompt_presets,
             conversations,
             conversation_search,
-            current_turns,
-            current_requests,
+            current,
             settings: settings.app,
         })
     }
 
-    pub(super) fn recover_interrupted_locked(&self) -> Result<()> {
-        for mut file in self.read_conversations()? {
+    pub(super) fn recover_interrupted_locked(&self, sessions: &mut Sessions) -> Result<()> {
+        let ids = sessions
+            .values()
+            .map(|session| session.conversation.id.clone())
+            .collect::<Vec<_>>();
+        for id in ids {
+            let mut file = sessions.get(&id)?.clone();
             let mut changed = false;
             if file.conversation.auto_title_state == AutoTitleState::Running {
                 file.conversation.auto_title_state = AutoTitleState::Finished;
@@ -121,9 +99,7 @@ impl Storage {
                     response.status,
                     MessageStatus::Pending | MessageStatus::Streaming
                 ) {
-                    if interrupted_continuations.contains(&response.id)
-                        && !response.content.is_empty()
-                    {
+                    if interrupted_continuations.contains(&response.id) && response.has_output() {
                         response.recover_interrupted_continuation();
                     } else {
                         response.status = MessageStatus::Interrupted;
@@ -148,7 +124,7 @@ impl Storage {
                 }
             }
             if changed {
-                self.write_conversation(&file)?;
+                self.commit_session(sessions, &file)?;
             }
         }
         Ok(())

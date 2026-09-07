@@ -10,8 +10,9 @@ use super::*;
 use crate::{
     domain::AppSettings,
     speech::{
-        AudioClip, HealthInfo, ModelCatalog, SentenceSpan, SpeechBackend, SpeechPipeline,
-        SynthesisRequest, TextSegment, TextSegmenter, TranscriptionRequest, audio::encode_wav,
+        AudioClip, HealthInfo, ModelCatalog, RunSnapshot, RunStatus, SegmentStatus, SentenceSpan,
+        SpeechBackend, SpeechPipeline, SynthesisRequest, TextSegment, TextSegmenter,
+        TranscriptionRequest, audio::encode_wav,
     },
 };
 
@@ -102,6 +103,36 @@ fn a_new_controller_never_restores_playground_state() {
     assert!(fresh.run.is_none());
     assert!(fresh.discovery.catalog.tts.is_empty());
     assert!(fresh.operation.active().is_none());
+}
+
+#[test]
+fn tuning_and_discovery_invalidate_controls_but_speech_progress_does_not() {
+    let mut controller = TtsController::default();
+    assert!(!controller.controls_dirty);
+    controller.update_config(|_| {});
+    assert!(!controller.controls_dirty);
+    controller.update_config(|config| config.segmentation.min_chars = 3);
+    assert!(std::mem::take(&mut controller.controls_dirty));
+    controller.apply_speech_event(SpeechEvent::RunStarted {
+        snapshot: Box::new(snapshot()),
+    });
+    controller.apply_speech_event(SpeechEvent::SegmentChanged {
+        index: 0,
+        status: SegmentStatus::Validating,
+        attempt: 1,
+    });
+    assert!(!controller.controls_dirty);
+    controller.apply_discovery(
+        HealthInfo {
+            ready: true,
+            status: "ok".into(),
+            backend: None,
+            configured_models: Some(0),
+        },
+        ModelCatalog::default(),
+        vec!["voice".into()],
+    );
+    assert!(controller.controls_dirty);
 }
 
 #[derive(Clone)]
@@ -204,11 +235,24 @@ fn reducer_accepts_all_terminal_run_states() {
         RunStatus::Failed,
         RunStatus::Cancelled,
     ] {
-        let mut run = started_run(snapshot());
+        let mut run = SpeechRun::started(snapshot());
         run.status = status;
-        controller.apply_speech_event(SpeechEvent::RunFinished { run: Box::new(run) });
+        controller.finish_speech(Ok(run));
         assert_eq!(controller.run.as_ref().unwrap().status, status);
     }
+}
+
+#[test]
+fn preparation_failure_preserves_the_previous_run() {
+    let previous = SpeechRun::started(snapshot());
+    let mut controller = TtsController {
+        run: Some(previous.clone()),
+        ..Default::default()
+    };
+    let error = SpeechError::configuration("invalid input");
+    controller.finish_speech(Err(error.clone()));
+    assert_eq!(controller.run, Some(previous));
+    assert_eq!(controller.error, Some(error));
 }
 
 #[test]

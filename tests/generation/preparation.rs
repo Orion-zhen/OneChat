@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn generation_preparation_uses_the_selected_history_and_model_capabilities() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-    let mut model = Model::new(&provider.id, "test-model", "Test Model");
+    let mut model = Model::new(&provider.id, "test-model", "Test Model", provider.kind);
     model.capabilities.top_k = false;
     let mut conversation = Conversation::new("Chat", Some(&model), "  Be concise.  ");
     conversation.assistant_opening = "Welcome, {{owner}}.".into();
@@ -50,11 +50,11 @@ fn generation_preparation_uses_the_selected_history_and_model_capabilities() {
     assert_eq!(prepared.request_info.status, RequestStatus::Sending);
     assert!(prepared.request_info.usage.input_tokens.is_some());
     assert!(prepared.request_info.usage.estimated);
-    assert_eq!(prepared.provider_request.system_prompt, "Be concise.");
-    assert_eq!(prepared.provider_request.config.temperature, Some(0.4));
-    assert_eq!(prepared.provider_request.config.top_k, None);
+    assert_eq!(prepared.request.system_prompt, "Be concise.");
+    assert_eq!(prepared.request.config.temperature, Some(0.4));
+    assert_eq!(prepared.request.config.top_k, None);
 
-    let messages = serialized_messages(&prepared.provider_request.messages);
+    let messages = serialized_messages(&prepared.request.clone().into_request().messages);
     assert_eq!(messages.len(), 4);
     assert!(messages[0].contains("Welcome, {{owner}}."));
     assert!(messages[1].contains("first question"));
@@ -65,7 +65,7 @@ fn generation_preparation_uses_the_selected_history_and_model_capabilities() {
 #[test]
 fn continuation_ends_at_the_existing_assistant_message_without_an_instruction() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let model = Model::new(&provider.id, "test-model", "Test Model", provider.kind);
     let conversation = Conversation::new("Chat", Some(&model), "System");
     let root = completed_turn(
         &conversation,
@@ -105,23 +105,24 @@ fn continuation_ends_at_the_existing_assistant_message_without_an_instruction() 
     assert_eq!(turn_id, &turn.id);
     assert_eq!(prepared.request_info.kind, RequestKind::Continue);
     assert_eq!(prepared.response.id, response.id);
-    assert_eq!(prepared.response.content, "existing answer");
+    assert_eq!(prepared.response.output_text(), "existing answer");
     assert_eq!(
         prepared
             .continuation_baseline
             .as_ref()
-            .map(|response| response.content.as_str()),
+            .map(AssistantResponse::output_text)
+            .as_deref(),
         Some("existing answer")
     );
 
-    let messages = serialized_messages(&prepared.provider_request.messages);
+    let messages = serialized_messages(&prepared.request.clone().into_request().messages);
     assert_eq!(messages.len(), 4);
     assert!(messages[0].contains("root question"));
     assert!(messages[1].contains("root answer"));
     assert!(messages[2].contains("current question"));
     assert!(messages[3].contains("existing answer"));
     assert!(matches!(
-        prepared.provider_request.messages.last(),
+        prepared.request.clone().into_request().messages.last(),
         Some(Message::Assistant { .. })
     ));
     assert!(!messages.join("\n").contains("Continue"));
@@ -130,7 +131,7 @@ fn continuation_ends_at_the_existing_assistant_message_without_an_instruction() 
 #[tokio::test]
 async fn assistant_opening_variables_are_resolved_and_snapshotted() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let model = Model::new(&provider.id, "test-model", "Test Model", provider.kind);
     let mut conversation = Conversation::new("Chat", Some(&model), "For {{owner}}");
     conversation.assistant_opening = "Welcome, {{owner}} on {{onechat.os}}.".into();
     let mut prepared = PreparedGeneration::new(
@@ -160,8 +161,8 @@ async fn assistant_opening_variables_are_resolved_and_snapshotted() {
         .await
         .unwrap();
 
-    assert_eq!(prepared.provider_request.system_prompt, "For Orion");
-    let messages = serialized_messages(&prepared.provider_request.messages);
+    assert_eq!(prepared.request.system_prompt, "For Orion");
+    let messages = serialized_messages(&prepared.request.clone().into_request().messages);
     assert!(messages[0].contains("Welcome, Orion on"));
     assert!(messages[1].contains("Hello"));
     let opening = prepared.request_info.assistant_opening.unwrap();
@@ -173,7 +174,7 @@ async fn assistant_opening_variables_are_resolved_and_snapshotted() {
 #[test]
 fn existing_turn_preparation_preserves_start_config_context_request_and_tools() {
     let provider = Provider::new("OpenAI", ProviderKind::OpenAi);
-    let model = Model::new(&provider.id, "test-model", "Test Model");
+    let model = Model::new(&provider.id, "test-model", "Test Model", provider.kind);
     let mut conversation = Conversation::new("Chat", Some(&model), "System");
     conversation.generation_config.temperature = Some(0.2);
     conversation.generation_config.reasoning_preset = Some("original".into());
@@ -258,31 +259,24 @@ fn existing_turn_preparation_preserves_start_config_context_request_and_tools() 
         );
         assert_eq!(prepared.response.status, MessageStatus::Streaming);
         assert_eq!(prepared.tool_selection, conversation.tool_selection);
-        assert_eq!(prepared.provider_request.system_prompt, "System");
-        assert_eq!(prepared.provider_request.provider.id, provider.id);
-        assert_eq!(prepared.provider_request.model.id, model.id);
-        let messages = serialized_messages(&prepared.provider_request.messages).join("\n");
+        assert_eq!(prepared.request.system_prompt, "System");
+        assert_eq!(prepared.request.provider.id, provider.id);
+        assert_eq!(prepared.request.model.id, model.id);
+        let messages =
+            serialized_messages(&prepared.request.clone().into_request().messages).join("\n");
         assert!(messages.contains("root question"));
         assert!(messages.contains("root answer"));
         assert!(messages.contains("question"));
         assert!(!messages.contains("old target answer"));
     }
-    assert_eq!(additional.provider_request.config.temperature, Some(0.2));
+    assert_eq!(additional.request.config.temperature, Some(0.2));
     assert_eq!(
-        additional
-            .provider_request
-            .config
-            .reasoning_preset
-            .as_deref(),
+        additional.request.config.reasoning_preset.as_deref(),
         Some("original")
     );
-    assert_eq!(regenerated.provider_request.config.temperature, Some(0.2));
+    assert_eq!(regenerated.request.config.temperature, Some(0.2));
     assert_eq!(
-        regenerated
-            .provider_request
-            .config
-            .reasoning_preset
-            .as_deref(),
+        regenerated.request.config.reasoning_preset.as_deref(),
         Some("current")
     );
 }

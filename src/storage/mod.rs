@@ -1,11 +1,11 @@
 mod catalog;
 mod codec;
 mod conversation;
-mod migration;
 mod prompt;
 mod search;
 mod snapshot;
 
+pub use catalog::ModelCatalog;
 pub use search::{ConversationSearchEntry, ConversationSearchIndex, ConversationSearchSource};
 
 use std::{
@@ -63,9 +63,131 @@ pub struct StorageSnapshot {
     pub prompt_presets: Vec<PromptPreset>,
     pub conversations: Vec<Conversation>,
     pub conversation_search: ConversationSearchIndex,
-    pub current_turns: Vec<Turn>,
-    pub current_requests: Vec<RequestInfo>,
+    pub current: Option<crate::domain::ConversationSession>,
     pub settings: AppSettings,
+}
+
+impl StorageSnapshot {
+    pub fn apply_model_catalog(&mut self, catalog: ModelCatalog) {
+        let removed = self
+            .models
+            .iter()
+            .filter(|old| !catalog.models.iter().any(|model| model.id == old.id))
+            .map(|model| model.id.as_str())
+            .collect::<Vec<_>>();
+        for conversation in &mut self.conversations {
+            if conversation
+                .model_id
+                .as_deref()
+                .is_some_and(|id| removed.contains(&id))
+            {
+                conversation.model_id = None;
+            }
+        }
+        if let Some(current) = self.current.as_mut()
+            && current
+                .conversation
+                .model_id
+                .as_deref()
+                .is_some_and(|id| removed.contains(&id))
+        {
+            current.conversation.model_id = None;
+        }
+        self.settings.retain_models(&catalog.models);
+        self.providers = catalog.providers;
+        self.models = catalog.models;
+    }
+
+    pub fn update_prompt_preset(&mut self, original_name: Option<&str>, preset: PromptPreset) {
+        self.prompt_presets.retain(|stored| {
+            Some(stored.name.as_str()) != original_name && stored.name != preset.name
+        });
+        if original_name.is_some()
+            && self.settings.default_prompt_preset.as_deref() == original_name
+        {
+            self.settings.default_prompt_preset = Some(preset.name.clone());
+        }
+        self.prompt_presets.push(preset);
+        self.prompt_presets.sort_by(|a, b| {
+            a.name
+                .to_lowercase()
+                .cmp(&b.name.to_lowercase())
+                .then_with(|| a.name.cmp(&b.name))
+        });
+    }
+
+    pub fn remove_prompt_preset(&mut self, name: &str) {
+        self.prompt_presets.retain(|preset| preset.name != name);
+        if self.settings.default_prompt_preset.as_deref() == Some(name) {
+            self.settings.default_prompt_preset = None;
+        }
+    }
+
+    pub fn current_turns(&self) -> &[Turn] {
+        self.current.as_ref().map_or(&[], |session| &session.turns)
+    }
+
+    pub fn current_requests(&self) -> &[RequestInfo] {
+        self.current
+            .as_ref()
+            .map_or(&[], |session| &session.requests)
+    }
+
+    pub fn apply_conversation(
+        &mut self,
+        mut session: crate::domain::ConversationSession,
+        selected_id: Option<&str>,
+    ) {
+        self.conversation_search
+            .insert_conversation(session.conversation.id.clone(), &session.turns);
+        self.update_conversation_summary(session.conversation.clone());
+        if selected_id == Some(session.conversation.id.as_str()) {
+            session.requests.sort_by(|a, b| {
+                b.started_at
+                    .cmp(&a.started_at)
+                    .then_with(|| b.id.cmp(&a.id))
+            });
+            self.current = Some(session);
+        }
+    }
+
+    pub fn remove_conversation(&mut self, id: &str) {
+        self.conversations
+            .retain(|conversation| conversation.id != id);
+        self.conversation_search.remove_conversation(id);
+        if self
+            .current
+            .as_ref()
+            .is_some_and(|session| session.conversation.id == id)
+        {
+            self.current = None;
+        }
+    }
+
+    pub fn update_conversation_summary(&mut self, conversation: Conversation) {
+        if let Some(current) = self
+            .current
+            .as_mut()
+            .filter(|session| session.conversation.id == conversation.id)
+        {
+            current.conversation = conversation.clone();
+        }
+        if let Some(stored) = self
+            .conversations
+            .iter_mut()
+            .find(|stored| stored.id == conversation.id)
+        {
+            *stored = conversation;
+        } else {
+            self.conversations.push(conversation);
+        }
+        self.conversations.sort_by(|a, b| {
+            b.pinned
+                .cmp(&a.pinned)
+                .then_with(|| b.updated_at.cmp(&a.updated_at))
+                .then_with(|| a.id.cmp(&b.id))
+        });
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -93,7 +215,7 @@ pub struct Storage {
     window_state_path: PathBuf,
     conversations_dir: PathBuf,
     prompts_dir: PathBuf,
-    access: Mutex<()>,
+    access: Mutex<Option<conversation::Sessions>>,
 }
 
 impl Storage {
@@ -124,7 +246,7 @@ impl Storage {
             window_state_path,
             conversations_dir,
             prompts_dir,
-            access: Mutex::new(()),
+            access: Mutex::new(None),
         };
         if !storage.settings_path.exists() {
             write_json(&storage.settings_path, &SettingsFile::default())?;
@@ -165,17 +287,13 @@ impl Storage {
     }
 
     pub fn load_startup_snapshot(&self) -> Result<StorageSnapshot> {
-        let _guard = self.lock()?;
-        self.recover_interrupted_locked()?;
-        self.load_snapshot_locked()
+        let mut state = self.lock()?;
+        let sessions = self.sessions(&mut state)?;
+        self.recover_interrupted_locked(sessions)?;
+        self.snapshot(sessions)
     }
 
-    pub fn load_snapshot(&self) -> Result<StorageSnapshot> {
-        let _guard = self.lock()?;
-        self.load_snapshot_locked()
-    }
-
-    fn lock(&self) -> Result<MutexGuard<'_, ()>> {
+    fn lock(&self) -> Result<MutexGuard<'_, Option<conversation::Sessions>>> {
         self.access
             .lock()
             .map_err(|_| StorageError::InvalidData("storage lock is poisoned".into()))

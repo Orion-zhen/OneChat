@@ -109,5 +109,4 @@ async fn mcp_manager_edits_config_without_discarding_comments() {
             .servers
             .contains_key("remote")
     );
-    manager.shutdown().await;
 }

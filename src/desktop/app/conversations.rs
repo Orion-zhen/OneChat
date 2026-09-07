@@ -9,7 +9,10 @@ use gpui_component::{
 use super::{DestructiveAction, OneChat, Page, PendingFocus, RenameEditor};
 use crate::{
     desktop::ui::settings::SettingsSection,
-    domain::{AppSettings, AutoTitleState, Conversation, HistoryLimit, Theme, now_timestamp},
+    domain::{
+        AppSettings, AutoTitleState, Conversation, ConversationSession, HistoryLimit, Theme,
+        now_timestamp,
+    },
 };
 
 fn resolve_destructive_action(
@@ -90,13 +93,9 @@ impl OneChat {
         }
         let id = conversation.id.clone();
         if let Some(previous) = self.chat.transient_conversation_id.take() {
-            self.data
-                .snapshot
-                .conversations
-                .retain(|conversation| conversation.id != previous);
+            self.data.snapshot.remove_conversation(&previous);
         }
-        self.data.snapshot.current_turns.clear();
-        self.data.snapshot.current_requests.clear();
+        self.data.snapshot.current = Some(ConversationSession::new(conversation.clone()));
         self.reset_conversation_ui(cx);
         self.chat.transient_conversation_id = Some(id);
         self.data.snapshot.conversations.push(conversation);
@@ -106,7 +105,7 @@ impl OneChat {
     }
 
     pub(crate) fn toggle_temporary_chat(&mut self, cx: &mut Context<Self>) {
-        if self.is_current_generating() || !self.data.snapshot.current_turns.is_empty() {
+        if self.is_current_generating() || !self.data.snapshot.current_turns().is_empty() {
             return;
         }
         let Some(conversation) = self.current_conversation().cloned() else {
@@ -116,25 +115,19 @@ impl OneChat {
             return;
         }
         let temporary = !conversation.temporary;
-        if let Some(stored) = self
-            .data
-            .snapshot
-            .conversations
-            .iter_mut()
-            .find(|stored| stored.id == conversation.id)
-        {
-            stored.temporary = temporary;
-            stored.title = if temporary {
-                "Temporary Chat".into()
-            } else {
-                "New conversation".into()
-            };
-            stored.auto_title_state = if temporary {
-                AutoTitleState::Finished
-            } else {
-                AutoTitleState::Pending
-            };
-        }
+        let mut conversation = conversation;
+        conversation.temporary = temporary;
+        conversation.title = if temporary {
+            "Temporary Chat".into()
+        } else {
+            "New conversation".into()
+        };
+        conversation.auto_title_state = if temporary {
+            AutoTitleState::Finished
+        } else {
+            AutoTitleState::Pending
+        };
+        self.data.snapshot.update_conversation_summary(conversation);
         cx.notify();
     }
 
@@ -143,23 +136,21 @@ impl OneChat {
         conversation: Conversation,
         cx: &mut Context<Self>,
     ) {
-        let transient = self.is_transient_conversation(&conversation.id);
-        let Some(stored) = self
-            .data
-            .snapshot
-            .conversations
-            .iter_mut()
-            .find(|stored| stored.id == conversation.id)
-        else {
-            return;
-        };
-        stored.clone_from(&conversation);
+        self.apply_conversation_metadata(conversation.clone(), cx);
         cx.notify();
-        if transient {
+        if self.is_transient_conversation(&conversation.id) {
             return;
         }
-        self.mutate_and_reload(
-            move |storage| storage.update_conversation(&conversation),
+        self.spawn_storage(
+            move |storage| {
+                storage
+                    .update_session(&conversation.id, |session| {
+                        session.update_conversation(&conversation);
+                        Ok(())
+                    })
+                    .map(|session| session.conversation)
+            },
+            Self::apply_conversation_metadata,
             cx,
         );
     }
@@ -172,20 +163,23 @@ impl OneChat {
         }
         if let Some(transient_id) = self.chat.transient_conversation_id.take() {
             self.chat.generations.stop(&transient_id);
-            self.data
-                .snapshot
-                .conversations
-                .retain(|conversation| conversation.id != transient_id);
+            self.data.snapshot.remove_conversation(&transient_id);
         }
         let mut settings = self.data.snapshot.settings.clone();
-        settings.current_conversation_id = Some(id);
+        settings.current_conversation_id = Some(id.clone());
         self.data.snapshot.settings = settings.clone();
-        self.data.snapshot.current_turns.clear();
-        self.data.snapshot.current_requests.clear();
+        self.data.snapshot.current = None;
         self.set_page(Page::Chat, cx);
         self.reset_conversation_ui(cx);
         self.navigation.pending_focus = Some(PendingFocus::Composer);
-        self.mutate_and_reload(move |storage| storage.save_settings(&settings), cx);
+        self.spawn_storage(
+            move |storage| {
+                storage.save_settings(&settings)?;
+                storage.load_conversation(&id)
+            },
+            Self::apply_conversation_session,
+            cx,
+        );
     }
 
     pub(crate) fn preview_conversation_history_limit(
@@ -206,16 +200,19 @@ impl OneChat {
             return;
         }
         self.chat.history_limit_preview = preview;
+        self.chat.controls_dirty = true;
         cx.notify();
     }
 
     pub(crate) fn commit_conversation_history_limit(&mut self, value: f32, cx: &mut Context<Self>) {
         if self.is_current_generating() {
             self.chat.history_limit_preview = None;
+            self.chat.controls_dirty = true;
             cx.notify();
             return;
         }
         self.chat.history_limit_preview = None;
+        self.chat.controls_dirty = true;
         let global = self.settings().history_limit;
         let limit = HistoryLimit::from_slider_value(value);
         let Some(mut conversation) = self.current_conversation().cloned() else {
@@ -233,16 +230,6 @@ impl OneChat {
         }
         conversation.history_limit_override = history_limit_override;
         conversation.updated_at = now_timestamp();
-        if let Some(stored) = self
-            .data
-            .snapshot
-            .conversations
-            .iter_mut()
-            .find(|stored| stored.id == conversation.id)
-        {
-            *stored = conversation.clone();
-        }
-        cx.notify();
         self.save_conversation_update(conversation, cx);
     }
 
@@ -251,6 +238,7 @@ impl OneChat {
             return;
         }
         self.chat.history_limit_preview = None;
+        self.chat.controls_dirty = true;
         let Some(mut conversation) = self
             .current_conversation()
             .filter(|conversation| conversation.history_limit_override.is_some())
@@ -260,16 +248,6 @@ impl OneChat {
         };
         conversation.history_limit_override = None;
         conversation.updated_at = now_timestamp();
-        if let Some(stored) = self
-            .data
-            .snapshot
-            .conversations
-            .iter_mut()
-            .find(|stored| stored.id == conversation.id)
-        {
-            *stored = conversation.clone();
-        }
-        cx.notify();
         self.save_conversation_update(conversation, cx);
     }
 
@@ -336,7 +314,21 @@ impl OneChat {
         let id = id.to_string();
         let title = title.to_string();
         self.sidebar.rename_editor = None;
-        self.mutate_and_reload(move |storage| storage.rename_conversation(&id, &title), cx);
+        if self.is_transient_conversation(&id) {
+            self.edit_current_session(move |session| session.rename(&title), cx);
+        } else {
+            self.spawn_storage(
+                move |storage| {
+                    storage
+                        .update_session(&id, |session| session.rename(&title))
+                        .map(|session| session.conversation)
+                },
+                |this, conversation, _| {
+                    this.data.snapshot.update_conversation_summary(conversation)
+                },
+                cx,
+            );
+        }
     }
 
     pub(crate) fn toggle_pin(&mut self, id: String, cx: &mut Context<Self>) {
@@ -370,7 +362,7 @@ impl OneChat {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.chat.text_selection.clear(window, cx);
+        self.chat.presentation.text_selection.clear(window, cx);
         let title = action.title();
         let description = action.description();
         self.overlays.destructive_action = Some(action);
@@ -447,13 +439,45 @@ impl OneChat {
                 .snapshot
                 .conversations
                 .iter()
-                .find(|conversation| conversation.id != id)
+                .find(|conversation| {
+                    conversation.id != id && !self.is_transient_conversation(&conversation.id)
+                })
                 .map(|conversation| conversation.id.clone());
         }
-        self.mutate_and_reload(
+        let deleted_id = id.clone();
+        self.spawn_storage(
             move |storage| {
                 storage.delete_conversation(&id)?;
-                storage.save_settings(&settings)
+                storage.save_settings(&settings)?;
+                settings
+                    .current_conversation_id
+                    .as_deref()
+                    .map(|id| storage.load_conversation(id))
+                    .transpose()
+            },
+            move |this, next, cx| {
+                let visible = this.current_conversation_id() == Some(deleted_id.as_str());
+                if this
+                    .data
+                    .snapshot
+                    .settings
+                    .current_conversation_id
+                    .as_deref()
+                    == Some(deleted_id.as_str())
+                {
+                    this.data.snapshot.settings.current_conversation_id =
+                        next.as_ref().map(|session| session.conversation.id.clone());
+                }
+                this.data.snapshot.remove_conversation(&deleted_id);
+                this.chat.pending_title_transitions.remove(&deleted_id);
+                this.chat.title_transitions.remove(&deleted_id);
+                if visible {
+                    this.reset_conversation_ui(cx);
+                    this.navigation.pending_focus = Some(PendingFocus::Composer);
+                }
+                if visible && let Some(session) = next {
+                    this.apply_conversation_session(session, cx);
+                }
             },
             cx,
         );

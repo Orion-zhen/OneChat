@@ -122,7 +122,7 @@ impl OneChat {
         cx: &mut Context<Self>,
     ) {
         self.settings_ui.provider_drop_target = None;
-        let providers = &mut self.data.snapshot.providers;
+        let mut providers = self.data.snapshot.providers.clone();
         let Some(from) = providers
             .iter()
             .position(|provider| provider.id == provider_id)
@@ -153,7 +153,11 @@ impl OneChat {
             .iter()
             .map(|provider| provider.id.clone())
             .collect::<Vec<_>>();
-        self.mutate_and_reload(move |storage| storage.reorder_providers(&ordered_ids), cx);
+        self.spawn_storage(
+            move |storage| storage.reorder_providers(&ordered_ids),
+            Self::apply_model_catalog,
+            cx,
+        );
         cx.notify();
     }
 
@@ -178,7 +182,11 @@ impl OneChat {
         }
         provider.enabled = enabled;
         provider.updated_at = now_timestamp();
-        self.mutate_and_reload(move |storage| storage.update_provider(&provider), cx);
+        self.spawn_storage(
+            move |storage| storage.update_provider(&provider),
+            Self::apply_model_catalog,
+            cx,
+        );
     }
 
     pub(crate) fn set_provider_streaming(&mut self, streaming: bool, cx: &mut Context<Self>) {
@@ -255,17 +263,16 @@ impl OneChat {
             let result = cx
                 .background_spawn(async move {
                     if insert {
-                        storage.insert_provider(&provider)?;
+                        storage.insert_provider(&provider)
                     } else {
-                        storage.update_provider(&provider)?;
+                        storage.update_provider(&provider)
                     }
-                    storage.load_snapshot()
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 match result {
-                    Ok(snapshot) => {
-                        this.apply_snapshot(Ok(snapshot), cx);
+                    Ok(catalog) => {
+                        this.apply_model_catalog(catalog, cx);
                         this.settings_ui.pending_provider_exit = None;
                         this.settings_ui.provider_editor = None;
                         this.settings_ui.form_error = None;
@@ -310,7 +317,11 @@ impl OneChat {
             self.settings_ui.provider_editor = None;
             self.settings_ui.model_editor = None;
         }
-        self.mutate_and_reload(move |storage| storage.delete_provider(&id), cx);
+        self.spawn_storage(
+            move |storage| storage.delete_provider(&id),
+            Self::apply_model_catalog,
+            cx,
+        );
     }
 
     pub(crate) fn test_provider_editor_connection(
