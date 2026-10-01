@@ -90,20 +90,15 @@ impl WindowContent {
     }
 }
 
+// Dialog, sheet and notification layers are mounted by the window-level `Root`,
+// so the content view only renders the chat itself.
 impl Render for WindowContent {
-    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let sheet_layer = Root::render_sheet_layer(window, cx);
-        let dialog_layer = Root::render_dialog_layer(window, cx);
-        let notification_layer = Root::render_notification_layer(window, cx);
-
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .relative()
             .size_full()
             .font(ui::theme::ui_font(cx))
             .child(self.one_chat.clone())
-            .children(sheet_layer)
-            .children(dialog_layer)
-            .children(notification_layer)
     }
 }
 

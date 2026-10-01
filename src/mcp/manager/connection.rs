@@ -109,8 +109,8 @@ pub(super) async fn connect_server(
     }
 }
 
-pub(super) fn client_info() -> ClientInfo {
-    let mut client_info = ClientInfo::default();
-    client_info.client_info = Implementation::new("OneChat", env!("CARGO_PKG_VERSION"));
-    client_info
+pub(super) fn client_config() -> ClientConfig {
+    let mut config = ClientConfig::default();
+    config.client_info = Implementation::new("OneChat", env!("CARGO_PKG_VERSION"));
+    config
 }

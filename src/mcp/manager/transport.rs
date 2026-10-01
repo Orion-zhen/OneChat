@@ -16,7 +16,7 @@ pub(super) async fn start_stdio_server(
         command.current_dir(cwd);
     }
     let transport = TokioChildProcess::new(command).map_err(McpError::from_display)?;
-    let service = tokio::time::timeout(INITIALIZE_TIMEOUT, client_info().serve(transport))
+    let service = tokio::time::timeout(INITIALIZE_TIMEOUT, client_config().serve(transport))
         .await
         .map_err(|_| McpError::new("MCP server initialization timed out"))?
         .map_err(McpError::from_display)?;
@@ -53,7 +53,7 @@ pub(super) async fn start_http_server(
                 AuthClient::new(client, manager),
                 transport_config,
             );
-            tokio::time::timeout(INITIALIZE_TIMEOUT, client_info().serve(transport))
+            tokio::time::timeout(INITIALIZE_TIMEOUT, client_config().serve(transport))
                 .await
                 .map_err(|_| McpError::new("MCP server initialization timed out"))?
                 .map_err(McpError::from_display)?
@@ -77,14 +77,14 @@ pub(super) async fn start_http_server(
                 AuthClient::new(client, manager),
                 transport_config,
             );
-            tokio::time::timeout(INITIALIZE_TIMEOUT, client_info().serve(transport))
+            tokio::time::timeout(INITIALIZE_TIMEOUT, client_config().serve(transport))
                 .await
                 .map_err(|_| McpError::new("MCP server initialization timed out"))?
                 .map_err(McpError::from_display)?
         }
         None => {
             let transport = StreamableHttpClientTransport::with_client(client, transport_config);
-            tokio::time::timeout(INITIALIZE_TIMEOUT, client_info().serve(transport))
+            tokio::time::timeout(INITIALIZE_TIMEOUT, client_config().serve(transport))
                 .await
                 .map_err(|_| McpError::new("MCP server initialization timed out"))?
                 .map_err(McpError::from_display)?
@@ -142,7 +142,7 @@ pub(super) async fn oauth_manager(
 }
 
 pub(super) async fn finish_server(
-    mut service: RunningService<RoleClient, ClientInfo>,
+    mut service: RunningService<RoleClient, ClientConfig>,
     disabled_tools: &BTreeSet<String>,
 ) -> Result<(ServerSession, Vec<McpToolSnapshot>, Option<String>)> {
     let tools = match tokio::time::timeout(LIST_TOOLS_TIMEOUT, service.list_all_tools()).await {

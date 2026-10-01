@@ -9,7 +9,7 @@ use std::{
 use futures_util::future::join_all;
 use rmcp::{
     RoleClient, ServiceExt,
-    model::{CallToolRequestParams, CallToolResponse, CallToolResult, ClientInfo, Implementation},
+    model::{CallToolRequestParams, CallToolResponse, CallToolResult, ClientConfig, Implementation},
     service::{Peer, RunningService},
     transport::{
         AuthClient, AuthorizationManager, AuthorizationRequest, ClientCredentialsConfig,
@@ -54,7 +54,7 @@ struct ManagerState {
 }
 
 struct ServerSession {
-    service: RunningService<RoleClient, ClientInfo>,
+    service: RunningService<RoleClient, ClientConfig>,
     peer: Peer<RoleClient>,
 }
 
