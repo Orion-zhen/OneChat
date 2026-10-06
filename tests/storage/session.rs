@@ -171,7 +171,9 @@ fn temporary_and_persistent_sessions_share_generation_and_branch_selection() {
         onechat::domain::AssistantBlock::Output { id, .. } => id.clone(),
         _ => panic!("expected output"),
     };
-    edited.replace_editable_text(&[], &[(block_id, "edited".into())]);
+    edited
+        .replace_editable_text(&[], &[(block_id, "edited".into())])
+        .unwrap();
     memory.update_response(&branches[1], &edited).unwrap();
     storage
         .update_session(&conversation.id, |session| {

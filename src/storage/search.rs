@@ -116,7 +116,9 @@ mod tests {
         let mut index = ConversationSearchIndex::default();
         index.insert_conversation(conversation.id.clone(), std::slice::from_ref(&turn));
         let output_id = response.output_blocks().next().unwrap().0.to_string();
-        response.replace_editable_text(&[], &[(output_id, "updated".into())]);
+        response
+            .replace_editable_text(&[], &[(output_id, "updated".into())])
+            .unwrap();
         index.update_assistant_response(&conversation.id, &turn.id, &response);
         assert!(
             index

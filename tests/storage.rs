@@ -23,6 +23,8 @@ mod catalog;
 mod catalog_updates;
 #[path = "storage/conversations.rs"]
 mod conversations;
+#[path = "storage/migration.rs"]
+mod migration;
 #[path = "storage/recovery.rs"]
 mod recovery;
 #[path = "storage/response.rs"]

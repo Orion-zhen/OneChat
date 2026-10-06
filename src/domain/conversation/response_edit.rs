@@ -15,7 +15,30 @@ impl AssistantResponse {
         &mut self,
         reasoning: &[(String, String)],
         outputs: &[(String, String)],
-    ) {
+    ) -> Result<(), String> {
+        if !reasoning.is_empty() {
+            let transcript_reasoning = self
+                .blocks
+                .iter()
+                .filter_map(|block| match block {
+                    AssistantBlock::Reasoning {
+                        id,
+                        provider_id,
+                        content,
+                        ..
+                    } => {
+                        let edited = reasoning
+                            .iter()
+                            .find(|(edited_id, _)| edited_id == id)
+                            .map_or_else(|| content.clone(), |(_, edited)| normalized_edit(edited));
+                        Some((provider_id.clone(), edited))
+                    }
+                    _ => None,
+                })
+                .collect();
+            self.sync_transcript_reasoning(transcript_reasoning)?;
+        }
+
         for block in &mut self.blocks {
             match block {
                 AssistantBlock::Reasoning { id, content, .. } => {
@@ -35,21 +58,6 @@ impl AssistantResponse {
             }
         }
 
-        if !reasoning.is_empty() {
-            let transcript_reasoning = self
-                .blocks
-                .iter()
-                .filter_map(|block| match block {
-                    AssistantBlock::Reasoning {
-                        provider_id,
-                        content,
-                        ..
-                    } => Some((provider_id.clone(), content.clone())),
-                    _ => None,
-                })
-                .collect();
-            self.sync_transcript_reasoning(transcript_reasoning);
-        }
         if !outputs.is_empty() {
             self.sync_transcript_outputs();
         }
@@ -60,16 +68,20 @@ impl AssistantResponse {
             }
             AssistantBlock::ToolCall { .. } => true,
         });
+        Ok(())
     }
 
-    fn sync_transcript_reasoning(&mut self, reasoning: Vec<(Option<String>, String)>) {
+    fn sync_transcript_reasoning(
+        &mut self,
+        reasoning: Vec<(Option<String>, String)>,
+    ) -> Result<(), String> {
         let mut replacements = reasoning
             .into_iter()
             .map(|(provider_id, content)| (provider_id, content, false))
             .collect::<Vec<_>>();
         let mut transcript = Vec::with_capacity(self.transcript.len());
 
-        for message in std::mem::take(&mut self.transcript) {
+        for message in self.transcript.iter().cloned() {
             let Message::Assistant { id, content } = message else {
                 transcript.push(message);
                 continue;
@@ -116,18 +128,18 @@ impl AssistantResponse {
 
         let remaining = replacements
             .into_iter()
-            .filter_map(|(provider_id, content, used)| {
-                (!used && !content.is_empty()).then(|| {
-                    let mut reasoning = Reasoning::new(&content);
-                    reasoning.id = provider_id;
-                    AssistantContent::Reasoning(reasoning.sealed(match self.provider_kind {
-                        super::ProviderKind::Anthropic => "anthropic",
-                        super::ProviderKind::Gemini => "gemini",
-                        _ => "openai",
-                    }))
-                })
+            .filter(|(_, content, used)| !used && !content.is_empty())
+            .map(|(provider_id, content, _)| {
+                let kind = self.provider_kind.ok_or_else(|| {
+                    "Cannot create reasoning without a known provider type".to_string()
+                })?;
+                let mut reasoning = Reasoning::new(&content);
+                reasoning.id = provider_id;
+                Ok(AssistantContent::Reasoning(
+                    reasoning.sealed(kind.reasoning_issuer()),
+                ))
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, String>>()?;
         if !remaining.is_empty() {
             if let Some(Message::Assistant { content, .. }) = transcript
                 .iter_mut()
@@ -146,6 +158,7 @@ impl AssistantResponse {
             }
         }
         self.transcript = transcript;
+        Ok(())
     }
 
     fn sync_transcript_outputs(&mut self) {

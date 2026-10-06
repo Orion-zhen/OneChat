@@ -675,7 +675,11 @@ impl OneChat {
         else {
             return;
         };
-        response.replace_editable_text(&reasoning, &outputs);
+        if let Err(error) = response.replace_editable_text(&reasoning, &outputs) {
+            self.data.error = Some(error);
+            cx.notify();
+            return;
+        }
         response.updated_at = now_timestamp();
         self.chat.message_editor = None;
         self.navigation.pending_focus = Some(PendingFocus::Composer);

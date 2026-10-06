@@ -343,7 +343,8 @@ pub struct AssistantResponse {
     pub model_name: String,
     pub provider_id: String,
     pub provider_name: String,
-    pub provider_kind: ProviderKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_kind: Option<ProviderKind>,
     pub request_id: Option<String>,
     pub status: MessageStatus,
     pub blocks: Vec<AssistantBlock>,
@@ -364,7 +365,7 @@ impl AssistantResponse {
             model_name: model.display_name.clone(),
             provider_id: provider.id.clone(),
             provider_name: provider.name.clone(),
-            provider_kind: provider.kind,
+            provider_kind: Some(provider.kind),
             request_id: None,
             status: MessageStatus::Completed,
             blocks: Vec::new(),

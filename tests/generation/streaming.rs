@@ -361,10 +361,12 @@ fn editing_reasoning_updates_native_transcript_content() {
         ],
     }];
 
-    response.replace_editable_text(
-        &[("reasoning-block".into(), "edited reasoning".into())],
-        &[("output".into(), "answer".into())],
-    );
+    response
+        .replace_editable_text(
+            &[("reasoning-block".into(), "edited reasoning".into())],
+            &[("output".into(), "answer".into())],
+        )
+        .unwrap();
 
     assert_eq!(
         response.reasoning_blocks().next().unwrap().1,
@@ -431,10 +433,12 @@ fn clearing_reasoning_removes_it_from_blocks_and_native_transcript() {
         ],
     }];
 
-    response.replace_editable_text(
-        &[("reasoning".into(), "  ".into())],
-        &[("output".into(), "answer".into())],
-    );
+    response
+        .replace_editable_text(
+            &[("reasoning".into(), "  ".into())],
+            &[("output".into(), "answer".into())],
+        )
+        .unwrap();
 
     assert!(!response.has_reasoning());
     assert!(
@@ -466,10 +470,12 @@ fn editing_stopped_reasoning_without_a_final_transcript_creates_native_content()
     let reasoning_id = response.reasoning_blocks().next().unwrap().0.to_string();
     let output_id = response.output_blocks().next().unwrap().0.to_string();
 
-    response.replace_editable_text(
-        &[(reasoning_id, "edited".into())],
-        &[(output_id, "answer".into())],
-    );
+    response
+        .replace_editable_text(
+            &[(reasoning_id, "edited".into())],
+            &[(output_id, "answer".into())],
+        )
+        .unwrap();
 
     assert_eq!(response.blocks.len(), 2);
     assert_eq!(response.reasoning_blocks().next().unwrap().1, "edited");
@@ -503,13 +509,15 @@ fn editing_outputs_preserves_positions_and_serialization() {
     ];
     response.transcript = vec![Message::assistant("first"), Message::assistant("second")];
 
-    response.replace_editable_text(
-        &[],
-        &[
-            ("output-1".into(), String::new()),
-            ("output-2".into(), "revised".into()),
-        ],
-    );
+    response
+        .replace_editable_text(
+            &[],
+            &[
+                ("output-1".into(), String::new()),
+                ("output-2".into(), "revised".into()),
+            ],
+        )
+        .unwrap();
 
     assert_eq!(response.output_text(), "revised");
     assert_eq!(response.blocks.len(), 1);

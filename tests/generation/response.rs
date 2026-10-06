@@ -43,7 +43,9 @@ fn clearing_all_output_removes_context_eligibility_but_keeps_reasoning_and_tools
     response.transcript = vec![Message::assistant("answer")];
     let output = response.output_blocks().next().unwrap().0.to_string();
 
-    response.replace_editable_text(&[], &[(output, " \n\t ".into())]);
+    response
+        .replace_editable_text(&[], &[(output, " \n\t ".into())])
+        .unwrap();
 
     assert!(!response.has_output());
     assert!(!response.is_usable_as_context());
@@ -100,7 +102,7 @@ fn output_edits_leave_native_reasoning_signatures_tool_calls_and_results_unchang
         .map(|(id, text)| (id.to_string(), format!("edited {text}")))
         .collect::<Vec<_>>();
 
-    response.replace_editable_text(&[], &outputs);
+    response.replace_editable_text(&[], &outputs).unwrap();
 
     assert_eq!(
         response.transcript,
@@ -120,6 +122,37 @@ fn output_edits_leave_native_reasoning_signatures_tool_calls_and_results_unchang
     assert_eq!(
         response.output_text(),
         "edited before tooledited after tool"
+    );
+}
+
+#[test]
+fn unknown_provider_allows_output_edits_but_rejects_creating_reasoning_atomically() {
+    let mut response = response();
+    response.provider_kind = None;
+    response.append_reasoning(None, "original reasoning", 0);
+    response.append_output("original answer", 10);
+    let reasoning_id = response.reasoning_blocks().next().unwrap().0.to_string();
+    let output_id = response.output_blocks().next().unwrap().0.to_string();
+    let before = response.clone();
+
+    assert!(
+        response
+            .replace_editable_text(
+                &[(reasoning_id, "edited reasoning".into())],
+                &[(output_id.clone(), "edited answer".into())],
+            )
+            .unwrap_err()
+            .contains("provider type")
+    );
+    assert_eq!(response, before);
+
+    response
+        .replace_editable_text(&[], &[(output_id, "edited answer".into())])
+        .unwrap();
+    assert_eq!(response.output_text(), "edited answer");
+    assert_eq!(
+        response.reasoning_blocks().next().unwrap().1,
+        "original reasoning"
     );
 }
 

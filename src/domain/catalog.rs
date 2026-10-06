@@ -52,6 +52,14 @@ pub enum ProviderKind {
 }
 
 impl ProviderKind {
+    pub(crate) fn reasoning_issuer(self) -> &'static str {
+        match self {
+            Self::Anthropic => "anthropic",
+            Self::Gemini => "gemini",
+            Self::OpenAi | Self::OpenAiCompatible => "openai",
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::OpenAi => "open_ai",

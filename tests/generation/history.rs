@@ -79,10 +79,12 @@ fn edited_reasoning_is_replayed_as_native_reasoning() {
             AssistantContent::text("answer"),
         ],
     }];
-    response.replace_editable_text(
-        &[("reasoning".into(), "edited".into())],
-        &[("output".into(), "answer".into())],
-    );
+    response
+        .replace_editable_text(
+            &[("reasoning".into(), "edited".into())],
+            &[("output".into(), "answer".into())],
+        )
+        .unwrap();
 
     let history = history_for_new_turn(&[turn], HistoryLimit::Unlimited);
     let Message::Assistant { content, .. } = &history[1] else {

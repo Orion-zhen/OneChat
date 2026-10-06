@@ -14,6 +14,7 @@ use super::{Result, Storage, StorageError, codec::write_json, conflict, missing}
 
 mod attachments;
 mod generation;
+mod migration;
 mod state;
 
 pub(super) use state::Sessions;
@@ -31,7 +32,8 @@ impl Storage {
     ) -> Result<()> {
         let mut state = self.lock()?;
         let sessions = self.sessions(&mut state)?;
-        let source_json = serde_json::to_vec_pretty(sessions.get(conversation_id)?)?;
+        let source_json =
+            serde_json::to_vec_pretty(&self.session_for_use(sessions, conversation_id)?)?;
         let attachments_dir = self.conversation_dir(conversation_id)?.join("attachments");
         let attachment_files = files_below(&attachments_dir)?;
         if let Some(parent) = destination.parent() {
@@ -164,8 +166,8 @@ impl Storage {
             return Err(conflict("conversation", &conversation.id));
         }
 
-        let source = sessions.get(source_conversation_id)?;
-        let (turns, requests) = fork_path(source, response_id, &conversation.id)?;
+        let source = self.session_for_use(sessions, source_conversation_id)?;
+        let (turns, requests) = fork_path(&source, response_id, &conversation.id)?;
         let mut conversation = conversation.clone();
         conversation.auto_title_state = AutoTitleState::Finished;
         let file = ConversationSession {
@@ -244,7 +246,7 @@ impl Storage {
 
     pub fn load_conversation(&self, conversation_id: &str) -> Result<ConversationSession> {
         let mut state = self.lock()?;
-        Ok(self.sessions(&mut state)?.get(conversation_id)?.clone())
+        self.session_for_use(self.sessions(&mut state)?, conversation_id)
     }
 
     pub(super) fn write_conversation(&self, file: &ConversationSession) -> Result<()> {

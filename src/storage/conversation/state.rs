@@ -1,26 +1,36 @@
-use std::{collections::BTreeMap, fs};
+use std::{
+    collections::{BTreeMap, HashSet},
+    fs,
+};
 
+use super::migration::complete_legacy_fields;
 use crate::domain::ConversationSession;
 use crate::storage::{Result, Storage, StorageError, codec::read_jsonc, missing};
 
 #[derive(Debug, Default)]
-pub(in crate::storage) struct Sessions(BTreeMap<String, ConversationSession>);
+pub(in crate::storage) struct Sessions {
+    sessions: BTreeMap<String, ConversationSession>,
+    pending_writes: HashSet<String>,
+}
 
 impl Sessions {
     pub(in crate::storage) fn get(&self, id: &str) -> Result<&ConversationSession> {
-        self.0.get(id).ok_or_else(|| missing("conversation", id))
+        self.sessions
+            .get(id)
+            .ok_or_else(|| missing("conversation", id))
     }
 
     pub(in crate::storage) fn contains(&self, id: &str) -> bool {
-        self.0.contains_key(id)
+        self.sessions.contains_key(id)
     }
 
     pub(in crate::storage) fn values(&self) -> impl Iterator<Item = &ConversationSession> {
-        self.0.values()
+        self.sessions.values()
     }
 
     pub(super) fn remove(&mut self, id: &str) {
-        self.0.remove(id);
+        self.sessions.remove(id);
+        self.pending_writes.remove(id);
     }
 }
 
@@ -35,20 +45,35 @@ impl Storage {
         Ok(state.as_mut().expect("sessions were initialized"))
     }
 
+    pub(in crate::storage) fn session_for_use(
+        &self,
+        sessions: &mut Sessions,
+        id: &str,
+    ) -> Result<ConversationSession> {
+        let session = sessions.get(id)?.clone();
+        if sessions.pending_writes.contains(id) {
+            self.write_conversation(&session)?;
+            sessions.pending_writes.remove(id);
+        }
+        Ok(session)
+    }
+
     pub(in crate::storage) fn commit_session(
         &self,
         sessions: &mut Sessions,
         session: &ConversationSession,
     ) -> Result<()> {
         self.write_conversation(session)?;
+        sessions.pending_writes.remove(&session.conversation.id);
         sessions
-            .0
+            .sessions
             .insert(session.conversation.id.clone(), session.clone());
         Ok(())
     }
 
     pub(in crate::storage) fn read_sessions(&self) -> Result<Sessions> {
         let mut sessions = Sessions::default();
+        let providers = self.read_settings()?.providers;
         for entry in fs::read_dir(&self.conversations_dir)? {
             let directory = entry?.path();
             if !directory.is_dir() {
@@ -61,11 +86,18 @@ impl Storage {
             if !path.is_file() {
                 continue;
             }
-            let session: ConversationSession = match read_jsonc(&path) {
-                Ok(session) => session,
-                Err(StorageError::Parse { .. }) => continue,
-                Err(error) => return Err(error),
-            };
+            let mut value = read_jsonc(&path)?;
+            let changed = complete_legacy_fields(&mut value, &providers).map_err(|error| {
+                StorageError::Parse {
+                    path: path.clone(),
+                    message: error.to_string(),
+                }
+            })?;
+            let session: ConversationSession =
+                serde_json::from_value(value).map_err(|error| StorageError::Parse {
+                    path: path.clone(),
+                    message: error.to_string(),
+                })?;
             if self.conversation_path(&session.conversation.id)? != path {
                 return Err(StorageError::InvalidData(format!(
                     "conversation id {} does not match file {}",
@@ -73,7 +105,14 @@ impl Storage {
                     path.display()
                 )));
             }
-            sessions.0.insert(session.conversation.id.clone(), session);
+            if changed {
+                sessions
+                    .pending_writes
+                    .insert(session.conversation.id.clone());
+            }
+            sessions
+                .sessions
+                .insert(session.conversation.id.clone(), session);
         }
         Ok(sessions)
     }

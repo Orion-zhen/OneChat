@@ -173,7 +173,7 @@ fn response(id: &str, content: &str, model: &str, created_at: i64) -> AssistantR
         model_name: model.into(),
         provider_id: "provider".into(),
         provider_name: "Provider".into(),
-        provider_kind: crate::domain::ProviderKind::OpenAi,
+        provider_kind: Some(crate::domain::ProviderKind::OpenAi),
         request_id: None,
         status: MessageStatus::Completed,
         blocks: vec![

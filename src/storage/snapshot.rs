@@ -9,7 +9,7 @@ use super::{
 };
 
 impl Storage {
-    pub(super) fn snapshot(&self, sessions: &Sessions) -> Result<StorageSnapshot> {
+    pub(super) fn snapshot(&self, sessions: &mut Sessions) -> Result<StorageSnapshot> {
         let mut settings = self.read_settings()?;
         let prompt_presets = self.read_prompt_presets()?;
         let mut settings_changed = settings.app.normalize();
@@ -31,8 +31,8 @@ impl Storage {
             .app
             .current_conversation_id
             .as_deref()
-            .and_then(|id| sessions.get(id).ok())
-            .cloned();
+            .map(|id| self.session_for_use(sessions, id))
+            .transpose()?;
         if let Some(session) = current.as_mut() {
             session.requests.sort_by(|a, b| {
                 b.started_at

@@ -202,6 +202,10 @@ impl OneChat {
             editor.set_reasoning_preset(preset);
             self.schedule_generation_config_save(cx);
             cx.notify();
+        } else if let Some(mut conversation) = self.current_conversation().cloned() {
+            conversation.generation_config.reasoning_preset = preset;
+            conversation.updated_at = now_timestamp();
+            self.save_conversation_update(conversation, cx);
         }
     }
 
