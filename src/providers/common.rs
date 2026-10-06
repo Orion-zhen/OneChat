@@ -4,8 +4,11 @@ use async_channel::Sender;
 use futures_util::StreamExt;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use rig_core::{
-    completion::{CompletionModel, CompletionRequest, FinishReason, Message},
-    streaming::{StreamedAssistantContent, StreamingCompletionResponse},
+    completion::{AssistantContent, CompletionRequest, FinishReason, Message},
+    driver::{Model, Transport},
+    operation::Completion,
+    streaming::{CompletionStream, Item, PartKind, StreamEvent},
+    wire::Wire,
 };
 use serde::Serialize;
 use serde_json::{Map, Value, json};
@@ -153,7 +156,6 @@ pub(crate) fn sdk_request(
     };
     let sdk_request = CompletionRequest {
         model: Some(model_id.to_string()),
-        preamble: None,
         chat_history,
         documents: Vec::new(),
         tools: if capabilities.tools {
@@ -182,31 +184,29 @@ pub(crate) fn sdk_request(
     Ok(sdk_request)
 }
 
-pub(crate) async fn stream_model<M>(
-    model: M,
+pub(crate) async fn stream_model<W, T>(
+    model: Model<W, T>,
     request: CompletionRequest,
     events: &Sender<GenerationEvent>,
     cancellation: CancellationToken,
     require_usage: bool,
 ) -> Result<Message, GenerationError>
 where
-    M: CompletionModel,
+    W: Wire<Op = Completion>,
+    T: Transport<W>,
 {
     if cancellation.is_cancelled() {
         return Err(GenerationError::cancelled());
     }
-    let response = tokio::select! {
-        _ = cancellation.cancelled() => return Err(GenerationError::cancelled()),
-        response = model.stream(request) => {
-            response.map_err(|error| super::sdk_completion_error(error, false))?
-        }
-    };
+    let response = model
+        .stream(request)
+        .map_err(|error| super::sdk_completion_error(error, false))?;
 
     consume_stream(response, events, cancellation, require_usage).await
 }
 
 async fn consume_stream(
-    mut response: StreamingCompletionResponse,
+    mut response: CompletionStream,
     events: &Sender<GenerationEvent>,
     cancellation: CancellationToken,
     require_usage: bool,
@@ -224,31 +224,36 @@ async fn consume_stream(
             item = response.next() => item,
         };
         let Some(item) = item else { break };
-        match item.map_err(|error| super::sdk_completion_error(error, had_output))? {
-            StreamedAssistantContent::Text(text) if !text.text().is_empty() => {
+        let Item::Event(event) =
+            item.map_err(|error| super::sdk_completion_error(error, had_output))?
+        else {
+            continue;
+        };
+        match event {
+            StreamEvent::Text { text, .. } if !text.is_empty() => {
                 had_output = true;
                 events
-                    .send(GenerationEvent::TextDelta(text.text().to_string()))
+                    .send(GenerationEvent::TextDelta(text))
                     .await
                     .map_err(|_| GenerationError::cancelled())?;
             }
-            StreamedAssistantContent::ReasoningDelta {
-                id,
-                provider_id,
-                reasoning,
-            } if !reasoning.is_empty() => {
+            StreamEvent::Reasoning { part, text } if !text.is_empty() => {
                 had_output = true;
-                reasoning_delta_ids.insert(id);
+                reasoning_delta_ids.insert(part);
                 events
                     .send(GenerationEvent::ThinkingDelta {
-                        provider_id,
-                        delta: reasoning,
+                        provider_id: None,
+                        delta: text,
                     })
                     .await
                     .map_err(|_| GenerationError::cancelled())?;
             }
-            StreamedAssistantContent::Reasoning { reasoning, id } => {
-                if !reasoning_delta_ids.contains(&id) {
+            StreamEvent::End {
+                part,
+                content: AssistantContent::Reasoning(reasoning),
+            } => {
+                if !reasoning_delta_ids.contains(&part) {
+                    let reasoning = reasoning.open(reasoning.issuer()).expect("matching issuer");
                     let text = reasoning
                         .content
                         .iter()
@@ -264,7 +269,7 @@ async fn consume_stream(
                         had_output = true;
                         events
                             .send(GenerationEvent::ThinkingDelta {
-                                provider_id: reasoning.id,
+                                provider_id: reasoning.id.clone(),
                                 delta: text,
                             })
                             .await
@@ -272,45 +277,45 @@ async fn consume_stream(
                     }
                 }
             }
-            StreamedAssistantContent::ToolCall {
-                tool_call,
-                internal_call_id,
+            StreamEvent::End {
+                part,
+                content: AssistantContent::ToolCall(tool_call),
             } => {
                 had_output = true;
                 events
                     .send(GenerationEvent::ToolCallObserved {
-                        stream_call_id: internal_call_id,
-                        call_id: Some(tool_call.id.into_string()),
+                        stream_call_id: part.index().to_string(),
+                        call_id: Some(tool_call.id.to_string()),
                     })
                     .await
                     .map_err(|_| GenerationError::cancelled())?;
             }
-            StreamedAssistantContent::ToolCallDelta {
-                internal_call_id, ..
-            } => {
+            StreamEvent::Start {
+                part,
+                kind: PartKind::ToolCall,
+            }
+            | StreamEvent::Arguments { part, .. } => {
                 had_output = true;
                 events
                     .send(GenerationEvent::ToolCallObserved {
-                        stream_call_id: internal_call_id,
+                        stream_call_id: part.index().to_string(),
                         call_id: None,
                     })
                     .await
                     .map_err(|_| GenerationError::cancelled())?;
             }
-            StreamedAssistantContent::Text(_)
-            | StreamedAssistantContent::ReasoningDelta { .. }
-            | StreamedAssistantContent::Final(_)
-            | StreamedAssistantContent::Unknown(_) => {}
+            StreamEvent::Start { .. }
+            | StreamEvent::Text { .. }
+            | StreamEvent::Reasoning { .. }
+            | StreamEvent::End { .. } => {}
         }
     }
 
-    let Some(final_response) = response.response.as_ref() else {
-        return Err(GenerationError::new(
-            GenerationErrorKind::StreamInterrupted,
-            "Provider stream ended before completion",
-        ));
-    };
-    validate_finish_reason(final_response.finish_reason.as_ref())?;
+    let final_response = response
+        .finish()
+        .await
+        .map_err(|error| super::sdk_completion_error(error, had_output))?;
+    validate_finish_reason(final_response.finish_reason().as_ref())?;
     let usage = final_response.usage;
     let has_usage = emit_usage(usage, events).await?;
     if (require_usage || had_output) && !has_usage {
@@ -320,8 +325,8 @@ async fn consume_stream(
         ));
     }
     Ok(Message::Assistant {
-        id: response.message_id,
-        content: response.choice,
+        id: final_response.message_id,
+        content: final_response.choice,
     })
 }
 
@@ -344,13 +349,13 @@ pub(crate) async fn emit_usage(
     usage: rig_core::completion::Usage,
     events: &Sender<GenerationEvent>,
 ) -> Result<bool, GenerationError> {
-    if !usage.has_values() {
+    if !usage.is_reported() {
         return Ok(false);
     }
     events
         .send(GenerationEvent::UsageUpdated(TokenUsage {
-            input_tokens: Some(usage.input_tokens),
-            output_tokens: Some(usage.output_tokens),
+            input_tokens: usage.input_tokens,
+            output_tokens: usage.output_tokens,
             estimated: false,
         }))
         .await

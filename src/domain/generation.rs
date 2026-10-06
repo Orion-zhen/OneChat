@@ -87,12 +87,15 @@ fn strip_replayed_assistant_prefix(
                 }
             }
             AssistantContent::Reasoning(reasoning) if reasoning_prefix > 0 => {
-                let id = reasoning.id.clone();
-                let mut content = reasoning.display_text();
+                let native = reasoning.open(reasoning.issuer()).expect("matching issuer");
+                let id = native.id.clone();
+                let mut content = native.display_text();
                 if strip_prefix(&mut content, &mut reasoning_prefix) {
-                    let mut reasoning = Reasoning::new(&content);
-                    reasoning.id = id;
-                    normalized.push(AssistantContent::Reasoning(reasoning));
+                    let mut native = Reasoning::new(&content);
+                    native.id = id;
+                    normalized.push(AssistantContent::Reasoning(
+                        native.sealed(reasoning.issuer().clone()),
+                    ));
                 }
             }
             item => normalized.push(item),
@@ -109,7 +112,12 @@ fn assistant_channels<'a>(
     for item in content {
         match item {
             AssistantContent::Text(item) => text.push_str(&item.text),
-            AssistantContent::Reasoning(item) => reasoning.push_str(&item.display_text()),
+            AssistantContent::Reasoning(item) => reasoning.push_str(
+                &item
+                    .open(item.issuer())
+                    .expect("matching issuer")
+                    .display_text(),
+            ),
             _ => {}
         }
     }

@@ -1,17 +1,13 @@
 use async_channel::Sender;
-use rig_core::{
-    client::{CompletionClient, VerifyClient},
-    completion::Message,
-    providers::gemini as rig_gemini,
-};
+use rig_core::{completion::Message, providers::gemini as rig_gemini};
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
     domain::{GenerationError, GenerationErrorKind, GenerationEvent, GenerationRequest, Provider},
     providers::{
-        insert_optional, merged_additional_parameters, remove_keys, sdk_base_url, sdk_headers,
-        sdk_http_client, sdk_request, sdk_verify_error, stream_model,
+        insert_optional, merged_additional_parameters, remove_keys, sdk_base_url, sdk_request,
+        sdk_transport, sdk_verify_error, stream_model,
     },
 };
 
@@ -33,7 +29,7 @@ pub async fn stream(
 
     let client = build_client(&request.provider)?;
     let sdk_request = sdk_request(&request, additional_parameters(&request)?)?;
-    let model = client.completion_model(
+    let model = client.completion(
         sdk_request
             .model
             .clone()
@@ -124,20 +120,10 @@ fn additional_parameters(
     Ok(parameters)
 }
 
-fn build_client(provider: &Provider) -> Result<rig_gemini::Client, GenerationError> {
-    rig_gemini::Client::builder()
-        .api_key(provider.api_key.clone())
-        .base_url(sdk_base_url(provider)?)
-        .http_headers(sdk_headers(provider)?)
-        .http_client(sdk_http_client(provider)?)
-        .build()
-        .map_err(|error| {
-            GenerationError::new(
-                GenerationErrorKind::UnsupportedParameter,
-                "Invalid provider configuration",
-            )
-            .with_detail(error.to_string())
-        })
+fn build_client(provider: &Provider) -> Result<rig_gemini::Gemini, GenerationError> {
+    let mut config = rig_gemini::GeminiConfig::new(provider.api_key.clone());
+    config.base_url = sdk_base_url(provider)?;
+    Ok(config.connect(sdk_transport(provider)?))
 }
 
 #[cfg(test)]

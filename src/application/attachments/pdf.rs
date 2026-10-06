@@ -1,6 +1,9 @@
 use std::path::Path;
 
-use hayro::{RenderCache, RenderSettings, hayro_interpret::InterpreterSettings, hayro_syntax::Pdf};
+use hayro::{
+    PixmapSettings, RenderCache, RenderSettings, hayro_interpret::InterpreterSettings,
+    hayro_syntax::Pdf,
+};
 
 use crate::domain::{
     AttachmentDraft, AttachmentDraftFile, AttachmentFileKind, AttachmentKind, new_id,
@@ -35,7 +38,8 @@ pub(super) fn load(path: &Path, name: String, vision: bool) -> Result<Attachment
                 page,
                 &cache,
                 &interpreter,
-                &RenderSettings {
+                &RenderSettings::default(),
+                &PixmapSettings {
                     x_scale: scale,
                     y_scale: scale,
                     bg_color: hayro::vello_cpu::color::palette::css::WHITE,

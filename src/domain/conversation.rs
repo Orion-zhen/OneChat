@@ -3,8 +3,8 @@ use std::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    GenerationConfig, HistoryLimit, Message, Model, Provider, Timestamp, ToolExecution, new_id,
-    now_timestamp,
+    GenerationConfig, HistoryLimit, Message, Model, Provider, ProviderKind, Timestamp,
+    ToolExecution, new_id, now_timestamp,
 };
 
 mod response_edit;
@@ -343,6 +343,7 @@ pub struct AssistantResponse {
     pub model_name: String,
     pub provider_id: String,
     pub provider_name: String,
+    pub provider_kind: ProviderKind,
     pub request_id: Option<String>,
     pub status: MessageStatus,
     pub blocks: Vec<AssistantBlock>,
@@ -363,6 +364,7 @@ impl AssistantResponse {
             model_name: model.display_name.clone(),
             provider_id: provider.id.clone(),
             provider_name: provider.name.clone(),
+            provider_kind: provider.kind,
             request_id: None,
             status: MessageStatus::Completed,
             blocks: Vec::new(),

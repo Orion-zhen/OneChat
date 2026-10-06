@@ -94,14 +94,14 @@ fn continued_transcript_removes_a_replayed_assistant_prefill() {
     let existing = Message::Assistant {
         id: None,
         content: vec![
-            AssistantContent::Reasoning(Reasoning::new("old reasoning")),
+            AssistantContent::Reasoning(Reasoning::new("old reasoning").sealed("openai")),
             AssistantContent::text("old answer"),
         ],
     };
     let replayed = Message::Assistant {
         id: None,
         content: vec![
-            AssistantContent::Reasoning(Reasoning::new("old reasoning")),
+            AssistantContent::Reasoning(Reasoning::new("old reasoning").sealed("openai")),
             AssistantContent::text("old answer continued"),
         ],
     };
@@ -115,7 +115,7 @@ fn continued_transcript_removes_a_replayed_assistant_prefill() {
     assert_eq!(content.len(), 2);
     assert!(matches!(
         content.first(),
-        Some(AssistantContent::Reasoning(reasoning)) if reasoning.display_text() == "old reasoning"
+        Some(AssistantContent::Reasoning(reasoning)) if reasoning.open(reasoning.issuer()).unwrap().display_text() == "old reasoning"
     ));
     assert!(matches!(
         content.last(),
@@ -353,7 +353,9 @@ fn editing_reasoning_updates_native_transcript_content() {
         id: None,
         content: vec![
             AssistantContent::Reasoning(
-                Reasoning::new("original reasoning").with_id("reasoning-provider".into()),
+                Reasoning::new("original reasoning")
+                    .with_id("reasoning-provider".into())
+                    .sealed("openai"),
             ),
             AssistantContent::text("answer"),
         ],
@@ -379,6 +381,7 @@ fn editing_reasoning_updates_native_transcript_content() {
     let Some(AssistantContent::Reasoning(reasoning)) = content.first() else {
         panic!("edited reasoning must remain native reasoning content");
     };
+    let reasoning = reasoning.open(reasoning.issuer()).unwrap();
     assert_eq!(reasoning.id.as_deref(), Some("reasoning-provider"));
     assert!(matches!(
         reasoning.content.as_slice(),
@@ -389,8 +392,12 @@ fn editing_reasoning_updates_native_transcript_content() {
         Some(AssistantContent::Text(text)) if text.text == "answer"
     ));
 
-    let wire: Vec<rig_core::providers::openai::completion::Message> =
-        response.transcript[0].clone().try_into().unwrap();
+    let wire = rig_core::providers::openai::completion::assistant_content_to_messages(
+        content.clone(),
+        false,
+        &[rig_core::message::Issuer::from("openai")],
+    )
+    .unwrap();
     let wire = serde_json::to_value(&wire[0]).unwrap();
     assert_eq!(wire["reasoning_content"], "edited reasoning");
     assert_eq!(wire["content"][0]["text"], "answer");
@@ -419,7 +426,7 @@ fn clearing_reasoning_removes_it_from_blocks_and_native_transcript() {
     response.transcript = vec![Message::Assistant {
         id: None,
         content: vec![
-            AssistantContent::Reasoning(Reasoning::new("reasoning")),
+            AssistantContent::Reasoning(Reasoning::new("reasoning").sealed("openai")),
             AssistantContent::text("answer"),
         ],
     }];
@@ -471,7 +478,7 @@ fn editing_stopped_reasoning_without_a_final_transcript_creates_native_content()
     };
     assert!(matches!(
         content.first(),
-        Some(AssistantContent::Reasoning(reasoning)) if reasoning.display_text() == "edited"
+        Some(AssistantContent::Reasoning(reasoning)) if reasoning.open(reasoning.issuer()).unwrap().display_text() == "edited"
     ));
     assert!(matches!(
         content.get(1),

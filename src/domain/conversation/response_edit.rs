@@ -76,10 +76,14 @@ impl AssistantResponse {
             };
             let mut items = Vec::with_capacity(content.len());
             for item in content {
-                let AssistantContent::Reasoning(mut native) = item else {
+                let AssistantContent::Reasoning(sealed) = item else {
                     items.push(item);
                     continue;
                 };
+                let mut native = sealed
+                    .open(sealed.issuer())
+                    .expect("matching issuer")
+                    .clone();
                 let replacement = native
                     .id
                     .as_ref()
@@ -101,7 +105,9 @@ impl AssistantResponse {
                     text: edited.clone(),
                     signature: None,
                 }];
-                items.push(AssistantContent::Reasoning(native));
+                items.push(AssistantContent::Reasoning(
+                    native.sealed(sealed.issuer().clone()),
+                ));
             }
             if !items.is_empty() {
                 transcript.push(Message::Assistant { id, content: items });
@@ -114,7 +120,11 @@ impl AssistantResponse {
                 (!used && !content.is_empty()).then(|| {
                     let mut reasoning = Reasoning::new(&content);
                     reasoning.id = provider_id;
-                    AssistantContent::Reasoning(reasoning)
+                    AssistantContent::Reasoning(reasoning.sealed(match self.provider_kind {
+                        super::ProviderKind::Anthropic => "anthropic",
+                        super::ProviderKind::Gemini => "gemini",
+                        _ => "openai",
+                    }))
                 })
             })
             .collect::<Vec<_>>();

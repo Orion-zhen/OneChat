@@ -9,7 +9,9 @@ use std::{
 use futures_util::future::join_all;
 use rmcp::{
     RoleClient, ServiceExt,
-    model::{CallToolRequestParams, CallToolResponse, CallToolResult, ClientConfig, Implementation},
+    model::{
+        CallToolRequestParams, CallToolResponse, CallToolResult, ClientConfig, Implementation,
+    },
     service::{Peer, RunningService},
     transport::{
         AuthClient, AuthorizationManager, AuthorizationRequest, ClientCredentialsConfig,

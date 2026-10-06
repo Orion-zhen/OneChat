@@ -165,7 +165,12 @@ fn assistant_text(message: &Message) -> (String, String) {
     for item in content.iter() {
         match item {
             AssistantContent::Text(item) => text.push_str(&item.text),
-            AssistantContent::Reasoning(item) => reasoning.push_str(&item.display_text()),
+            AssistantContent::Reasoning(item) => reasoning.push_str(
+                &item
+                    .open(item.issuer())
+                    .expect("matching issuer")
+                    .display_text(),
+            ),
             _ => {}
         }
     }
@@ -181,7 +186,7 @@ mod tests {
         Message::Assistant {
             id: None,
             content: vec![
-                AssistantContent::Reasoning(Reasoning::new("old reasoning")),
+                AssistantContent::Reasoning(Reasoning::new("old reasoning").sealed("openai")),
                 AssistantContent::text("old answer"),
             ],
         }

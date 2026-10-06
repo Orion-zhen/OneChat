@@ -1,6 +1,7 @@
 mod catalog;
 mod common;
 mod error;
+mod transport;
 
 mod anthropic;
 mod gemini;
@@ -20,6 +21,7 @@ pub(crate) use common::{
     sdk_http_client, sdk_request, stream_model,
 };
 pub(crate) use error::{classify_provider_error, sdk_completion_error, sdk_verify_error};
+pub(crate) use transport::sdk_transport;
 
 pub async fn test_connection(provider: &Provider) -> Result<(), GenerationError> {
     match provider.kind {

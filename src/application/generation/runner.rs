@@ -132,13 +132,14 @@ async fn agent_loop(
                 .find(|tool| tool.name == call.function.name)
                 .cloned();
             let execution = ToolExecution::new(
-                call.id.clone(),
+                call.id.to_string(),
                 route
                     .as_ref()
                     .map_or_else(|| "unknown".to_string(), |tool| tool.server_id.clone()),
-                route
-                    .as_ref()
-                    .map_or_else(|| call.function.name.clone(), |tool| tool.tool_name.clone()),
+                route.as_ref().map_or_else(
+                    || call.function.name.to_string(),
+                    |tool| tool.tool_name.clone(),
+                ),
                 call.function.arguments.clone(),
             );
             events
@@ -241,15 +242,13 @@ async fn execute_tool(
             error
         }
     };
-    let tool_name = execution.tool_name.clone();
     let _ = events
         .send(GenerationEvent::ToolExecutionUpdated(Box::new(execution)))
         .await;
 
-    UserContent::tool_result_for(
+    UserContent::tool_result(
         call.id,
-        call.provider,
-        tool_name,
+        call.function.name,
         vec![ToolResultContent::text(model_result)],
     )
 }

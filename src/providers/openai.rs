@@ -1,24 +1,15 @@
 use async_channel::Sender;
-use rig_core::{
-    client::{CompletionClient, VerifyClient},
-    completion::Message,
-    providers::openai as rig_openai,
-};
+use rig_core::{completion::Message, providers::openai as rig_openai};
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    domain::{
-        GenerationError, GenerationErrorKind, GenerationEvent, GenerationRequest, Provider,
-        ProviderKind,
-    },
+    domain::{GenerationError, GenerationEvent, GenerationRequest, Provider, ProviderKind},
     providers::{
-        insert_optional, merged_additional_parameters, remove_keys, sdk_base_url, sdk_headers,
-        sdk_http_client, sdk_request, sdk_verify_error, stream_model,
+        insert_optional, merged_additional_parameters, remove_keys, sdk_base_url, sdk_request,
+        sdk_transport, sdk_verify_error, stream_model,
     },
 };
-
-type OpenAiClient = rig_openai::Client<reqwest::Client>;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum OpenAiApi {
@@ -62,7 +53,7 @@ pub async fn stream(
     match request_api(&request) {
         OpenAiApi::Responses => {
             stream_model(
-                client.completion_model(model_id),
+                client.responses(model_id),
                 sdk_request,
                 events,
                 cancellation,
@@ -72,7 +63,7 @@ pub async fn stream(
         }
         OpenAiApi::ChatCompletions => {
             stream_model(
-                client.completions_api().completion_model(model_id),
+                client.chat(model_id),
                 sdk_request,
                 events,
                 cancellation,
@@ -148,20 +139,10 @@ fn additional_parameters(
     Ok(parameters)
 }
 
-fn build_client(provider: &Provider) -> Result<OpenAiClient, GenerationError> {
-    rig_openai::Client::builder()
-        .api_key(provider.api_key.clone())
-        .base_url(sdk_base_url(provider)?)
-        .http_headers(sdk_headers(provider)?)
-        .http_client(sdk_http_client(provider)?)
-        .build()
-        .map_err(|error| {
-            GenerationError::new(
-                GenerationErrorKind::UnsupportedParameter,
-                "Invalid provider configuration",
-            )
-            .with_detail(error.to_string())
-        })
+fn build_client(provider: &Provider) -> Result<rig_openai::OpenAI, GenerationError> {
+    let mut config = rig_openai::OpenAIConfig::new(provider.api_key.clone());
+    config.base_url = sdk_base_url(provider)?;
+    Ok(config.connect(sdk_transport(provider)?))
 }
 
 #[cfg(test)]

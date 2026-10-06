@@ -35,7 +35,9 @@ fn provider_usage_anchors_only_the_known_request_and_estimates_the_delta() {
 fn reasoning_counts_only_when_it_is_replayed_in_the_transcript() {
     let reasoning = Message::Assistant {
         id: None,
-        content: vec![AssistantContent::Reasoning(Reasoning::new("thinking"))],
+        content: vec![AssistantContent::Reasoning(
+            Reasoning::new("thinking").sealed("openai"),
+        )],
     };
     let usage = project_context_usage("", &[reasoning], 0, None, None);
     assert!(usage.replays_reasoning);

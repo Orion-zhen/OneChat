@@ -48,6 +48,41 @@ fn pptx_loads_ordered_slides_with_structured_content_and_images() {
 }
 
 #[test]
+fn pptx_images_without_description_do_not_use_shape_names() {
+    let directory = tempdir().unwrap();
+    let path = directory.path().join("images.pptx");
+    for description in ["", r#"descr="   ""#] {
+        let slide = format!(
+            r#"<p:sld xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main"
+                      xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+                      xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+              <p:cSld><p:spTree><p:pic>
+                <p:nvPicPr><p:cNvPr id="1" name="Picture 1" {description}/></p:nvPicPr>
+                <p:blipFill><a:blip r:embed="rIdImage"/></p:blipFill>
+              </p:pic></p:spTree></p:cSld>
+            </p:sld>"#
+        );
+        let relationships = r#"<Relationship Id="rIdImage" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/image.png"/>"#;
+        fs::write(
+            &path,
+            pptx(
+                &[slide],
+                vec![relationships.into()],
+                vec![("ppt/media/image.png".into(), png_bytes())],
+            ),
+        )
+        .unwrap();
+
+        let draft = load(&path, false).unwrap();
+        let markdown = std::str::from_utf8(&draft.files[0].bytes).unwrap();
+        assert!(markdown.contains("![image](image-001.png)"), "{markdown}");
+        assert!(!markdown.contains("Picture 1"), "{markdown}");
+        assert_eq!(draft.files.len(), 2);
+        assert_eq!(draft.files[1].bytes, png_bytes());
+    }
+}
+
+#[test]
 fn pptx_preserves_chart_cache_and_speaker_notes() {
     let directory = tempdir().unwrap();
     let path = directory.path().join("analysis.pptx");

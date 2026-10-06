@@ -1,8 +1,8 @@
-use rig_core::completion::CompletionError;
+use rig_core::error::{ErrorKind, ProviderError};
 
 use crate::domain::{GenerationError, GenerationErrorKind};
 
-pub(crate) fn sdk_verify_error(error: rig_core::client::VerifyError) -> GenerationError {
+pub(crate) fn sdk_verify_error(error: ProviderError) -> GenerationError {
     if let Some(status) = error.provider_response_status() {
         return classify_provider_error(
             status,
@@ -12,10 +12,10 @@ pub(crate) fn sdk_verify_error(error: rig_core::client::VerifyError) -> Generati
     }
 
     match error {
-        rig_core::client::VerifyError::InvalidAuthentication => {
+        ProviderError::InvalidAuthentication(_) => {
             GenerationError::new(GenerationErrorKind::Authentication, "Authentication failed")
         }
-        rig_core::client::VerifyError::HttpError(_) => GenerationError::network(error),
+        ProviderError::Http(_) => GenerationError::network(error),
         _ => GenerationError::new(
             GenerationErrorKind::Unknown,
             "Provider connection test failed",
@@ -24,7 +24,7 @@ pub(crate) fn sdk_verify_error(error: rig_core::client::VerifyError) -> Generati
     }
 }
 
-pub(crate) fn sdk_completion_error(error: CompletionError, had_output: bool) -> GenerationError {
+pub(crate) fn sdk_completion_error(error: ProviderError, had_output: bool) -> GenerationError {
     if let Some(status) = error.provider_response_status() {
         return classify_provider_error(
             status,
@@ -40,23 +40,25 @@ pub(crate) fn sdk_completion_error(error: CompletionError, had_output: bool) -> 
         );
     }
 
-    match error {
-        CompletionError::RequestError(_) | CompletionError::JsonError(_) => GenerationError::new(
+    if matches!(error, ProviderError::Truncated) {
+        return GenerationError::new(
+            GenerationErrorKind::StreamInterrupted,
+            "Provider stream ended before completion",
+        );
+    }
+
+    match error.kind() {
+        ErrorKind::Request | ErrorKind::Json | ErrorKind::Url => GenerationError::new(
             GenerationErrorKind::UnsupportedParameter,
             "Invalid provider request",
         )
         .with_detail(error.to_string()),
-        CompletionError::HttpError(_) if !had_output => GenerationError::network(error),
-        CompletionError::HttpError(_) | CompletionError::ProviderError(_) if had_output => {
-            GenerationError::new(
-                GenerationErrorKind::StreamInterrupted,
-                "Provider stream was interrupted",
-            )
-            .with_detail(error.to_string())
-        }
-        CompletionError::HttpError(_) | CompletionError::ProviderError(_) => {
-            GenerationError::network(error)
-        }
+        ErrorKind::Http | ErrorKind::Provider if had_output => GenerationError::new(
+            GenerationErrorKind::StreamInterrupted,
+            "Provider stream was interrupted",
+        )
+        .with_detail(error.to_string()),
+        ErrorKind::Http | ErrorKind::Provider => GenerationError::network(error),
         _ => GenerationError::new(GenerationErrorKind::Unknown, "Provider request failed")
             .with_detail(error.to_string()),
     }

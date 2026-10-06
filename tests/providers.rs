@@ -19,12 +19,24 @@ use tokio_util::sync::CancellationToken;
 async fn server(
     responses: Vec<(&'static str, Value)>,
 ) -> (String, JoinHandle<Vec<(String, Value)>>) {
+    http_server(
+        responses
+            .into_iter()
+            .map(|(status, body)| (status, "application/json", body.to_string()))
+            .collect(),
+    )
+    .await
+}
+
+async fn http_server(
+    responses: Vec<(&'static str, &'static str, String)>,
+) -> (String, JoinHandle<Vec<(String, Value)>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let endpoint = format!("http://{}", listener.local_addr().unwrap());
     let task = tokio::spawn(async move {
         timeout(Duration::from_secs(10), async move {
             let mut requests = Vec::new();
-            for (status, response) in responses {
+            for (status, content_type, body) in responses {
                 let (mut stream, _) = listener.accept().await.unwrap();
                 let mut bytes = Vec::new();
                 let mut chunk = [0; 4096];
@@ -45,12 +57,11 @@ async fn server(
                     assert!(count > 0);
                     bytes.extend_from_slice(&chunk[..count]);
                 }
-                let body = if length == 0 { Value::Null } else {
+                let request_body = if length == 0 { Value::Null } else {
                     serde_json::from_slice(&bytes[header_end..header_end + length]).unwrap()
                 };
-                requests.push((header.lines().next().unwrap().to_string(), body));
-                let body = response.to_string();
-                let reply = format!("HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                requests.push((header, request_body));
+                let reply = format!("HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
                 stream.write_all(reply.as_bytes()).await.unwrap();
             }
             requests
@@ -164,4 +175,69 @@ async fn reasoning_groups_span_all_model_list_pages() {
         assert!(config.presets.iter().all(|preset| preset.level.is_some()));
         assert_eq!(server.await.unwrap().len(), 2);
     }
+}
+
+#[tokio::test]
+async fn chat_stream_preserves_custom_headers_reasoning_text_and_usage() {
+    use onechat::domain::{GenerationEvent, TokenUsage};
+
+    let chunks = [
+        json!({"id": "reply", "choices": [{"index": 0, "delta": {"reasoning_content": "thinking"}, "finish_reason": null}]}),
+        json!({"id": "reply", "choices": [{"index": 0, "delta": {"content": "answer"}, "finish_reason": null}]}),
+        json!({"id": "reply", "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}]}),
+        json!({"id": "reply", "choices": [], "usage": {"prompt_tokens": 10, "completion_tokens": 2, "total_tokens": 12}}),
+    ];
+    let mut body = chunks
+        .iter()
+        .map(|chunk| format!("data: {chunk}\n\n"))
+        .collect::<String>();
+    body.push_str("data: [DONE]\n\n");
+    let (endpoint, server) = http_server(vec![("200 OK", "text/event-stream", body)]).await;
+    let mut provider = Provider::new("Test", ProviderKind::OpenAiCompatible);
+    provider.endpoint = endpoint;
+    provider.api_key = "test".into();
+    provider
+        .headers
+        .insert("Authorization".into(), "Bearer custom".into());
+    provider.headers.insert("X-Custom".into(), "value".into());
+    let model = Model::new(&provider.id, "model", "Model", provider.kind);
+    let request = GenerationRequest {
+        provider,
+        model,
+        config: GenerationConfig::default(),
+        system_prompt: "System".into(),
+        messages: vec![Message::user("Hello")],
+        audio_duration_ms: 0,
+        tools: Vec::new(),
+    };
+    let (events, receiver) = async_channel::unbounded();
+
+    let message = stream_step(request, &events, CancellationToken::new())
+        .await
+        .unwrap();
+    let Message::Assistant { content, .. } = message else {
+        panic!("expected assistant");
+    };
+    assert!(content.iter().any(|item| matches!(item, rig_core::completion::AssistantContent::Text(text) if text.text == "answer")));
+    let actual = std::iter::from_fn(|| receiver.try_recv().ok()).collect::<Vec<_>>();
+    assert!(actual.contains(&GenerationEvent::ThinkingDelta {
+        provider_id: None,
+        delta: "thinking".into()
+    }));
+    assert!(actual.contains(&GenerationEvent::TextDelta("answer".into())));
+    assert!(actual.contains(&GenerationEvent::UsageUpdated(TokenUsage {
+        input_tokens: Some(10),
+        output_tokens: Some(2),
+        estimated: false
+    })));
+    let requests = server.await.unwrap();
+    let (headers, body) = &requests[0];
+    let headers = headers.to_lowercase();
+    assert!(headers.starts_with("post /chat/completions "), "{headers}");
+    assert!(
+        headers.contains("authorization: bearer custom"),
+        "{headers}"
+    );
+    assert!(headers.contains("x-custom: value"), "{headers}");
+    assert_eq!(body["messages"][0]["role"], "system");
 }

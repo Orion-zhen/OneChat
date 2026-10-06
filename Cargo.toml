@@ -57,6 +57,7 @@ lucide-icons = "*"
 mp3lame-encoder = "*"
 reqwest = { version = "*", features = ["multipart", "query", "socks"] }
 rig-core = "*"
+rig-reqwest = "*"
 rodio = { version = "*", default-features = false, features = ["mp3", "playback", "wav"] }
 rustfft = "*"
 rmcp = { version = "*", default-features = false, features = ["auth", "client", "transport-child-process", "transport-streamable-http-client-reqwest"] }

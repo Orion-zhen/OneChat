@@ -75,7 +75,7 @@ fn edited_reasoning_is_replayed_as_native_reasoning() {
     response.transcript = vec![Message::Assistant {
         id: None,
         content: vec![
-            AssistantContent::Reasoning(Reasoning::new("original")),
+            AssistantContent::Reasoning(Reasoning::new("original").sealed("openai")),
             AssistantContent::text("answer"),
         ],
     }];
@@ -91,7 +91,10 @@ fn edited_reasoning_is_replayed_as_native_reasoning() {
     let Some(AssistantContent::Reasoning(reasoning)) = content.first() else {
         panic!("edited reasoning must remain native history");
     };
-    assert_eq!(reasoning.display_text(), "edited");
+    assert_eq!(
+        reasoning.open(reasoning.issuer()).unwrap().display_text(),
+        "edited"
+    );
 }
 
 #[test]

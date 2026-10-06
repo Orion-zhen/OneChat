@@ -26,7 +26,7 @@ pub(crate) fn pptx_fixture() -> Vec<u8> {
     </a:tbl></a:graphicData></a:graphic></p:graphicFrame>
     <p:graphicFrame><a:graphic><a:graphicData><c:chart r:id="rIdChart"/></a:graphicData></a:graphic></p:graphicFrame>
     <p:pic>
-      <p:nvPicPr><p:cNvPr id="1" name="Product screenshot"/></p:nvPicPr>
+      <p:nvPicPr><p:cNvPr id="1" name="Picture 1" descr="Product screenshot"/></p:nvPicPr>
       <p:blipFill><a:blip r:embed="rIdImage"/></p:blipFill>
       <p:spPr><a:xfrm><a:ext cx="914400" cy="914400"/></a:xfrm></p:spPr>
     </p:pic>

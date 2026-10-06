@@ -68,15 +68,18 @@ fn output_edits_leave_native_reasoning_signatures_tool_calls_and_results_unchang
         text: "reasoning".into(),
         signature: Some("signature".into()),
     }];
-    let tool_call = AssistantContent::tool_call("call", "lookup", json!({"query": "test"}));
+    let tool_call = AssistantContent::tool_call(
+        "call",
+        "lookup".try_into().unwrap(),
+        json!({"query": "test"}),
+    );
     let AssistantContent::ToolCall(call) = &tool_call else {
         panic!("expected tool call");
     };
     let tool_result = Message::User {
-        content: vec![UserContent::tool_result_for(
+        content: vec![UserContent::tool_result(
             call.id.clone(),
-            call.provider.clone(),
-            "lookup",
+            "lookup".try_into().unwrap(),
             vec![ToolResultContent::text("result")],
         )],
     };
@@ -84,7 +87,7 @@ fn output_edits_leave_native_reasoning_signatures_tool_calls_and_results_unchang
         Message::Assistant {
             id: Some("native-message".into()),
             content: vec![
-                AssistantContent::Reasoning(reasoning.clone()),
+                AssistantContent::Reasoning(reasoning.clone().sealed("openai")),
                 AssistantContent::text("before tool"),
                 tool_call.clone(),
             ],
@@ -105,7 +108,7 @@ fn output_edits_leave_native_reasoning_signatures_tool_calls_and_results_unchang
             Message::Assistant {
                 id: Some("native-message".into()),
                 content: vec![
-                    AssistantContent::Reasoning(reasoning),
+                    AssistantContent::Reasoning(reasoning.sealed("openai")),
                     AssistantContent::text("edited before tool"),
                     tool_call
                 ],
